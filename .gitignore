@@ -1,0 +1,28 @@
+# Dependencies and generated application output
+node_modules/
+dist/
+out/
+release/
+coverage/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+!.env.sample
+.loom/
+
+# Local diagnostics and operating-system files
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.dmp
+.DS_Store
+Thumbs.db
+
+# Source PDFs, bibliography files, and design references remain trackable.
