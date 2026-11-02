@@ -4,15 +4,15 @@
 
 **Overall:** Product/design/architecture planning is documented. Application implementation has not started.
 
-**Current milestone:** Phase 0 — repository and implementation readiness.
+**Current milestone:** Phase 0 complete; Phase 1 — application scaffold and Prism workspace — is ready to start.
 
 ## Repository
 
 | Item | State |
 |---|---|
-| Local workspace | Git repository initialized; first documentation commit pending |
-| GitHub repository | [monabji/loom](https://github.com/monabji/loom), private; remote created and connected, initial push pending |
-| Local branch | `main`; remote default branch will be verified after the initial push |
+| Local workspace | Documentation baseline committed and pushed; implementation has not started |
+| GitHub repository | [monabji/loom](https://github.com/monabji/loom), verified private and connected as `origin` |
+| Default branch | `main`, verified locally and on GitHub; local branch tracks `origin/main` |
 | Application source | Not scaffolded |
 | Package manager/dependency versions | To be selected and pinned during Phase 1 |
 | Application install/dev/test/build commands | Not defined yet |
@@ -27,12 +27,13 @@ This file records observed progress. Use Git history and remote status for exact
 - [x] Design direction distinguishing observed reference structure from proposed Loom behavior.
 - [x] Agent instructions and technical architecture for the first desktop build.
 - [x] Dependency-ordered first-build phases covering FR-01–FR-13.
+- [x] Private GitHub repository with the initial documentation baseline pushed and verified.
 
 ## Build progress
 
 | Phase | Status | Evidence |
 |---|---|---|
-| 0 — Repository/readiness | In progress | Documents checked; private remote created and connected; initial commit/push pending |
+| 0 — Repository/readiness | Complete | Documentation checks passed; private GitHub repository/default branch verified; baseline `6831515` matched local and remote `main` |
 | 1 — Scaffold/workspace | Not started | No application package or runtime |
 | 2 — Projects/persistence | Not started | Architecture and acceptance criteria only |
 | 3 — LaTeX/PDF | Not started | Architecture and acceptance criteria only |
@@ -64,12 +65,12 @@ Decision provenance and full scope remain in [PRD.md](PRD.md), Section 1.2; this
 | Documentation whitespace check | Passed: staged documentation check has no findings |
 | Credential-pattern scan of project text | No matching credential/private-key patterns found; this is a limited text check |
 | GitHub repository creation | Verified private repository at `https://github.com/monabji/loom`; local origin connected |
-| Initial commit/push verification | Pending |
+| Initial commit/push verification | Passed: baseline `6831515ab167dff65d543688da6e40aee077927a` matched local HEAD and remote `main`; GitHub reports `main` as default and private visibility |
 | Runtime, build, native-tool, provider, and performance checks | Not run; application does not exist yet |
 
 ## Next task
 
-Finish Phase 0 verification and repository publication, then begin Phase 1: scaffold the Electron/TypeScript/electron-vite/SolidJS application, establish typed main/preload/utility-process boundaries, and implement the reference workspace shell. Select compatible dependency versions then record real project commands.
+Begin Phase 1: scaffold the Electron/TypeScript/electron-vite/SolidJS application, establish typed main/preload/utility-process boundaries, and implement the reference workspace shell. Select compatible dependency versions then record real project commands.
 
 ## Blockers and limitations
 

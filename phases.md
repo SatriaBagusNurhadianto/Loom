@@ -2,7 +2,7 @@
 
 **Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
 
-**Current state:** Planning complete; application implementation has not started. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phase 0 complete; application implementation has not started. Phase 1 is ready to begin. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 
@@ -19,9 +19,9 @@
 **Prerequisites:** PRD and visual reference available.
 
 - [x] Create and link the product, agent, architecture, design, phase, and status documents.
-- [ ] Initialize the private GitHub repository, choose `main` as its default branch, and verify the initial documentation push.
+- [x] Initialize the private GitHub repository, choose `main` as its default branch, and verify the initial documentation push.
 - [x] Confirm the first-build defaults are recorded: OpenCode first, Linux x86_64 pilot, detected TeX tools, no required Loom account.
-- [ ] Record actual repository state and the next implementation task.
+- [x] Record actual repository state and the next implementation task.
 
 **Exit:** Documentation links resolve, documents agree on scope, the remote exists with the intended visibility, and local `main` matches the pushed branch. No application completion is implied.
 

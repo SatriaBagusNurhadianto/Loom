@@ -2,7 +2,7 @@
 
 A free desktop workspace for scientific writing: edit LaTeX, inspect the PDF, work with your chosen agent harness, manage research references, and exchange revisions through Git.
 
-**Current state:** Planning and repository setup. The Electron application has not been scaffolded and there is no runnable build yet.
+**Current state:** Planning and repository setup are complete. The Electron application has not been scaffolded and there is no runnable build yet.
 
 ## Project documents
 
