@@ -295,17 +295,19 @@ export function Workspace() {
                 />
                 <IconButton
                   label={
-                    layout().tab === 'files' ? 'Add file — availability' : 'New chat — availability'
+                    layout().tab === 'files'
+                      ? 'Open or create a project'
+                      : 'New chat — availability'
                   }
                   icon="plus"
-                  onClick={() =>
-                    showUnavailable(
-                      layout().tab === 'files' ? 'File operations' : 'Agent conversations',
-                      layout().tab === 'files'
-                        ? 'File creation and project persistence arrive in Phase 2.'
-                        : 'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
-                    )
-                  }
+                  onClick={() => {
+                    if (layout().tab === 'files') setDialog('projects');
+                    else
+                      showUnavailable(
+                        'Agent conversations',
+                        'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
+                      );
+                  }}
                 />
               </div>
               <Show when={searchOpen()}>
@@ -749,6 +751,9 @@ export function Workspace() {
       </Show>
       <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
         <p>Source and assets stay in an ordinary folder. Imports create a new copy.</p>
+        <Show when={example()}>
+          <p>The workspace example is read-only. Open or create a project to edit files.</p>
+        </Show>
         <div class="project-actions">
           <button disabled={projects.pending()} onClick={() => void projects.choose('open')}>
             Open folder

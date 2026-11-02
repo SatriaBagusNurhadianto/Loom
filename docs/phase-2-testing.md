@@ -4,7 +4,7 @@ Use `npm ci`, `npm run build`, and `npm start` for the real Electron application
 
 ## Project workflow
 
-1. Choose **Open or create project → Create project**, then a new folder name. Expect an ordinary `main.tex`, an inferred root, and an editable CodeMirror surface.
+1. The built-in workspace example is read-only. Choose **Open or create project → Create project**, then a new folder name. Expect an ordinary `main.tex`, an inferred root, and an editable CodeMirror surface. In the Files sidebar, **+** opens the project picker when no project is open.
 2. Open an existing multi-file folder. Opening a clean project must not change its source/assets. Import folder and Import ZIP create a new copy; existing destinations and unsafe ZIP paths are rejected.
 3. Choose files, create `章节/结果.tex`, rename/move it to `sections/results.tex`, select it as root, and delete it. Expand **Recover deleted files** and restore it. Original binary assets remain byte-for-byte files; text editing is unavailable for them.
 4. Search for text found inside a file. Results include path, line and snippet; selecting a location opens the file at that offset. Clear returns to the full list. Up to 200 locations are shown.

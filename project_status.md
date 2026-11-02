@@ -41,6 +41,7 @@
 - Explicit overlap review retains baseline/local/disk inputs and validates the current disk fingerprint. Compatible changes merge. Reload, utility reconnect, renderer termination and reopen divergence recover before further saves.
 - Native close flushes text and working state; failed persistence keeps the window open. Renderer termination creates a replacement sandboxed window with bounded retry. File payloads load on demand; service-side indexed search returns bounded path/line/snippet/offset locations and jump navigation.
 - Preserved Prism shell, bottom-center composer, shared modal/token/notification ownership and smaller-desktop project access. PDF/assistant/later-phase controls retain honest availability states.
+- The Files sidebar **+** opens the project picker when no real project is open; the workspace example is identified as read-only instead of showing an obsolete Phase 1 file-operations notice.
 
 ## Verification evidence
 
