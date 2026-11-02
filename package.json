@@ -1,0 +1,62 @@
+{
+  "name": "loom",
+  "version": "0.1.0",
+  "description": "A local scientific writing workspace \u2014 Phase 1 foundation",
+  "author": "Loom contributors",
+  "private": true,
+  "main": "out/main/index.js",
+  "packageManager": "npm@11.19.0",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:ui": "vite --config vite.renderer.config.mts --host 127.0.0.1",
+    "start": "electron-vite preview",
+    "format": "prettier --write src tests docs *.ts *.mts *.json README.md DESIGN.md architecture.md phases.md project_status.md",
+    "format:check": "prettier --check src tests docs *.ts *.mts *.json README.md DESIGN.md architecture.md phases.md project_status.md",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run format:check && npm run typecheck && npm test && npm run build",
+    "build": "electron-vite build",
+    "package": "npm run build && electron-builder --linux dir",
+    "package:appimage": "npm run build && electron-builder --linux AppImage"
+  },
+  "dependencies": {
+    "solid-js": "1.9.18",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@swc/core": "1.16.21",
+    "@types/node": "26.6.6",
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "vite-plugin-solid": "2.11.15",
+    "vitest": "5.1.0"
+  },
+  "build": {
+    "appId": "org.loom.workspace",
+    "productName": "Loom",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "category": "Office",
+      "executableName": "loom"
+    }
+  }
+}

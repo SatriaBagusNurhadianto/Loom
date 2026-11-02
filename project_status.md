@@ -2,83 +2,77 @@
 
 **Updated:** 3 November 2026
 
-**Overall:** Product/design/architecture planning is documented. Application implementation has not started.
+**Overall:** Phase 1 application scaffold and Prism-reference workspace implemented and verified on Linux x86_64. Phase 2 has not started.
 
-**Current milestone:** Phase 0 complete; Phase 1 — application scaffold and Prism workspace — is ready to start.
+**Current milestone:** Phase 1 exit criteria passed. Independent review completed by GPT-6.1 Terra at medium effort, the user-authorized fallback. Both reported Phase 1 defects were fixed and the follow-up review found no additional actionable defects.
 
 ## Repository
 
-| Item | State |
-|---|---|
-| Local workspace | Documentation baseline committed and pushed; implementation has not started |
-| GitHub repository | [monabji/loom](https://github.com/monabji/loom), verified private and connected as `origin` |
-| Default branch | `main`, verified locally and on GitHub; local branch tracks `origin/main` |
-| Application source | Not scaffolded |
-| Package manager/dependency versions | To be selected and pinned during Phase 1 |
-| Application install/dev/test/build commands | Not defined yet |
-
-This file records observed progress. Use Git history and remote status for exact commit/push state rather than embedding self-referential commit hashes here.
-
-## Completed planning work
-
-- [x] Researcher/student pain-point investigation and source-linked opportunity brief.
-- [x] Product requirements, release scope, functional acceptance criteria, and proposed performance targets.
-- [x] Current Prism screenshot preserved as the primary interface reference.
-- [x] Design direction distinguishing observed reference structure from proposed Loom behavior.
-- [x] Agent instructions and technical architecture for the first desktop build.
-- [x] Dependency-ordered first-build phases covering FR-01–FR-13.
-- [x] Private GitHub repository with the initial documentation baseline pushed and verified.
+| Item              | State                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| Workspace         | Phase 1 changes on `codex/phase-1-workspace`; use Git for exact commit/push state       |
+| GitHub repository | Private `monabji/loom`, previously verified; `origin` configured for branch publication |
+| Application       | Electron 45.2.1, TypeScript 6.0.3, electron-vite 6.0.0, Vite 8.3.5, SolidJS 1.9.18      |
+| Dependencies      | Exact direct versions and lockfile; npm 11.19.0, tested with Node 26.7.0                |
+| Commands          | Install/dev/preview/format/typecheck/test/build/package in package.json and README.md   |
+| Linux artifact    | `release/linux-unpacked/loom`, built and launched locally; ignored generated output     |
 
 ## Build progress
 
-| Phase | Status | Evidence |
-|---|---|---|
-| 0 — Repository/readiness | Complete | Documentation checks passed; private GitHub repository/default branch verified; baseline `6831515` matched local and remote `main` |
-| 1 — Scaffold/workspace | Not started | No application package or runtime |
-| 2 — Projects/persistence | Not started | Architecture and acceptance criteria only |
-| 3 — LaTeX/PDF | Not started | Architecture and acceptance criteria only |
-| 4 — OpenCode agent | Not started | Adapter plan only; no live integration |
-| 5 — Literature/Zotero | Not started | Requirements only |
-| 6 — Scientific content/images | Not started | Requirements only |
-| 7 — Git/export workflows | Not started | Requirements only; development-repository setup is not product Git implementation |
-| 8 — Hardening/pilot | Not started | No packaged artifact or application performance measurements |
+| Phase                         | Status      | Evidence                                                                                                    |
+| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| 0 — Repository/readiness      | Complete    | Prior documentation/private remote baseline verification                                                    |
+| 1 — Scaffold/workspace        | Complete    | Source, 22 deterministic tests, 4 real Electron tests, browser preview, screenshots, unpacked package smoke |
+| 2 — Projects/persistence      | Not started | No project/editor/document persistence implementation                                                       |
+| 3 — LaTeX/PDF                 | Not started | Source and paper are explicitly read-only/static examples                                                   |
+| 4 — OpenCode agent            | Not started | No harness/model/provider calls from the product                                                            |
+| 5 — Literature/Zotero         | Not started | Requirements only                                                                                           |
+| 6 — Scientific content/images | Not started | Requirements only                                                                                           |
+| 7 — Git/export workflows      | Not started | Requirements only; development branch is not product Git implementation                                     |
+| 8 — Hardening/pilot           | Not started | No installed-package, cross-platform, full workflow or performance validation                               |
 
-## Current decisions
+## Phase 1 implementation
 
-- First product: free Electron desktop workspace for scientific LaTeX writing.
-- First harness: OpenCode; connect through the existing structured server/SDK.
-- First validated platform: Linux x86_64 pilot, recorded as an engineering default.
-- Toolchain: detect installed LaTeX tools and guide missing dependency setup.
-- Interface: supplied Prism screenshot, with the assistant composer in the center column.
-- Live text: Yjs with a versioned bridge to ordinary project files.
-- Initial collaboration: Git/GitHub; accounts and live coediting follow later.
-
-Decision provenance and full scope remain in [PRD.md](PRD.md), Section 1.2; this summary is for orientation.
+- Sandboxed Electron window with context isolation and no renderer Node integration; deny navigation, popups, webviews and permissions.
+- Named preload API: status, service restart and validated events. Strict Zod requests/results/events; exact sender/top-frame/origin/path checks in main.
+- Separate Electron utility process, correlated round trips, five-second bounds, bounded pending requests, typed operation errors, child-generation isolation and shutdown/restart recovery. No filesystem/project commands.
+- Prism-reference Files/Chats sidebar, collapsible Outline, source surface with line numbers/highlighting, center-column bottom composer, and light paper surface.
+- Empty first launch, user-triggered synthetic example, read-only/static labels and specific later-phase availability dialogs. Browser preview reports missing native service truthfully.
+- Pointer and keyboard resizing, sliders, hide/restore, Source/PDF/Split focus modes, F6 navigation, keyboard-accessible modal settings/tools and notifications. Below 1100px, explicit single-panel focus views.
+- Validated versioned layout preferences with recovery defaults and storage-error feedback. This stores presentation only; Phase 2 SQLite/Yjs/document persistence remains unimplemented.
+- Shared UI primitives and CSS tokens, global scrollbars, visible keyboard focus, reduced-motion and forced-color handling; ownership and calibrated reference choices recorded in DESIGN.md.
+- Full action/expected-output guide in `docs/phase-1-testing.md`.
 
 ## Verification evidence
 
-| Check | Result |
-|---|---|
-| PRD structure and local reference checks | Passed during PRD creation: 13 unique functional groups and existing local references |
-| DESIGN.md format check | Passed during design-reference update: zero errors/warnings; unmeasured tokens explicitly deferred |
-| New planning-document links and coverage | Passed: all local Markdown references resolve; phases cover FR-01–FR-13 |
-| Documentation whitespace check | Passed: staged documentation check has no findings |
-| Credential-pattern scan of project text | No matching credential/private-key patterns found; this is a limited text check |
-| GitHub repository creation | Verified private repository at `https://github.com/monabji/loom`; local origin connected |
-| Initial commit/push verification | Passed: baseline `6831515ab167dff65d543688da6e40aee077927a` matched local HEAD and remote `main`; GitHub reports `main` as default and private visibility |
-| Runtime, build, native-tool, provider, and performance checks | Not run; application does not exist yet |
+| Check                      | Observed result                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dependency installation    | `npm install` passed; exact compatible dependencies locked                                                                                                                                                                                                                                                                                                                 |
+| Static/build checks        | `npm run check` passed: formatting, TypeScript, 22 tests, all production bundles                                                                                                                                                                                                                                                                                           |
+| Contract/lifecycle tests   | 15 passed: strict validation, startup/ping correlation, crash/error, restart, stale messages, timeout, queue bound, spawn/send failure, terminal-child retirement, pending-timer cleanup, termination exceptions and unsubscribe                                                                                                                                           |
+| Layout tests               | 7 passed: validated round trip, invalid/version/bounds recovery, blocked/full storage and independent defaults                                                                                                                                                                                                                                                             |
+| Actual Electron acceptance | `npm run test:e2e`: 4 passed with `chromiumSandbox: true` (no `--no-sandbox`); actual isolated window/API, popup/navigation rejection, service restart/crash/SIGSTOP timeout/recovery, keyboard/saved layout and smaller views                                                                                                                                             |
+| Visual comparison          | Actual Electron screenshots at 2048×1096 and 900×700 inspected against the supplied Prism reference; composer stays in center column. Files: `artifacts/phase-1-electron-reference.png`, `phase-1-electron-small-source.png`, `phase-1-electron-small-pdf.png`                                                                                                             |
+| Browser preview            | Shared renderer exercised at reference, 1280×800 and 900×700 widths; example, tools/modal focus containment/Escape/return, focused Source/PDF, no page overflow, honest unavailable service                                                                                                                                                                                |
+| Packaging                  | `npm run package` passed; unpacked Linux executable launched with sandbox enabled, actual utility returned ready/PID/version and example displayed; `artifacts/phase-1-packaged.png`                                                                                                                                                                                       |
+| Design lint                | `designmd lint DESIGN.md`: zero errors/warnings                                                                                                                                                                                                                                                                                                                            |
+| UI audit                   | Strict skill audit: zero findings; generated JSON under ignored `artifacts/`                                                                                                                                                                                                                                                                                               |
+| Dependency audit           | Production dependencies: zero reported vulnerabilities. Full dependency tree: 15 moderate findings in electron-builder packaging dependencies, no high/critical findings; recorded in `artifacts/npm-audit*.json`                                                                                                                                                          |
+| Whitespace                 | `git diff --check` passed                                                                                                                                                                                                                                                                                                                                                  |
+| Gemini availability        | Requested Gemini 4 Argon through direct Antigravity. First direct task failed to open its provider session before starting; bounded retry rejected with `model_unavailable`: model no longer advertised by direct Antigravity. No review or low-effort setting was verified. Initial ACP attempt also failed and was superseded by the user’s direct-provider instruction. |
+| Terra review               | GPT-6.1 Terra medium independently inspected source and screenshots. Fixed broken Skip to source in PDF focus mode and retained-child transport failure. Follow-up verified both fixes and found no additional actionable defects; reviewer did not rerun the suites. See docs/phase-1-review.md.                                                                          |
+
+Generated artifacts are local evidence, ignored by Git. Tests use isolated temporary preferences and synthetic source. Fake-transport tests are separate from real Electron acceptance. The paper surface is HTML, not a compiled PDF. No external provider integration in the product is claimed.
+
+## Current decisions and limitations
+
+- Original launch decisions remain: free Electron desktop, Linux x86_64 pilot, OpenCode first, installed TeX detection later, ordinary LaTeX files, Yjs document bridge later, no required account.
+- Phase 1 alone stores presentation preferences in local storage; architecture documents this temporary exception to future SQLite metadata.
+- Reference match is calibrated, not a claim about Prism’s original fonts/CSS or undocumented menus.
+- AppImage generation/installation, Windows/macOS, TeX, OpenCode, Zotero, Git/export workflows, IME and performance targets are not verified here.
+- Packaging dependency audit findings remain; avoid describing this foundation artifact as a hardened release.
+- Gemini 4 Argon could not start through direct Antigravity and disappeared from that provider’s advertised models. The user explicitly authorized GPT-6.1 Terra medium as the fallback; that review and follow-up completed.
 
 ## Next task
 
-Begin Phase 1: scaffold the Electron/TypeScript/electron-vite/SolidJS application, establish typed main/preload/utility-process boundaries, and implement the reference workspace shell. Select compatible dependency versions then record real project commands.
-
-## Blockers and limitations
-
-- No user clarification is required to begin the first-build foundation with the defaults recorded in the PRD.
-- Harness installation/provider access, TeX tools, Zotero access, and cross-platform packaging are not yet verified for product use.
-- Expanded Prism conversations/menus are not shown in the screenshot; corresponding Loom states require design review as they are implemented.
-- Performance figures in the PRD are targets; there are no measured application results.
-
-## Update procedure
-
-After meaningful implementation, update the date, phase status, evidence table, limitations, and next task. Record checks actually run and distinguish fixture-based verification from live integrations. Mark phase checkboxes only when all required evidence exists.
+Stop at Phase 1 as requested. The user can exercise the complete Phase 1 test guide. Begin Phase 2 only after separate user authorization.

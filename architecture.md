@@ -1,6 +1,6 @@
 # Loom architecture
 
-**Status:** Planned architecture for the first desktop build; no runtime modules exist yet.
+**Status:** Phase 1 desktop shell and process foundation implemented. Document, build, agent, research, and Git services below remain planned.
 
 **Product authority:** [PRD.md](PRD.md). **Visual authority:** [DESIGN.md](DESIGN.md). **Build sequence:** [phases.md](phases.md). **Actual implementation state:** [project_status.md](project_status.md).
 
@@ -12,24 +12,24 @@ The first validated target is a Linux x86_64 pilot. Process contracts and applic
 
 ## 2. Stack and responsibilities
 
-| Layer | Working choice | Ownership |
-|---|---|---|
-| Desktop shell | Electron | Windows, lifecycle, native dialogs, protected native entry points |
-| Application language | TypeScript | Shared contracts, adapters, application services |
-| Development/build | electron-vite | Main, preload, renderer, worker bundles |
-| UI | SolidJS | Workspace controls and presentation state |
-| Editing | CodeMirror 6 | Editing transactions, selections, decorations, editor integration |
-| Live text | Yjs and CodeMirror binding | One logical document state, ready for later network providers |
-| PDF | PDF.js and its worker | PDF processing, page rendering, selection and navigation |
-| Native services | Node.js in an Electron utility process | Project services, persistence coordination, agent/build/Git subprocess management |
-| LaTeX language service | TexLab over LSP | Supported completion, diagnostics and structural navigation |
-| Compilation | latexmk and installed TeX engines/BibTeX/Biber | Native project compilation |
-| Persistence | IndexedDB and SQLite | Durable Yjs updates; application metadata, manifests, derived indexes |
-| Search and VCS | ripgrep and native Git | Filesystem search and repository operations |
-| Agent | OpenCode local server and TypeScript SDK | Initial harness integration |
-| Packaging | electron-builder | Installable desktop artifact |
+| Layer                  | Working choice                                 | Ownership                                                                         |
+| ---------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------- |
+| Desktop shell          | Electron                                       | Windows, lifecycle, native dialogs, protected native entry points                 |
+| Application language   | TypeScript                                     | Shared contracts, adapters, application services                                  |
+| Development/build      | electron-vite                                  | Main, preload, renderer, worker bundles                                           |
+| UI                     | SolidJS                                        | Workspace controls and presentation state                                         |
+| Editing                | CodeMirror 6                                   | Editing transactions, selections, decorations, editor integration                 |
+| Live text              | Yjs and CodeMirror binding                     | One logical document state, ready for later network providers                     |
+| PDF                    | PDF.js and its worker                          | PDF processing, page rendering, selection and navigation                          |
+| Native services        | Node.js in an Electron utility process         | Project services, persistence coordination, agent/build/Git subprocess management |
+| LaTeX language service | TexLab over LSP                                | Supported completion, diagnostics and structural navigation                       |
+| Compilation            | latexmk and installed TeX engines/BibTeX/Biber | Native project compilation                                                        |
+| Persistence            | IndexedDB and SQLite                           | Durable Yjs updates; application metadata, manifests, derived indexes             |
+| Search and VCS         | ripgrep and native Git                         | Filesystem search and repository operations                                       |
+| Agent                  | OpenCode local server and TypeScript SDK       | Initial harness integration                                                       |
+| Packaging              | electron-builder                               | Installable desktop artifact                                                      |
 
-Choose and pin actual dependency versions during scaffolding after checking compatibility. This document does not claim that a dependency set has been installed or tested.
+Exact dependencies are pinned in `package.json` and `package-lock.json`; the package manager is npm 11.19.0. Phase 1 uses Electron 45.2.1, electron-vite 6.0.0, SolidJS 1.9.18 and TypeScript 6.0.3. Other rows remain later-phase choices, not installed integrations.
 
 ## 3. Process model
 
@@ -67,7 +67,7 @@ Use command/result IPC for bounded operations and message channels for document 
 
 ## 4. Module layout
 
-The following is a proposed scaffolding layout, not an inventory of existing files. A single application package is sufficient initially.
+The following is the intended full module layout. Phase 1 creates only main, preload, contracts, utility services, renderer workspace/UI, and their tests; later directories remain planned. A single application package is sufficient initially.
 
 ```text
 src/
@@ -136,17 +136,17 @@ Undo, agent change-set revert, and Git history have separate owners. Preserve un
 
 ## 6. Persistence and data ownership
 
-| Data | Storage/authority | Notes |
-|---|---|---|
-| Manuscript source and assets | Ordinary project folder | Portable representation used by external tools |
-| Live recoverable text | Yjs updates persisted with IndexedDB | Stable local identity and flush/recovery semantics |
-| Project manifest, preferences, build/session references | SQLite in application data | Device paths and transient state stay outside source exports |
-| Bibliography content | Project `.bib` files | Parsed indexes are derived and rebuildable |
-| Agent conversation | Harness session plus Loom presentation references | Choose a documented owner for cached messages; avoid divergent session histories |
-| Change baselines/recovery checkpoints | Protected application data | Keep until review/recovery no longer depends on them |
-| PDF/log/mapping output | Revision-associated build directory | Bounded cache; retain last successful build as needed |
-| Harness/provider credentials | Harness-supported protected storage | Never include in manuscript exports or Git |
-| Git history/index/worktree | Native Git | Loom displays and coordinates it |
+| Data                                                    | Storage/authority                                 | Notes                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Manuscript source and assets                            | Ordinary project folder                           | Portable representation used by external tools                                   |
+| Live recoverable text                                   | Yjs updates persisted with IndexedDB              | Stable local identity and flush/recovery semantics                               |
+| Project manifest, preferences, build/session references | SQLite in application data                        | Device paths and transient state stay outside source exports                     |
+| Bibliography content                                    | Project `.bib` files                              | Parsed indexes are derived and rebuildable                                       |
+| Agent conversation                                      | Harness session plus Loom presentation references | Choose a documented owner for cached messages; avoid divergent session histories |
+| Change baselines/recovery checkpoints                   | Protected application data                        | Keep until review/recovery no longer depends on them                             |
+| PDF/log/mapping output                                  | Revision-associated build directory               | Bounded cache; retain last successful build as needed                            |
+| Harness/provider credentials                            | Harness-supported protected storage               | Never include in manuscript exports or Git                                       |
+| Git history/index/worktree                              | Native Git                                        | Loom displays and coordinates it                                                 |
 
 Persist schema versions and migration state. Define cleanup so it cannot delete required recovery content or active build mappings. Persistent project configuration may be exported deliberately; absolute executables, secrets, private chats, and caches are excluded by default.
 
@@ -228,3 +228,13 @@ Use the workload and targets in PRD Section 10 as the performance authority. Kee
 Provide interfaces for document providers, storage, identity, harnesses, literature providers, and local/remote commands where the product needs those seams. Keep Yjs network transport separable from editor bindings. The initial app has no cloud authentication, synchronization server, PostgreSQL deployment, Redis deployment, or hosted workers.
 
 Future cloud architecture is described in PRD Section 9. Introducing it requires explicit authorization, permissions on live connections, durable sync acknowledgment, binary asset handling, and tests of agent/Git/remote-edit concurrency. It is outside [the first-build phases](phases.md).
+
+## 13. Phase 1 implemented contracts
+
+`src/contracts/desktop.ts` owns strict Zod request/result/event schemas. The sandboxed preload exposes only `getStatus`, `restartService`, and `onServiceEvent`; neither raw IPC nor Node/native modules are available in the renderer. Main validates the originating window, top frame, exact renderer origin/path, and empty request schema. Preload validates result/event payloads. Navigation, new windows, webviews, and permissions are denied.
+
+Main creates one `ServiceController` and forks `out/main/service.cjs` with Electron’s utility-process API. The service only responds to typed, correlated pings. Startup and round trips are bounded to five seconds, pending checks to 32; generation IDs ignore retired-child messages. Exit, malformed response, failed transport, and timeout produce typed operation failures. Restart closes the owned child before starting another, and app exit stops it. There are no project paths or arbitrary subprocess commands in this phase. Tests distinguish fake-transport lifecycle coverage from real Electron service checks.
+
+Phase 1 presentation preferences (panel widths/visibility, focus mode, sidebar selection, outline expansion) are an explicit temporary exception to planned SQLite metadata storage: they use the renderer’s versioned `loom.workspace-layout.v1` local-storage record, with strict validation/default recovery and storage-failure feedback. No text, project, account, credential, or chat data is stored. Phase 2 may migrate these preferences when SQLite is introduced; Phase 1 does not introduce document persistence.
+
+Browser preview loads the same renderer and reports the absent desktop bridge honestly. It never simulates service readiness. The sample LaTeX is transient read-only source, and the paper is HTML used solely for reference layout comparison. It is not CodeMirror, Yjs, PDF.js, or a compiled artifact.

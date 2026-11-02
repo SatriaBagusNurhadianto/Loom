@@ -1,0 +1,8 @@
+node_modules
+out
+release
+package-lock.json
+design/references
+test-results
+playwright-report
+artifacts
