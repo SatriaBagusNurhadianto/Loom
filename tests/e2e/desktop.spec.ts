@@ -279,6 +279,8 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.keyboard.press('Control+s');
   await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('% Human addition');
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
+  await dimensions(1440, 960);
+  await page.keyboard.press('Control+Alt+3');
   await page.getByRole('button', { name: 'references.bib', exact: true }).click();
   await expect(editor).toContainText('@article');
   await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
@@ -291,6 +293,7 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.keyboard.press('Control+z');
   await expect(editor).toContainText('External text.');
   await expect(editor).not.toContainText('% Human addition');
+  await editor.focus();
   await page.keyboard.press('Control+Shift+z');
   await expect(editor).toContainText('% Human addition');
   await page.keyboard.press('Control+s');
@@ -340,6 +343,8 @@ test('file operations, root choice, search locations, find/replace and caret res
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
+  await dimensions(1440, 960);
+  await page.keyboard.press('Control+Alt+3');
   await page.getByRole('button', { name: 'references.bib', exact: true }).click();
   await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
   await editor.focus();

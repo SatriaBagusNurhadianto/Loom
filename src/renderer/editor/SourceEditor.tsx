@@ -55,6 +55,22 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
             highlightSelectionMatches(),
             StreamLanguage.define(stex),
             syntaxHighlighting(defaultHighlightStyle),
+            EditorView.domEventHandlers({
+              keydown(event) {
+                if (
+                  !event.isComposing &&
+                  (event.ctrlKey || event.metaKey) &&
+                  !event.altKey &&
+                  event.shiftKey &&
+                  event.key.toLowerCase() === 'z'
+                ) {
+                  event.preventDefault();
+                  d.undo.redo();
+                  return true;
+                }
+                return false;
+              },
+            }),
             keymap.of([
               ...yUndoManagerKeymap,
               ...searchKeymap,
