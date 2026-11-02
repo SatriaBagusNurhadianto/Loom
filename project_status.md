@@ -98,3 +98,5 @@ Implement and verify the Phase 2 project/editor workflow, then obtain the reques
 - Deterministic suite now passes 40 tests; nine Electron cases passed before final close/reopen/undo checks were added. Linux unpacked packaging passed. Final full regression and final review remain in progress.
 
 - Full native close/reopen test passed, including pending text flush and restored caret. Added undo/redo regression against external changes; found and fixed the Linux Ctrl Shift Z event path while retaining Yjs undo ownership. Focused editor workflow now passes with external text preserved through undo/redo. Final full-suite rerun follows.
+
+- Luna final pass identified ignored preference-write failure during native close. Close and project-switch now require successful working-state persistence; a simulated main-IPC failure regression confirms the window remains open with the error visible. Unpacked Linux smoke opened/edited/saved ordinary source through its actual utility/SQLite service; the final artifact will be rebuilt after this fix.

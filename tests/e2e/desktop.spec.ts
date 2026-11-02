@@ -497,3 +497,32 @@ test('native close flushes pending text and working state before a full app reop
   await restored.focus();
   expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(3);
 });
+
+test('failed working-state persistence keeps the native window open', async () => {
+  await openSyntheticProject();
+  const snapshot = await page.evaluate(() => window.loom!.project({ type: 'current' }));
+  if (!snapshot.ok) throw new Error('Project did not load.');
+  // Inject only the persistence result at main IPC; this is a simulated failure, not disk exhaustion.
+  await desktop.evaluate(({ ipcMain }, snapshot) => {
+    ipcMain.removeHandler('loom:project:command');
+    ipcMain.handle('loom:project:command', (_event, command) =>
+      command.type === 'preferences'
+        ? {
+            ok: false,
+            error: {
+              code: 'PROJECT_ERROR',
+              message: 'Simulated preferences write failure',
+              retryable: true,
+            },
+          }
+        : snapshot,
+    );
+  }, snapshot);
+  await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await expect(page.getByRole('alert')).toContainText('Simulated preferences write failure');
+  expect(desktop.windows()).toHaveLength(1);
+  await desktop.evaluate(({ ipcMain }, snapshot) => {
+    ipcMain.removeHandler('loom:project:command');
+    ipcMain.handle('loom:project:command', () => snapshot);
+  }, snapshot);
+});

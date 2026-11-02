@@ -276,7 +276,8 @@ export function createProjectWorkspace(report: (message: string) => void) {
     try {
       if (!(await flushPending())) return;
       clearTimeout(preferencesTimer);
-      await persistPreferences();
+      const preferencesResult = await persistPreferences();
+      if (project() && !preferencesResult?.ok) return;
       await queue;
       const result = await window.loom.chooseProject(choice);
       if (result.ok) {
@@ -324,7 +325,8 @@ export function createProjectWorkspace(report: (message: string) => void) {
             if (result && !result.ok) return;
           }
           clearTimeout(preferencesTimer);
-          await persistPreferences();
+          const preferencesResult = await persistPreferences();
+          if (project() && !preferencesResult?.ok) return;
           await queue;
           if ([...docs.values()].some((d) => d.dirty)) {
             setError('Still saving. Wait for the disk acknowledgment and close again.');
