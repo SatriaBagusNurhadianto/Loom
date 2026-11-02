@@ -1,6 +1,6 @@
 # Working on Loom
 
-Loom is an Electron scientific writing workspace with a Prism-reference interface, ordinary LaTeX projects, and an external agent harness. The first release uses OpenCode and local compilation. The application has not been scaffolded yet; confirm current progress in [project_status.md](project_status.md).
+Loom is an Electron scientific writing workspace with a Prism-reference interface, ordinary LaTeX projects, and an external agent harness. The first release uses OpenCode and local compilation. Confirm current progress in [project_status.md](project_status.md).
 
 ## Start here
 
@@ -33,12 +33,13 @@ Loom is an Electron scientific writing workspace with a Prism-reference interfac
 
 ## Verification and completion
 
-- Inspect existing project scripts and configuration before choosing commands. No application install/dev/test/build commands exist until scaffolding creates them; document real commands then.
+- Inspect existing project scripts and configuration before choosing commands. Keep documented commands aligned with the actual scripts.
 - Verify the changed workflow at its boundaries. For text persistence, cover interrupted writes and overlapping edits; for builds, cover failed/stale output; for harnesses, cover permission/cancellation/reconnect; for Git, cover dirty worktrees and conflicts.
 - Keep fixtures synthetic or explicitly permitted. Run external-provider smoke checks only with an available authorized setup; do not claim live verification from mocks.
 - For UI changes, inspect the running application and compare the relevant state with the reference. Check keyboard access and a smaller desktop window.
 - Mark a phase complete only when every exit criterion has recorded evidence. Distinguish implementation, simulated integration checks, and live external-tool verification.
 - Update `project_status.md` after meaningful work with exact changes, checks/results, limitations, and the next concrete task. Update phase checkboxes when their gates actually pass.
-- Use `codex/` for new work branches unless the user specifies another name. Keep commits focused; push or publish when authorized by the task.
+- Commit each single, completed and verified logical unit of work before starting the next. A phase should contain multiple focused commits rather than one commit at the end. Include the unit’s related tests and documentation; leave unrelated changes out.
+- Use `codex/` for new work branches unless the user specifies another name. Push or publish when authorized by the task.
 
 When reporting completion, link changed files, summarize user-visible behavior, and state verification and any remaining blockers plainly.
