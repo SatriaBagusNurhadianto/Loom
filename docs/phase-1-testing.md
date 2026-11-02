@@ -1,5 +1,7 @@
 # Test Phase 1 yourself
 
+> Historical Phase 1 evidence. Current project/editor workflows and checks are in [phase-2-testing.md](phase-2-testing.md) and [../project_status.md](../project_status.md).
+
 Start from the repository folder. Use `npm ci`, then `npm run dev` for the actual desktop app. You need no manuscript, TeX toolchain, account, or API key. To reset a previous layout, choose **Tools → Reset layout**.
 
 These tests cover the Phase 1 foundation. The synthetic source and paper are read-only. No real project is created, edited, saved, or compiled.

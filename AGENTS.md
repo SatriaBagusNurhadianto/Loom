@@ -8,7 +8,8 @@ Loom is an Electron scientific writing workspace with a Prism-reference interfac
 2. Read the applicable first-build phase in [phases.md](phases.md) and its prerequisite/exit criteria before implementation.
 3. Read the relevant requirements in [PRD.md](PRD.md). Product scope and acceptance criteria belong there.
 4. Before changing process boundaries, document persistence, builds, agent integration, or Git behavior, read the corresponding section of [architecture.md](architecture.md).
-5. Before changing UI, read [DESIGN.md](DESIGN.md) and inspect [the Prism reference](design/references/prism-workspace.png). Use the frontend design skills available in the environment when applicable.
+5. Before changing project persistence or editor behavior, read [the Phase 2 regression guide](docs/phase-2-testing.md) and reproduce the affected recovery boundary.
+6. Before changing UI, read [DESIGN.md](DESIGN.md) and inspect [the Prism reference](design/references/prism-workspace.png). Use the frontend design skills available in the environment when applicable.
 
 ## Scope and authority
 

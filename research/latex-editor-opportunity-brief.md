@@ -2,6 +2,8 @@
 
 **Research snapshot:** 2 November 2026
 
+**Implementation context:** This research remains discovery evidence. Phase 1 is complete and Phase 2 progress is recorded in [project_status.md](../project_status.md); this brief does not expand the authorized phase or first-release requirements.
+
 **Audience:** Researchers and students who write papers, theses, reports, and slides in LaTeX
 
 **Scope:** Public first-person discussions in r/LaTeX and r/PhD, editor issue trackers, and official editor documentation. This is qualitative discovery, not a representative survey.

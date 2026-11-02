@@ -2,101 +2,73 @@
 
 **Updated:** 3 November 2026
 
-**Overall:** Phase 1 application scaffold and Prism-reference workspace implemented and verified on Linux x86_64. Phase 2 is authorized and in progress.
+**Overall:** Phases 0–2 complete for the exercised Linux x86_64 desktop target. Phase 2 projects, source editing and reliable local persistence are implemented and verified. Phase 3 has not started.
 
-**Current milestone:** Phase 1 exit criteria passed. Independent review completed by GPT-6.1 Terra at medium effort, the user-authorized fallback. Both reported Phase 1 defects were fixed and the follow-up review found no additional actionable defects.
+**Current milestone:** A real ordinary LaTeX project opens, edits, saves and reopens. External overlaps remain reviewable; unsent IndexedDB recovery survives renderer/service termination and disk divergence. GPT-6-Luna medium reviewed four rounds; all reported findings were addressed, with no additional actionable blocker in its final reviewed paths.
 
 ## Repository
 
-| Item              | State                                                                                   |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| Workspace         | Phase 1 changes on `codex/phase-1-workspace`; use Git for exact commit/push state       |
-| GitHub repository | Private `monabji/loom`, previously verified; `origin` configured for branch publication |
-| Application       | Electron 45.2.1, TypeScript 6.0.3, electron-vite 6.0.0, Vite 8.3.5, SolidJS 1.9.18      |
-| Dependencies      | Exact direct versions and lockfile; npm 11.19.0, tested with Node 26.7.0                |
-| Commands          | Install/dev/preview/format/typecheck/test/build/package in package.json and README.md   |
-| Linux artifact    | `release/linux-unpacked/loom`, built and launched locally; ignored generated output     |
+| Item                | State                                                                                                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work branch         | `codex/phase-2-persistence`; focused service, editor, recovery, undo, close-failure and documentation commits; use Git for exact state                                             |
+| Remote              | Private `monabji/loom`, origin inherited from Phase 1; no Phase 2 push or publication requested/performed                                                                          |
+| Application         | Electron 45.2.1, TypeScript 6.0.3, electron-vite 6.0.0, SolidJS 1.9.18; exact dependencies and lockfile                                                                            |
+| Editing/persistence | CodeMirror 6, Yjs, y-indexeddb, Node SQLite schema v2 in the utility process                                                                                                       |
+| Local artifact      | `release/linux-unpacked/loom`, built and exercised with sandbox enabled; generated output ignored                                                                                  |
+| Guides              | [Phase 2 testing](docs/phase-2-testing.md), [independent review](docs/phase-2-review.md), [historical Phase 1 tests](docs/phase-1-testing.md) and [review](docs/phase-1-review.md) |
 
 ## Build progress
 
-| Phase                         | Status      | Evidence                                                                                                    |
-| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
-| 0 — Repository/readiness      | Complete    | Prior documentation/private remote baseline verification                                                    |
-| 1 — Scaffold/workspace        | Complete    | Source, 22 deterministic tests, 4 real Electron tests, browser preview, screenshots, unpacked package smoke |
-| 2 — Projects/persistence      | Not started | No project/editor/document persistence implementation                                                       |
-| 3 — LaTeX/PDF                 | Not started | Source and paper are explicitly read-only/static examples                                                   |
-| 4 — OpenCode agent            | Not started | No harness/model/provider calls from the product                                                            |
-| 5 — Literature/Zotero         | Not started | Requirements only                                                                                           |
-| 6 — Scientific content/images | Not started | Requirements only                                                                                           |
-| 7 — Git/export workflows      | Not started | Requirements only; development branch is not product Git implementation                                     |
-| 8 — Hardening/pilot           | Not started | No installed-package, cross-platform, full workflow or performance validation                               |
+| Phase                         | Status      | Evidence                                                                                                               |
+| ----------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 0 — Repository/readiness      | Complete    | Existing documented/private remote baseline                                                                            |
+| 1 — Scaffold/workspace        | Complete    | Existing shell, security/lifecycle/layout acceptance, reference screenshots and package evidence; regressions retained |
+| 2 — Projects/persistence      | Complete    | 40 deterministic tests, 11 real Electron cases, package smoke, visual checks and four Luna medium review rounds        |
+| 3 — LaTeX/PDF                 | Not started | No TeX, TexLab, PDF.js or source/PDF mapping integration                                                               |
+| 4 — OpenCode agent            | Not started | Product sends no model/provider calls; reviewer delegation is development tooling only                                 |
+| 5 — Literature/Zotero         | Not started | Requirements only                                                                                                      |
+| 6 — Scientific content/images | Not started | Requirements only                                                                                                      |
+| 7 — Git/export                | Not started | No product clone/commit/push/export UI; source already remains ordinary portable files                                 |
+| 8 — Hardening/pilot           | Not started | Full performance/IME, installed distribution, cross-platform and end-to-end release acceptance remain                  |
 
-## Phase 1 implementation
+## Phase 2 implementation
 
-- Sandboxed Electron window with context isolation and no renderer Node integration; deny navigation, popups, webviews and permissions.
-- Named preload API: status, service restart and validated events. Strict Zod requests/results/events; exact sender/top-frame/origin/path checks in main.
-- Separate Electron utility process, correlated round trips, five-second bounds, bounded pending requests, typed operation errors, child-generation isolation and shutdown/restart recovery. No filesystem/project commands.
-- Prism-reference Files/Chats sidebar, collapsible Outline, source surface with line numbers/highlighting, center-column bottom composer, and light paper surface.
-- Empty first launch, user-triggered synthetic example, read-only/static labels and specific later-phase availability dialogs. Browser preview reports missing native service truthfully.
-- Pointer and keyboard resizing, sliders, hide/restore, Source/PDF/Split focus modes, F6 navigation, keyboard-accessible modal settings/tools and notifications. Below 1100px, explicit single-panel focus views.
-- Validated versioned layout preferences with recovery defaults and storage-error feedback. This stores presentation only; Phase 2 SQLite/Yjs/document persistence remains unimplemented.
-- Shared UI primitives and CSS tokens, global scrollbars, visible keyboard focus, reduced-motion and forced-color handling; ownership and calibrated reference choices recorded in DESIGN.md.
-- Full action/expected-output guide in `docs/phase-1-testing.md`.
+- Native open/create/import-folder/import-ZIP workflows. Creation supplies an ordinary article template; imports create a new copy. Sources, `.bib`, custom class/style files and binary assets remain in their original formats. No configuration is written merely to inspect a clean project.
+- Stable manifest/file IDs, likely-root detection and explicit selection, nested create/rename/move, deletion checkpoints and restore. External observed renames retain identity; missing files and binary replacements have distinct conflict semantics.
+- CodeMirror source editor: LaTeX highlighting, line numbers, find/replace, indentation, wrapping/font settings, tabs, section outline and keyboard save/undo/redo. External patches use Yjs transactions; editor selection and undo ownership remain separate from project recovery.
+- Per-file IndexedDB Yjs recovery with acknowledged bridge baselines. SQLite WAL/FULL metadata, versioned v1→v2 migration, project/working-state preferences, recoverable source/deleted bytes and rebuildable derived search index. Newer schemas are rejected. Checkpoints remain until application data is explicitly removed; no automatic recovery cleanup exists yet.
+- Serialized utility-process filesystem bridge: content-based observation, known-write suppression, baseline-aware reconciliation, revision acknowledgment, recovery checkpoint before atomic write, file/directory synchronization and disk recheck. Dirty renderer replicas do not accept stale acknowledgments.
+- Explicit overlap review retains baseline/local/disk inputs and validates the current disk fingerprint. Compatible changes merge. Reload, utility reconnect, renderer termination and reopen divergence recover before further saves.
+- Native close flushes text and working state; failed persistence keeps the window open. Renderer termination creates a replacement sandboxed window with bounded retry. File payloads load on demand; service-side indexed search returns bounded path/line/snippet/offset locations and jump navigation.
+- Preserved Prism shell, bottom-center composer, shared modal/token/notification ownership and smaller-desktop project access. PDF/assistant/later-phase controls retain honest availability states.
 
 ## Verification evidence
 
-| Check                      | Observed result                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dependency installation    | `npm install` passed; exact compatible dependencies locked                                                                                                                                                                                                                                                                                                                 |
-| Static/build checks        | `npm run check` passed: formatting, TypeScript, 22 tests, all production bundles                                                                                                                                                                                                                                                                                           |
-| Contract/lifecycle tests   | 15 passed: strict validation, startup/ping correlation, crash/error, restart, stale messages, timeout, queue bound, spawn/send failure, terminal-child retirement, pending-timer cleanup, termination exceptions and unsubscribe                                                                                                                                           |
-| Layout tests               | 7 passed: validated round trip, invalid/version/bounds recovery, blocked/full storage and independent defaults                                                                                                                                                                                                                                                             |
-| Actual Electron acceptance | `npm run test:e2e`: 4 passed with `chromiumSandbox: true` (no `--no-sandbox`); actual isolated window/API, popup/navigation rejection, service restart/crash/SIGSTOP timeout/recovery, keyboard/saved layout and smaller views                                                                                                                                             |
-| Visual comparison          | Actual Electron screenshots at 2048×1096 and 900×700 inspected against the supplied Prism reference; composer stays in center column. Files: `artifacts/phase-1-electron-reference.png`, `phase-1-electron-small-source.png`, `phase-1-electron-small-pdf.png`                                                                                                             |
-| Browser preview            | Shared renderer exercised at reference, 1280×800 and 900×700 widths; example, tools/modal focus containment/Escape/return, focused Source/PDF, no page overflow, honest unavailable service                                                                                                                                                                                |
-| Packaging                  | `npm run package` passed; unpacked Linux executable launched with sandbox enabled, actual utility returned ready/PID/version and example displayed; `artifacts/phase-1-packaged.png`                                                                                                                                                                                       |
-| Design lint                | `designmd lint DESIGN.md`: zero errors/warnings                                                                                                                                                                                                                                                                                                                            |
-| UI audit                   | Strict skill audit: zero findings; generated JSON under ignored `artifacts/`                                                                                                                                                                                                                                                                                               |
-| Dependency audit           | Production dependencies: zero reported vulnerabilities. Full dependency tree: 15 moderate findings in electron-builder packaging dependencies, no high/critical findings; recorded in `artifacts/npm-audit*.json`                                                                                                                                                          |
-| Whitespace                 | `git diff --check` passed                                                                                                                                                                                                                                                                                                                                                  |
-| Gemini availability        | Requested Gemini 4 Argon through direct Antigravity. First direct task failed to open its provider session before starting; bounded retry rejected with `model_unavailable`: model no longer advertised by direct Antigravity. No review or low-effort setting was verified. Initial ACP attempt also failed and was superseded by the user’s direct-provider instruction. |
-| Terra review               | GPT-6.1 Terra medium independently inspected source and screenshots. Fixed broken Skip to source in PDF focus mode and retained-child transport failure. Follow-up verified both fixes and found no additional actionable defects; reviewer did not rerun the suites. See docs/phase-1-review.md.                                                                          |
+| Check                        | Observed result                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run check`              | Passed: formatting, TypeScript, 40 deterministic tests and all production bundles                                                                                                                                                                                                                                                                                               |
+| Deterministic coverage       | 17 contract/lifecycle checks, 7 layout checks and 16 project checks. Includes stale renderer updates, compatible/overlapping changes, duplicate observation, interrupted atomic rename, reopen divergence, Unicode/external rename/deletion, binary restore/replacement, ZIP/path protection, failed-open rollback, index rebuild/on-demand payloads and schema migration/guard |
+| `npm run test:e2e`           | 11 passed in final run with `chromiumSandbox: true`; real isolated Electron/preload/utility/SQLite/IndexedDB/CodeMirror/filesystem                                                                                                                                                                                                                                              |
+| Electron workflow coverage   | Native-picker boundary, edit/save/reload, external reconciliation, restart, undo/redo retaining external work, Unicode create/rename/root/delete/restore, search locations, find/replace, caret retention, native project create/ZIP import, native close/full app reopen and renderer/service termination with IndexedDB-only recovery                                         |
+| Simulated failure boundaries | Native picker results choose synthetic folders/archives. One main-IPC preference failure is injected to verify close refusal. Fake transport tests cover bounded/interrupted requests. These are distinguished from actual disk/process checks                                                                                                                                  |
+| Visual inspection            | Actual Electron at 2048×1096 and 900×700 compared with Prism reference; composer remains in center column and smaller project dialog is usable. `artifacts/phase-2-electron-reference.png`, `phase-2-electron-small.png`                                                                                                                                                        |
+| Package                      | `npm run package` passed; final unpacked executable opens a synthetic project, edits and saves ordinary source through its real utility/SQLite service with sandbox enabled. `artifacts/phase-2-packaged.png`                                                                                                                                                                   |
+| UI/design                    | Strict audit zero findings; DESIGN lint zero errors/warnings; shared tokens, modal focus and keyboard/narrow states checked                                                                                                                                                                                                                                                     |
+| Production dependency audit  | Zero reported vulnerabilities; Phase 1 packaging dependency moderate findings remain a hardening concern, not a Phase 2 production-library change                                                                                                                                                                                                                               |
+| Whitespace/docs              | `git diff --check` passed; Markdown links checked locally; all project Markdown synchronized with Phase 2 and historical evidence labeled                                                                                                                                                                                                                                       |
+| Independent review           | GPT-6-Luna medium, four new delegated tasks. Modal, reconciliation, reconnect, caret, search/index/payload and close-preference findings fixed. Final follow-up found no additional actionable blocker in the reviewed close/persistence paths; it did not independently rerun the final broad Electron suite                                                                   |
 
-Generated artifacts are local evidence, ignored by Git. Tests use isolated temporary preferences and synthetic source. Fake-transport tests are separate from real Electron acceptance. The paper surface is HTML, not a compiled PDF. No external provider integration in the product is claimed.
+Generated artifacts are ignored local evidence. Fixtures are synthetic. No live TeX, OpenCode, Zotero, product Git, cloud or external-provider integration is claimed.
 
-## Current decisions and limitations
+## Limits and remaining release work
 
-- Original launch decisions remain: free Electron desktop, Linux x86_64 pilot, OpenCode first, installed TeX detection later, ordinary LaTeX files, Yjs document bridge later, no required account.
-- Phase 1 alone stores presentation preferences in local storage; architecture documents this temporary exception to future SQLite metadata.
-- Reference match is calibrated, not a claim about Prism’s original fonts/CSS or undocumented menus.
-- AppImage generation/installation, Windows/macOS, TeX, OpenCode, Zotero, Git/export workflows, IME and performance targets are not verified here.
-- Packaging dependency audit findings remain; avoid describing this foundation artifact as a hardened release.
-- Gemini 4 Argon could not start through direct Antigravity and disappeared from that provider’s advertised models. The user explicitly authorized GPT-6.1 Terra medium as the fallback; that review and follow-up completed.
+- Exercised target: Linux x86_64. Text editing requires UTF-8, at most 8 MiB/file; indexing input is capped at 32 MiB and 2,000 files. ZIP limits: 64 MiB compressed, 128 MiB expanded. Search shows up to 200 locations. Larger/binary assets stay ordinary files. Symlink paths are excluded.
+- Content polling observes external changes once per second while connected and before operations. The final compare/rename cannot lock unrelated external writers; later observation rechecks divergence. Full concurrent-writer/performance hardening remains Phase 8 work.
+- Active documents have durable Yjs checkpoints, but no cloud sync exists. Deleting application data removes recovery stores. The startup/browser layout fallback still uses validated local storage; project-specific working state is SQLite.
+- Automatic renderer recovery is bounded to two replacements per application run. Electron's debugger force-crash call hung before termination during test development; final acceptance uses actual OS renderer SIGKILL and verifies replacement/recovery instead.
+- AppImage installation, Windows/macOS, full IME and large-project performance targets, physical disk-exhaustion/power-loss testing and the complete research workflow remain unverified. A packaged smoke is not an installed pilot release.
+- Root inference selects only a unique `\\documentclass` candidate; ambiguous projects require explicit root selection. Rich label/citation/figure navigation and language diagnostics belong to Phase 3.
 
-## Next task
+## Next concrete task
 
-Implement and verify the Phase 2 project/editor workflow, then obtain the requested GPT-6-Luna medium independent review.
-
-## Phase 2 service foundation (in progress)
-
-- Added validated project commands, native folder/ZIP selection, utility-process project service, SQLite schema v1, stable file identities, recovery checkpoints, serialized atomic saves, and baseline reconciliation.
-- Nine new deterministic service tests pass (31 total): ordinary/non-ASCII paths, rename, binary delete/restore, overlap/disjoint edits, duplicate refresh, interrupted rename, reopen divergence, imports, path protection and migration guard.
-- Renderer integration and real Electron persistence verification remain pending; Phase 2 gates remain unchecked.
-
-## Phase 2 editor workflow (in progress)
-
-- Added CodeMirror/Yjs editing, IndexedDB recovery, project picker/file operations, tabs, section outline, explicit save, conflict review, font/wrapping and per-file caret preferences.
-- First GPT-6-Luna medium review completed; identified seven gaps. Fixed overlapping dialogs, pending-edit reconciliation with baseline preconditions, reconnect, caret restoration, explicit search extension, SQLite derived indexes and on-demand snapshot payloads. Follow-up review remains pending.
-- Two new real Electron workflow tests now pass: opening through the native-picker boundary, editing/disk acknowledgment, tabs, external edit/reload, service restart, 2048×1096 and 900×700 views; unsent overlapping edits survive reload and resolve explicitly. Native dialog results are supplied by the test; real project service/CodeMirror/IndexedDB/disk I/O run normally.
-- UI static audit: zero findings. Full regression, additional recovery scenarios, final docs and reviewer follow-up remain pending.
-
-## Phase 2 review fixes and regression expansion (in progress)
-
-- Luna follow-up found the seven original gaps addressed and requested line/snippet/jump results for project text search; implemented those bounded results with navigation and clear/IME handling.
-- Added disk fingerprints and binary-vs-deletion conflict handling, interrupted deletion recovery, exclusive folder import destinations, empty-file Yjs initialization, distinct native-project/file commands and rollback of failed project opens.
-- Added incremental external patches, native close preference flush and replacement-window recovery after renderer termination. The Electron debugger's force-crash API hung before emitting termination; acceptance instead uses actual renderer SIGKILL, with committed IndexedDB updates and disk divergence.
-- Deterministic suite now passes 40 tests; nine Electron cases passed before final close/reopen/undo checks were added. Linux unpacked packaging passed. Final full regression and final review remain in progress.
-
-- Full native close/reopen test passed, including pending text flush and restored caret. Added undo/redo regression against external changes; found and fixed the Linux Ctrl Shift Z event path while retaining Yjs undo ownership. Focused editor workflow now passes with external text preserved through undo/redo. Final full-suite rerun follows.
-
-- Luna final pass identified ignored preference-write failure during native close. Close and project-switch now require successful working-state persistence; a simulated main-IPC failure regression confirms the window remains open with the error visible. Unpacked Linux smoke opened/edited/saved ordinary source through its actual utility/SQLite service; the final artifact will be rebuilt after this fix.
+Phase 3: detect installed TeX engines/latexmk/BibTeX/Biber, establish portable build settings and revision-associated build snapshots, then connect TexLab, compilation and PDF.js according to [phases.md](phases.md). No Phase 3 implementation was started by this task.

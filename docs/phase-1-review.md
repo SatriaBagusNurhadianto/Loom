@@ -1,5 +1,7 @@
 # Phase 1 independent review
 
+> Historical Phase 1 evidence. Current project/editor workflows and checks are in [phase-2-testing.md](phase-2-testing.md) and [../project_status.md](../project_status.md).
+
 Reviewer: **GPT-6.1 Terra, medium reasoning**, explicitly authorized by the user as fallback when Gemini was unavailable.
 
 The reviewer read the Phase 1 requirements, architecture/design documentation and source/tests, and inspected the supplied Prism reference and actual Electron screenshots. It did not independently execute the tests; execution evidence belongs to the main implementation run in [project_status.md](../project_status.md).

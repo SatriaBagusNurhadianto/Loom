@@ -1,6 +1,6 @@
 # Loom architecture
 
-**Status:** Phase 1 desktop shell and process foundation implemented. Document, build, agent, research, and Git services below remain planned.
+**Status:** Phase 1 shell and Phase 2 local project/document services implemented. Build, agent, research and Git services below remain planned; verification state belongs in project_status.md.
 
 **Product authority:** [PRD.md](PRD.md). **Visual authority:** [DESIGN.md](DESIGN.md). **Build sequence:** [phases.md](phases.md). **Actual implementation state:** [project_status.md](project_status.md).
 
@@ -29,7 +29,7 @@ The first validated target is a Linux x86_64 pilot. Process contracts and applic
 | Agent                  | OpenCode local server and TypeScript SDK       | Initial harness integration                                                       |
 | Packaging              | electron-builder                               | Installable desktop artifact                                                      |
 
-Exact dependencies are pinned in `package.json` and `package-lock.json`; the package manager is npm 11.19.0. Phase 1 uses Electron 45.2.1, electron-vite 6.0.0, SolidJS 1.9.18 and TypeScript 6.0.3. Other rows remain later-phase choices, not installed integrations.
+Exact dependencies are pinned in `package.json` and `package-lock.json`; the package manager is npm 11.19.0. Phase 1 uses Electron 45.2.1, electron-vite 6.0.0, SolidJS 1.9.18 and TypeScript 6.0.3. CodeMirror, Yjs, IndexedDB and SQLite are now installed/implemented for Phase 2; PDF, language, compilation, agent and Git integrations remain later-phase choices.
 
 ## 3. Process model
 
@@ -67,7 +67,7 @@ Use command/result IPC for bounded operations and message channels for document 
 
 ## 4. Module layout
 
-The following is the intended full module layout. Phase 1 creates only main, preload, contracts, utility services, renderer workspace/UI, and their tests; later directories remain planned. A single application package is sufficient initially.
+The following is the intended full module layout. Phases 1–2 create main, preload, contracts, utility project/persistence services, renderer workspace/UI/editor, and their tests; other directories remain planned. A single application package is sufficient initially.
 
 ```text
 src/
@@ -231,18 +231,28 @@ Future cloud architecture is described in PRD Section 9. Introducing it requires
 
 ## 13. Phase 1 implemented contracts
 
-`src/contracts/desktop.ts` owns strict Zod request/result/event schemas. The sandboxed preload exposes only `getStatus`, `restartService`, and `onServiceEvent`; neither raw IPC nor Node/native modules are available in the renderer. Main validates the originating window, top frame, exact renderer origin/path, and empty request schema. Preload validates result/event payloads. Navigation, new windows, webviews, and permissions are denied.
+`src/contracts/desktop.ts` owns strict Zod request/result/event schemas. The initial Phase 1 preload exposed `getStatus`, `restartService`, and `onServiceEvent`; Phase 2 adds the named project/close capabilities below; neither raw IPC nor Node/native modules are available in the renderer. Main validates the originating window, top frame, exact renderer origin/path, and empty request schema. Preload validates result/event payloads. Navigation, new windows, webviews, and permissions are denied.
 
-Main creates one `ServiceController` and forks `out/main/service.cjs` with Electron’s utility-process API. The service only responds to typed, correlated pings. Startup and round trips are bounded to five seconds, pending checks to 32; generation IDs ignore retired-child messages. Exit, malformed response, failed transport, and timeout produce typed operation failures. Restart closes the owned child before starting another, and app exit stops it. There are no project paths or arbitrary subprocess commands in this phase. Tests distinguish fake-transport lifecycle coverage from real Electron service checks.
+Main creates one `ServiceController` and forks `out/main/service.cjs` with Electron’s utility-process API. The service only responds to typed, correlated pings. Startup and round trips are bounded to five seconds, pending checks to 32; generation IDs ignore retired-child messages. Exit, malformed response, failed transport, and timeout produce typed operation failures. Restart closes the owned child before starting another, and app exit stops it. Phase 1 had no project commands. Phase 2 extends the same bounded generation-aware transport with correlated project results and 30-second operation limits; arbitrary subprocess commands remain unavailable. Tests distinguish fake-transport lifecycle coverage from real Electron service checks.
 
-Phase 1 presentation preferences (panel widths/visibility, focus mode, sidebar selection, outline expansion) are an explicit temporary exception to planned SQLite metadata storage: they use the renderer’s versioned `loom.workspace-layout.v1` local-storage record, with strict validation/default recovery and storage-failure feedback. No text, project, account, credential, or chat data is stored. Phase 2 may migrate these preferences when SQLite is introduced; Phase 1 does not introduce document persistence.
+Phase 1 presentation preferences (panel widths/visibility, focus mode, sidebar selection, outline expansion) are an explicit temporary exception to planned SQLite metadata storage: they use the renderer’s versioned `loom.workspace-layout.v1` local-storage record, with strict validation/default recovery and storage-failure feedback. No text, project, account, credential, or chat data is stored. Phase 2 stores project-specific layout in SQLite and retains this validated record for startup/browser fallback; Phase 1 itself did not introduce document persistence.
 
 Browser preview loads the same renderer and reports the absent desktop bridge honestly. It never simulates service readiness. The sample LaTeX is transient read-only source, and the paper is HTML used solely for reference layout comparison. It is not CodeMirror, Yjs, PDF.js, or a compiled artifact.
 
 ## 14. Phase 2 persistence implementation
 
-Project commands are strict named capabilities. Only native dialogs authorize absolute project roots; renderer commands contain file IDs and validated relative paths. SQLite `metadata.sqlite` resides under Electron userData, using WAL/FULL synchronization and versioned migrations. Schema v1 stores manifests, Yjs recovery states, baselines, preferences and recoverable deleted bytes independently of Git. A newer schema is rejected.
+Project commands are strict named capabilities. Only native dialogs authorize absolute project roots; renderer commands contain file IDs and validated relative paths. SQLite `metadata.sqlite` resides under Electron userData, using WAL/FULL synchronization and versioned migrations. Schema v1 stores manifests, Yjs recovery states, baselines, preferences and recoverable deleted bytes independently of Git; v2 adds a rebuildable file/content index. A newer schema is rejected without replacing it.
 
 The utility process serializes project operations. Content comparison polls once per second while the renderer is connected and also precedes mutations, avoiding dependence on platform watcher delivery. Inode identity recognizes observed external renames; replacement saves retain path identity. Reconciliation merges disjoint baseline edits and preserves overlapping local/baseline/disk inputs as a conflict. Atomic writes checkpoint recovery first, fsync temporary files, recheck disk, rename and fsync the containing directory before acknowledgment. This is not an operating-system lock against a simultaneous external writer in the final check/rename window.
 
-Pilot limits are 2,000 files, 8 MiB per editable UTF-8 text file, 64 MiB compressed ZIP and 128 MiB expanded ZIP. Binary or larger files remain ordinary assets, outside the text editor. Symlink paths are excluded/rejected. ZIP imports validate every entry before extraction into a new destination. Git cloning remains Phase 7.
+Pilot limits are 2,000 files, 8 MiB per editable UTF-8 text file, 32 MiB aggregate indexed input, 64 MiB compressed ZIP and 128 MiB expanded ZIP. Binary or larger files remain ordinary assets, outside the text editor. Symlink paths are excluded/rejected. ZIP imports validate every entry before extraction into a new destination. Git cloning remains Phase 7.
+
+### Phase 2 replicas, reconnect and UI acknowledgment
+
+The renderer loads document payloads on demand; a service snapshot carries the manifest and at most one requested document's text/Yjs state. Search runs in the utility process against SQLite and returns bounded file IDs plus line/snippet/offset locations. The utility process owns full recoverable project state; aggregate scan limits bound this first implementation. Large-project tuning remains Phase 8.
+
+Renderer commands are serialized. Sync carries Yjs state plus the replica's acknowledged baseline and submitted text; the service can detect an overlap even when it observed disk before an older renderer update arrived. Dirty replicas do not accept a stale response as a save acknowledgment. Pending edits flush before polling/mutations. IndexedDB records the bridge baseline alongside Yjs updates so unsent recovery is reconciled before applying reopened service changes. Incoming external updates use incremental Yjs transactions and preserve the live CodeMirror view/selection; editor undo excludes filesystem transactions. Per-file caret, selection/scroll, open tabs, font/wrapping and layout are SQLite preferences, separate from text recovery.
+
+On service readiness, reload current metadata and flush recovered replicas. Native close requests a renderer flush and only closes after acknowledgment; a failed flush leaves the workspace open. A renderer termination creates a replacement sandboxed window at the trusted application URL, with at most two automatic recoveries per application run. A crashed renderer can be closed while preserving its durable recovery stores. Native file commands use distinct `native-*` messages so file creation cannot be mistaken for project creation. Disk conflict choices include a content fingerprint and distinguish missing files from binary replacements.
+
+Implementation references: [Node SQLite](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html), [Yjs IndexedDB provider](https://github.com/yjs/y-indexeddb), and [CodeMirror binding](https://github.com/yjs/y-codemirror.next). No network document provider is configured.

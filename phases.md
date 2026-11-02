@@ -2,7 +2,7 @@
 
 **Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
 
-**Current state:** Phase 1 implemented and verified on Linux x86_64. Phase 2 is authorized and in progress. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phases 1–2 implemented and verified on Linux x86_64. Phase 3 has not started. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 
@@ -49,18 +49,20 @@
 
 **Prerequisites:** Phase 1 complete.
 
-- [ ] Open/create/import project folders and ZIPs; preserve original LaTeX and assets.
-- [ ] Add file manifest, stable IDs, root-document selection, file operations, and project search.
-- [ ] Integrate CodeMirror 6 with Yjs-backed local documents and durable IndexedDB persistence.
-- [ ] Add SQLite metadata storage, versioned migrations, preferences, and derived indexes.
-- [ ] Implement the serialized filesystem bridge, known-write suppression, revision acknowledgment, and external-edit reconciliation.
-- [ ] Handle rename, deletion, non-ASCII paths, atomic saves, and reopen divergence.
-- [ ] Preserve caret/selections and separate editor undo from project recovery.
-- [ ] Persist recoverable baselines independently of Git.
+- [x] Open/create/import project folders and ZIPs; preserve original LaTeX and assets.
+- [x] Add file manifest, stable IDs, root-document selection, file operations, and project search.
+- [x] Integrate CodeMirror 6 with Yjs-backed local documents and durable IndexedDB persistence.
+- [x] Add SQLite metadata storage, versioned migrations, preferences, and derived indexes.
+- [x] Implement the serialized filesystem bridge, known-write suppression, revision acknowledgment, and external-edit reconciliation.
+- [x] Handle rename, deletion, non-ASCII paths, atomic saves, and reopen divergence.
+- [x] Preserve caret/selections and separate editor undo from project recovery.
+- [x] Persist recoverable baselines independently of Git.
 
 **Verification:** Use multi-file synthetic projects. Exercise overlapping human/external changes, duplicate watcher events, interrupted save, service/renderer restart, and reopen with disk divergence. Confirm exports/source remain ordinary editable files.
 
 **Exit:** A real project can be opened, edited, saved, and reopened without data loss. Newer human work is preserved or a resolvable conflict is shown. Save indicators reflect actual persistence.
+
+**Recorded exit evidence:** 40 deterministic checks, 11 real Electron acceptance cases, unpacked Linux open/edit/save smoke, reference/smaller-window screenshots, UI/design checks and GPT-6-Luna medium review/fixes. See [project_status.md](project_status.md), [testing](docs/phase-2-testing.md) and [review](docs/phase-2-review.md). Native picker selections and one preference failure are simulated boundaries; process/SQLite/IndexedDB/editor/disk checks are real. Git cloning remains Phase 7; installed-package/performance/IME/cross-platform acceptance remains Phase 8.
 
 ## Phase 3 — Complete LaTeX and PDF workflow
 

@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "version": "0.1.0",
-  "description": "A local scientific writing workspace — Phase 1 foundation",
+  "description": "A local scientific writing workspace — projects and durable editing",
   "author": "Loom contributors",
   "private": true,
   "main": "out/main/index.js",

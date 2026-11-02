@@ -1,10 +1,10 @@
 # Loom — Product Requirements Document
 
-**Version:** 1.0
+**Version:** 1.1
 
 **Date:** 3 November 2026
 
-**Status:** Planning baseline for implementation; no application functionality is implemented or verified by this document.
+**Status:** Product requirements baseline. Phases 1–2 are complete for the exercised Linux desktop target; implementation and verification are tracked in [project_status.md](project_status.md). Requirements below continue to describe the full first release, not completed functionality.
 
 **Product:** Free desktop workspace for scientific writing, powered by the researcher's chosen external agent harness.
 
