@@ -1,5 +1,8 @@
+import { z } from 'zod';
+import { projectCommandSchema } from '../contracts/project';
 import {
   app,
+  dialog,
   BrowserWindow,
   ipcMain,
   session,
@@ -19,7 +22,7 @@ import { ServiceController } from './service-controller';
 
 let window: BrowserWindow | undefined;
 const service = new ServiceController(() => {
-  const child = utilityProcess.fork(join(__dirname, 'service.cjs'), [], {
+  const child = utilityProcess.fork(join(__dirname, 'service.cjs'), [app.getPath('userData')], {
     serviceName: 'Loom local services',
   });
   return {
@@ -118,6 +121,54 @@ void app.whenReady().then(() => {
   handle(channels.restart, () => service.restart());
   service.subscribe((event) => {
     if (window && !window.isDestroyed()) window.webContents.send(channels.event, event);
+  });
+  ipcMain.handle(channels.project, (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot access projects.', false);
+    const command = projectCommandSchema.safeParse(payload);
+    if (!command.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);
+    return service.project(command.data);
+  });
+  let choosing = false;
+  ipcMain.handle(channels.chooseProject, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot choose projects.', false);
+    const choice = z.enum(['open', 'create', 'import-folder', 'import-zip']).safeParse(payload);
+    if (!choice.success) return failure('INVALID_REQUEST', 'Invalid project choice.', false);
+    if (choosing) return failure('BUSY', 'A project dialog is already open.');
+    choosing = true;
+    try {
+      if (choice.data === 'create') {
+        const selected = await dialog.showSaveDialog(window!, {
+          title: 'Create project folder',
+          buttonLabel: 'Create project',
+        });
+        if (selected.canceled || !selected.filePath) return { ok: true, value: null };
+        return service.project({ type: 'create', path: selected.filePath });
+      }
+      const selected = await dialog.showOpenDialog(window!, {
+        title: choice.data === 'import-zip' ? 'Import project ZIP' : 'Choose project folder',
+        properties: choice.data === 'import-zip' ? ['openFile'] : ['openDirectory'],
+        ...(choice.data === 'import-zip'
+          ? { filters: [{ name: 'ZIP archive', extensions: ['zip'] }] }
+          : {}),
+      });
+      if (selected.canceled) return { ok: true, value: null };
+      if (choice.data === 'open')
+        return service.project({ type: 'open', path: selected.filePaths[0] });
+      const target = await dialog.showSaveDialog(window!, {
+        title: 'New imported project folder',
+        buttonLabel: 'Import project',
+      });
+      if (target.canceled || !target.filePath) return { ok: true, value: null };
+      return service.project({
+        type: choice.data,
+        path: selected.filePaths[0],
+        destination: target.filePath,
+      });
+    } finally {
+      choosing = false;
+    }
   });
   void service.start();
   createWindow();

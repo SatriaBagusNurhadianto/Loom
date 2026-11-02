@@ -1,3 +1,9 @@
+import {
+  projectCommandSchema,
+  projectResultSchema,
+  type ProjectChoice,
+  type ProjectCommand,
+} from '../contracts/project';
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   channels,
@@ -26,6 +32,22 @@ async function invoke(
 }
 
 const desktop: LoomDesktop = {
+  project: async (command: ProjectCommand) => {
+    const input = projectCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);
+    try {
+      return projectResultSchema.parse(await ipcRenderer.invoke(channels.project, input.data));
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'Project connection failed. Restart to recover.');
+    }
+  },
+  chooseProject: async (choice: ProjectChoice) => {
+    try {
+      return projectResultSchema.parse(await ipcRenderer.invoke(channels.chooseProject, choice));
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'Project dialog failed. Retry.');
+    }
+  },
   getStatus: () => invoke(channels.status),
   restartService: () => invoke(channels.restart),
   onServiceEvent: (listener) => {

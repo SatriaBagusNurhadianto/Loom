@@ -1,3 +1,4 @@
+import type { ProjectResult } from '../contracts/project';
 import {
   failure,
   serviceMessageSchema,
@@ -25,6 +26,10 @@ export class ServiceController {
   private nextId = 0;
   private status: ServiceStatus = { state: 'unavailable', pid: null, version: '0.1.0' };
   private listeners = new Set<(event: ServiceEvent) => void>();
+  private projectPending = new Map<
+    string,
+    { resolve: (result: ProjectResult) => void; timer: ReturnType<typeof setTimeout> }
+  >();
   private pending = new Map<string, Pending>();
   private startup: Promise<Result<ServiceStatus>> | undefined;
   private startupResolve: ((result: Result<ServiceStatus>) => void) | undefined;
@@ -81,6 +86,11 @@ export class ServiceController {
       pending.resolve(result);
     }
     this.pending.clear();
+    for (const pending of this.projectPending.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve(result);
+    }
+    this.projectPending.clear();
     if (!result.ok) this.publish(result.error);
     return result;
   }
@@ -114,6 +124,15 @@ export class ServiceController {
           return;
         }
         const data = parsed.data;
+        if (data.type === 'project-result') {
+          const pending = this.projectPending.get(data.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.projectPending.delete(data.id);
+            pending.resolve(data.result);
+          }
+          return;
+        }
         if (data.type === 'ready') {
           if (this.status.state !== 'starting') return;
           this.status = { state: 'ready', pid: data.pid, version: data.version };
@@ -178,6 +197,30 @@ export class ServiceController {
         this.unavailable(
           'SERVICE_UNAVAILABLE',
           'The local service connection failed. Restart it to reconnect.',
+        );
+      }
+    });
+  }
+
+  async project(command: unknown): Promise<ProjectResult> {
+    const ready = await this.start();
+    if (!ready.ok) return ready;
+    if (this.projectPending.size >= 32) return failure('BUSY', 'Too many project operations.');
+    const id = `${this.generation}:project:${++this.nextId}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.unavailable(
+          'TIMEOUT',
+          'Project operation interrupted. Restart the service and reopen the project to recover.',
+        );
+      }, 30000);
+      this.projectPending.set(id, { resolve, timer });
+      try {
+        this.transport!.postMessage({ type: 'project', id, command });
+      } catch {
+        this.unavailable(
+          'SERVICE_UNAVAILABLE',
+          'Project connection interrupted. Restart to recover.',
         );
       }
     });

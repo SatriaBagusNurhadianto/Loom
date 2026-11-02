@@ -1,9 +1,17 @@
+import {
+  projectResultSchema,
+  type ProjectChoice,
+  type ProjectCommand,
+  type ProjectResult,
+} from './project';
 import { z } from 'zod';
 
 export const channels = {
   status: 'loom:service:status',
   restart: 'loom:service:restart',
   event: 'loom:service:event',
+  project: 'loom:project:command',
+  chooseProject: 'loom:project:choose',
 } as const;
 
 export const operationErrorSchema = z
@@ -49,6 +57,8 @@ export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 
 // No project paths, file access, shell execution, or arbitrary IPC are exposed.
 export interface LoomDesktop {
+  project(command: ProjectCommand): Promise<ProjectResult>;
+  chooseProject(choice: ProjectChoice): Promise<ProjectResult>;
   getStatus(): Promise<Result<ServiceStatus>>;
   restartService(): Promise<Result<ServiceStatus>>;
   onServiceEvent(listener: (event: ServiceEvent) => void): () => void;
@@ -62,6 +72,9 @@ export const serviceRequestSchema = z
   })
   .strict();
 export const serviceMessageSchema = z.discriminatedUnion('type', [
+  z
+    .object({ type: z.literal('project-result'), id: z.string(), result: projectResultSchema })
+    .strict(),
   z
     .object({
       type: z.literal('ready'),

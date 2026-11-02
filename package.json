@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "version": "0.1.0",
-  "description": "A local scientific writing workspace \u2014 Phase 1 foundation",
+  "description": "A local scientific writing workspace — Phase 1 foundation",
   "author": "Loom contributors",
   "private": true,
   "main": "out/main/index.js",
@@ -25,7 +25,17 @@
     "package:appimage": "npm run build && electron-builder --linux AppImage"
   },
   "dependencies": {
+    "@codemirror/language": "6.13.1",
+    "@codemirror/legacy-modes": "6.5.5",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "codemirror": "6.0.2",
+    "diff": "9.0.0",
+    "fflate": "0.8.3",
     "solid-js": "1.9.18",
+    "y-codemirror.next": "0.3.6",
+    "y-indexeddb": "9.0.12",
+    "yjs": "13.6.33",
     "zod": "4.6.7"
   },
   "devDependencies": {

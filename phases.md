@@ -2,7 +2,7 @@
 
 **Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
 
-**Current state:** Phase 1 implemented and verified on Linux x86_64. Phase 2 has not started and is outside the current task. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phase 1 implemented and verified on Linux x86_64. Phase 2 is authorized and in progress. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 

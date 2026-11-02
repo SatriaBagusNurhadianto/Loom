@@ -238,3 +238,11 @@ Main creates one `ServiceController` and forks `out/main/service.cjs` with Elect
 Phase 1 presentation preferences (panel widths/visibility, focus mode, sidebar selection, outline expansion) are an explicit temporary exception to planned SQLite metadata storage: they use the renderer’s versioned `loom.workspace-layout.v1` local-storage record, with strict validation/default recovery and storage-failure feedback. No text, project, account, credential, or chat data is stored. Phase 2 may migrate these preferences when SQLite is introduced; Phase 1 does not introduce document persistence.
 
 Browser preview loads the same renderer and reports the absent desktop bridge honestly. It never simulates service readiness. The sample LaTeX is transient read-only source, and the paper is HTML used solely for reference layout comparison. It is not CodeMirror, Yjs, PDF.js, or a compiled artifact.
+
+## 14. Phase 2 persistence implementation
+
+Project commands are strict named capabilities. Only native dialogs authorize absolute project roots; renderer commands contain file IDs and validated relative paths. SQLite `metadata.sqlite` resides under Electron userData, using WAL/FULL synchronization and versioned migrations. Schema v1 stores manifests, Yjs recovery states, baselines, preferences and recoverable deleted bytes independently of Git. A newer schema is rejected.
+
+The utility process serializes project operations. Content comparison polls once per second while the renderer is connected and also precedes mutations, avoiding dependence on platform watcher delivery. Inode identity recognizes observed external renames; replacement saves retain path identity. Reconciliation merges disjoint baseline edits and preserves overlapping local/baseline/disk inputs as a conflict. Atomic writes checkpoint recovery first, fsync temporary files, recheck disk, rename and fsync the containing directory before acknowledgment. This is not an operating-system lock against a simultaneous external writer in the final check/rename window.
+
+Pilot limits are 2,000 files, 8 MiB per editable UTF-8 text file, 64 MiB compressed ZIP and 128 MiB expanded ZIP. Binary or larger files remain ordinary assets, outside the text editor. Symlink paths are excluded/rejected. ZIP imports validate every entry before extraction into a new destination. Git cloning remains Phase 7.

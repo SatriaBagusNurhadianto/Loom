@@ -2,7 +2,7 @@
 
 **Updated:** 3 November 2026
 
-**Overall:** Phase 1 application scaffold and Prism-reference workspace implemented and verified on Linux x86_64. Phase 2 has not started.
+**Overall:** Phase 1 application scaffold and Prism-reference workspace implemented and verified on Linux x86_64. Phase 2 is authorized and in progress.
 
 **Current milestone:** Phase 1 exit criteria passed. Independent review completed by GPT-6.1 Terra at medium effort, the user-authorized fallback. Both reported Phase 1 defects were fixed and the follow-up review found no additional actionable defects.
 
@@ -75,4 +75,10 @@ Generated artifacts are local evidence, ignored by Git. Tests use isolated tempo
 
 ## Next task
 
-Stop at Phase 1 as requested. The user can exercise the complete Phase 1 test guide. Begin Phase 2 only after separate user authorization.
+Implement and verify the Phase 2 project/editor workflow, then obtain the requested GPT-6-Luna medium independent review.
+
+## Phase 2 service foundation (in progress)
+
+- Added validated project commands, native folder/ZIP selection, utility-process project service, SQLite schema v1, stable file identities, recovery checkpoints, serialized atomic saves, and baseline reconciliation.
+- Nine new deterministic service tests pass (31 total): ordinary/non-ASCII paths, rename, binary delete/restore, overlap/disjoint edits, duplicate refresh, interrupted rename, reopen divergence, imports, path protection and migration guard.
+- Renderer integration and real Electron persistence verification remain pending; Phase 2 gates remain unchecked.
