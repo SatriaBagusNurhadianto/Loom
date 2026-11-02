@@ -35,8 +35,7 @@ async function readyPid(): Promise<number> {
   return result.value.pid;
 }
 
-test.beforeEach(async () => {
-  userData = await mkdtemp(join(tmpdir(), 'loom-desktop-e2e-'));
+async function launchDesktop(): Promise<void> {
   const env: Record<string, string> = Object.fromEntries(
     Object.entries(process.env).filter(
       (entry): entry is [string, string] => typeof entry[1] === 'string',
@@ -53,6 +52,10 @@ test.beforeEach(async () => {
   page = await desktop.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await readyPid();
+}
+test.beforeEach(async () => {
+  userData = await mkdtemp(join(tmpdir(), 'loom-desktop-e2e-'));
+  await launchDesktop();
 });
 
 test.afterEach(async () => {
@@ -64,7 +67,15 @@ test.afterEach(async () => {
     }
     stoppedPid = undefined;
   }
-  if (desktop) await desktop.close();
+  if (desktop) {
+    if (test.info().status !== test.info().expectedStatus)
+      await desktop
+        .evaluate(({ BrowserWindow }) => {
+          for (const win of BrowserWindow.getAllWindows()) win.destroy();
+        })
+        .catch(() => {});
+    await desktop.close();
+  }
   if (userData) await rm(userData, { recursive: true, force: true });
 });
 
@@ -276,6 +287,14 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await writeFile(join(folder, 'main.tex'), text.replace('Original text.', 'External text.'));
   await expect(editor).toContainText('External text.');
   await expect(editor).toContainText('% Human addition');
+  await editor.focus();
+  await page.keyboard.press('Control+z');
+  await expect(editor).toContainText('External text.');
+  await expect(editor).not.toContainText('% Human addition');
+  await page.keyboard.press('Control+Shift+z');
+  await expect(editor).toContainText('% Human addition');
+  await page.keyboard.press('Control+s');
+  await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
   await page.reload();
   await expect(editor).toContainText('% Human addition');
   await expect(editor).toContainText('External text.');
@@ -311,4 +330,165 @@ test('unsent local edits and external overlaps remain reviewable', async () => {
   await expect(editor).toContainText('Human replacement');
   await page.getByRole('button', { name: 'Keep local text' }).click();
   await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toBe('Human replacement');
+});
+
+test('file operations, root choice, search locations, find/replace and caret restoration', async () => {
+  const folder = await openSyntheticProject(),
+    editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.focus();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.getByRole('button', { name: 'references.bib', exact: true }).click();
+  await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
+  await editor.focus();
+  expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(3);
+  await page.getByRole('button', { name: 'Find / replace', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Find', exact: true }).fill('Original');
+  await page.getByRole('textbox', { name: 'Replace', exact: true }).fill('Updated');
+  await page.getByRole('button', { name: 'replace all', exact: true }).click();
+  await expect(editor).toContainText('Updated text.');
+  await page.getByRole('button', { name: 'close', exact: true }).click();
+  await editor.focus();
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('Updated text.');
+  const query = page.getByRole('textbox', { name: 'Search project text' });
+  await query.fill('Updated text.');
+  const hit = page.getByRole('button', { name: /main.tex:4/ });
+  await expect(hit).toBeVisible();
+  await hit.click();
+  await page.getByRole('button', { name: 'Clear project search' }).click();
+  await expect(query).toBeFocused();
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project-relative path' }).fill('章节/结果.tex');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await page.getByRole('button', { name: '章节/结果.tex', exact: true }).click();
+  await page.getByRole('button', { name: /Use 章节\/结果.tex as root/ }).click();
+  await page.getByRole('button', { name: 'Rename / move', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Project-relative path' }).fill('sections/results.tex');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'sections/results.tex', exact: true }).first(),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Project sidebar' })
+    .getByText('Recover deleted files', { exact: true })
+    .click();
+  await page.getByRole('button', { name: 'Restore sections/results.tex' }).click();
+  await expect
+    .poll(async () => {
+      try {
+        return await readFile(join(folder, 'sections/results.tex'), 'utf8');
+      } catch {
+        return null;
+      }
+    })
+    .toBe('');
+});
+
+test('IndexedDB-only edits survive renderer crash with disk divergence', async () => {
+  const folder = await openSyntheticProject();
+  const original = await readFile(join(folder, 'main.tex'), 'utf8');
+  const pid = await readyPid();
+  process.kill(pid, 'SIGSTOP');
+  stoppedPid = pid;
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.focus();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Recovered human text');
+  // A readonly transaction queues after y-indexeddb writes and proves they committed.
+  await page.evaluate(async () => {
+    for (const info of await indexedDB.databases()) {
+      if (!info.name?.startsWith('loom:')) continue;
+      await new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open(info.name!);
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('updates', 'readonly');
+          tx.objectStore('updates').getAll();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+        };
+      });
+    }
+  });
+  expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe(original);
+  await writeFile(join(folder, 'main.tex'), 'External while stopped');
+  process.kill(pid, 'SIGKILL');
+  stoppedPid = undefined;
+  const recoveredWindow = desktop.waitForEvent('window');
+  await desktop.evaluate(({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0].webContents;
+    process.kill(contents.getOSProcessId(), 'SIGKILL');
+  });
+  page = await recoveredWindow;
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Recovered human text',
+  );
+  await page.getByRole('button', { name: 'Keep local text' }).click();
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toBe('Recovered human text');
+});
+
+test('native project creation and ZIP import preserve ordinary source and assets', async () => {
+  const created = join(userData, 'created-project');
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+  }, created);
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Root: main.tex');
+  await page.keyboard.press('Escape');
+  expect(await readFile(join(created, 'main.tex'), 'utf8')).toContain('\\documentclass{article}');
+  const { zipSync, strToU8 } = await import('fflate');
+  const archive = join(userData, 'source.zip'),
+    destination = join(userData, 'imported-project');
+  await writeFile(
+    archive,
+    zipSync({
+      'paper.tex': strToU8('\\documentclass{article}\n\\begin{document}Imported\\end{document}'),
+      'figures/pixel.bin': new Uint8Array([0, 255, 4]),
+    }),
+  );
+  await desktop.evaluate(
+    ({ dialog }, paths) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [paths.archive] });
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: paths.destination });
+    },
+    { archive, destination },
+  );
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Import ZIP', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Root: paper.tex');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Imported',
+  );
+  expect(await readFile(join(destination, 'figures/pixel.bin'))).toEqual(Buffer.from([0, 255, 4]));
+});
+
+test('native close flushes pending text and working state before a full app reopen', async () => {
+  const folder = await openSyntheticProject();
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.focus();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('% close must flush');
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await desktop.close();
+  expect(await readFile(join(folder, 'main.tex'), 'utf8')).toContain('% close must flush');
+  await launchDesktop();
+  const restored = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await expect(restored).toContainText('% close must flush');
+  await restored.focus();
+  expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(3);
 });

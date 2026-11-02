@@ -315,3 +315,41 @@ describe('utility process lifecycle', () => {
     },
   );
 });
+
+describe('project round-trip lifecycle', () => {
+  it('correlates a validated project result and rejects pending operations on restart', async () => {
+    const transport = new FakeTransport();
+    const controller = new ServiceController(() => transport);
+    const ready = controller.start();
+    transport.ready();
+    await ready;
+    const operation = controller.project({ type: 'current' });
+    await Promise.resolve();
+    const request = transport.messages.at(-1) as { id: string };
+    transport.message({
+      type: 'project-result',
+      id: request.id,
+      result: { ok: true, value: null },
+    });
+    expect(await operation).toEqual({ ok: true, value: null });
+    const interrupted = controller.project({ type: 'refresh' });
+    await Promise.resolve();
+    controller.stop();
+    expect(await interrupted).toMatchObject({ ok: false, error: { code: 'SERVICE_UNAVAILABLE' } });
+  });
+  it('bounds unresponsive project operations and retires their generation', async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const controller = new ServiceController(() => transport);
+    const ready = controller.start();
+    transport.ready();
+    await ready;
+    const operation = controller.project({ type: 'refresh' });
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(await operation).toMatchObject({ ok: false, error: { code: 'TIMEOUT' } });
+    expect(transport.killed).toBe(true);
+    controller.stop();
+    vi.useRealTimers();
+  });
+});

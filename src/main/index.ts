@@ -22,6 +22,7 @@ import { ServiceController } from './service-controller';
 
 let window: BrowserWindow | undefined;
 let closeAllowed = false;
+let crashRecoveries = 0;
 const service = new ServiceController(() => {
   const child = utilityProcess.fork(join(__dirname, 'service.cjs'), [app.getPath('userData')], {
     serviceName: 'Loom local services',
@@ -77,11 +78,11 @@ function handle(channel: string, action: () => Promise<Result<ServiceStatus>>): 
   });
 }
 
-function createWindow(): void {
+function createWindow(bounds?: { width: number; height: number }): void {
   window = new BrowserWindow({
     title: 'Loom',
-    width: 1440,
-    height: 960,
+    width: bounds?.width ?? 1440,
+    height: bounds?.height ?? 960,
     minWidth: 720,
     minHeight: 540,
     backgroundColor: '#171717',
@@ -97,10 +98,16 @@ function createWindow(): void {
   const current = window;
   closeAllowed = false;
   current.on('close', (event) => {
-    if (!closeAllowed) {
+    if (!closeAllowed && !current.webContents.isCrashed()) {
       event.preventDefault();
       current.webContents.send(channels.closeRequest, {});
     }
+  });
+  current.webContents.on('render-process-gone', () => {
+    if (current.isDestroyed() || crashRecoveries++ >= 2) return;
+    const bounds = current.getBounds();
+    createWindow(bounds);
+    current.destroy();
   });
   current.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   current.webContents.on('will-navigate', (event) => {
@@ -157,7 +164,7 @@ void app.whenReady().then(() => {
           buttonLabel: 'Create project',
         });
         if (selected.canceled || !selected.filePath) return { ok: true, value: null };
-        return service.project({ type: 'create', path: selected.filePath });
+        return service.project({ type: 'native-create', path: selected.filePath });
       }
       const selected = await dialog.showOpenDialog(window!, {
         title: choice.data === 'import-zip' ? 'Import project ZIP' : 'Choose project folder',
@@ -168,14 +175,14 @@ void app.whenReady().then(() => {
       });
       if (selected.canceled) return { ok: true, value: null };
       if (choice.data === 'open')
-        return service.project({ type: 'open', path: selected.filePaths[0] });
+        return service.project({ type: 'native-open', path: selected.filePaths[0] });
       const target = await dialog.showSaveDialog(window!, {
         title: 'New imported project folder',
         buttonLabel: 'Import project',
       });
       if (target.canceled || !target.filePath) return { ok: true, value: null };
       return service.project({
-        type: choice.data,
+        type: `native-${choice.data}`,
         path: selected.filePaths[0],
         destination: target.filePath,
       });

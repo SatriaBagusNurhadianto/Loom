@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import { unzipSync } from 'fflate';
 import { relativePath, type ProjectCommand, type ProjectSnapshot } from '../../contracts/project';
 import { MetadataStore } from './store';
-import { reconcile } from './reconcile';
+import { reconcile, textChanges } from './reconcile';
 type RecordFile = {
   id: string;
   path: string;
@@ -16,6 +16,9 @@ type RecordFile = {
   inode: string;
   conflict: boolean;
   disk: string | null;
+  diskKind?: 'text' | 'binary' | 'missing';
+  diskRevision?: string | null;
+  overrideHash?: string;
   recovery?: number[];
 };
 type Project = {
@@ -25,7 +28,7 @@ type Project = {
   files: RecordFile[];
   preferences: string | null;
 };
-const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
 export class ProjectService {
   private root = '';
@@ -55,19 +58,16 @@ export class ProjectService {
     const doc = this.doc(file);
     const live = doc.getText('source');
     const old = live.toString();
-    if (old === text) return;
-    let start = 0;
-    while (start < old.length && start < text.length && old[start] === text[start]) start++;
-    let end = 0;
-    while (
-      end < old.length - start &&
-      end < text.length - start &&
-      old[old.length - 1 - end] === text[text.length - 1 - end]
-    )
-      end++;
+    if (old === text) {
+      file.state = Array.from(Y.encodeStateAsUpdate(doc));
+      return;
+    }
+    const changes = textChanges(old, text).sort((a, b) => b.from - a.from);
     doc.transact(() => {
-      live.delete(start, old.length - start - end);
-      live.insert(start, text.slice(start, text.length - end));
+      for (const change of changes) {
+        live.delete(change.from, change.to - change.from);
+        live.insert(change.from, change.text);
+      }
     }, 'filesystem');
     file.state = Array.from(Y.encodeStateAsUpdate(doc));
   }
@@ -87,8 +87,10 @@ export class ProjectService {
     }
     return target;
   }
-  private async scan(): Promise<Map<string, { text: string | null; inode: string }>> {
-    const found = new Map<string, { text: string | null; inode: string }>();
+  private async scan(): Promise<
+    Map<string, { text: string | null; inode: string; revision: string }>
+  > {
+    const found = new Map<string, { text: string | null; inode: string; revision: string }>();
     let total = 0;
     const walk = async (dir: string) => {
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -100,11 +102,15 @@ export class ProjectService {
           if (found.size >= 2000) throw new Error('This pilot supports up to 2,000 project files.');
           const stat = await fs.stat(path);
           let text: string | null = null;
+          let revision = `stat:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
           if (stat.size <= MAX_FILE) {
             total += stat.size;
             if (total > 32 * 1024 * 1024)
               throw new Error('This pilot supports up to 32 MiB of indexed project content.');
-            const bytes = await fs.readFile(path);
+            const bytes = await fs.readFile(
+              await this.safe(relative(this.root, path).split(sep).join('/')),
+            );
+            revision = hash(bytes);
             try {
               const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
               if (!decoded.includes('\0')) text = decoded;
@@ -114,6 +120,7 @@ export class ProjectService {
           }
           found.set(relative(this.root, path).split(sep).join('/'), {
             text,
+            revision,
             inode: `${stat.dev}:${stat.ino}`,
           });
         }
@@ -126,18 +133,34 @@ export class ProjectService {
     const root = await fs.realpath(path);
     if (!(await fs.stat(root)).isDirectory()) throw new Error('Choose a project folder.');
     this.persist();
-    for (const doc of this.documents.values()) doc.destroy();
-    this.documents.clear();
+    const previous = {
+      root: this.root,
+      project: this.project,
+      documents: this.documents,
+      loadedId: this.loadedId,
+    };
+    this.documents = new Map();
     this.root = root;
     this.loadedId = '';
-    const stored = this.store.load(root);
-    this.project = stored
-      ? JSON.parse(stored)
-      : { id: randomUUID(), name: basename(root), rootId: null, files: [], preferences: null };
-    this.store.set('lastProject', root);
-    await this.refresh();
-    return this.snapshot();
+    try {
+      const stored = this.store.load(root);
+      this.project = stored
+        ? JSON.parse(stored)
+        : { id: randomUUID(), name: basename(root), rootId: null, files: [], preferences: null };
+      await this.refresh();
+      this.store.set('lastProject', root);
+      for (const doc of previous.documents.values()) doc.destroy();
+      return this.snapshot();
+    } catch (error) {
+      for (const doc of this.documents.values()) doc.destroy();
+      this.root = previous.root;
+      this.project = previous.project;
+      this.documents = previous.documents;
+      this.loadedId = previous.loadedId;
+      throw error;
+    }
   }
+
   async current(): Promise<ProjectSnapshot | null> {
     if (!this.project) {
       const last = this.store.get('lastProject');
@@ -164,12 +187,15 @@ export class ProjectService {
     const src = await fs.realpath(source);
     if (resolve(destination).startsWith(src + sep) || resolve(destination) === src)
       throw new Error('Choose a destination outside the source folder.');
-    await fs.cp(src, destination, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-      filter: async (path) => !(await fs.lstat(path)).isSymbolicLink() && basename(path) !== '.git',
-    });
+    await fs.mkdir(destination, { recursive: false });
+    for (const entry of await fs.readdir(src))
+      await fs.cp(join(src, entry), join(destination, entry), {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        filter: async (path) =>
+          !(await fs.lstat(path)).isSymbolicLink() && basename(path) !== '.git',
+      });
     return this.open(destination);
   }
   async importZip(source: string, destination: string): Promise<ProjectSnapshot> {
@@ -213,6 +239,8 @@ export class ProjectService {
           found = renamed[1];
         }
       }
+      file.diskKind = found ? (found.text === null ? 'binary' : 'text') : 'missing';
+      file.diskRevision = found?.revision ?? null;
       if (file.deleted) {
         if (found) {
           disk.delete(file.path);
@@ -263,6 +291,8 @@ export class ProjectService {
         inode: found.inode,
         conflict: false,
         disk: found.text,
+        diskKind: found.text === null ? 'binary' : 'text',
+        diskRevision: found.revision,
       };
       if (found.text !== null) this.setText(file, found.text);
       this.project.files.push(file);
@@ -290,15 +320,18 @@ export class ProjectService {
     const text = this.doc(file).getText('source').toString();
     if (text === file.baseline) return;
     const target = await this.safe(file.path);
-    let disk: string | null = null;
+    let bytes: Buffer | null = null;
     try {
-      disk = await fs.readFile(target, 'utf8');
+      bytes = await fs.readFile(target);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
-    if (disk !== file.baseline) {
+    const expected = file.overrideHash ?? (file.baseline === null ? null : hash(file.baseline));
+    const diskHash = bytes === null ? null : hash(bytes);
+    if (diskHash !== expected) {
       file.conflict = true;
-      file.disk = disk;
+      file.diskRevision = diskHash;
+      file.disk = bytes?.toString('utf8') ?? null;
       this.persist();
       return;
     }
@@ -312,15 +345,16 @@ export class ProjectService {
       } finally {
         await handle.close();
       }
-      let latest: string | null = null;
+      let latest: Buffer | null = null;
       try {
-        latest = await fs.readFile(target, 'utf8');
+        latest = await fs.readFile(target);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
       }
-      if (latest !== disk) {
+      if ((latest === null ? null : hash(latest)) !== diskHash) {
         file.conflict = true;
-        file.disk = latest;
+        file.diskRevision = latest === null ? null : hash(latest);
+        file.disk = latest?.toString('utf8') ?? null;
         this.persist();
         return;
       }
@@ -336,6 +370,9 @@ export class ProjectService {
       } finally {
         await dir.close();
       }
+      delete file.overrideHash;
+      file.diskKind = 'text';
+      file.diskRevision = hash(text);
       file.baseline = text;
       file.disk = text;
       const stat = await fs.stat(target);
@@ -368,7 +405,11 @@ export class ProjectService {
     }
     await this.refresh();
     if (command.type === 'search') {
-      return { ...this.snapshot(), matches: this.store.search(this.root, command.query) };
+      return {
+        ...this.snapshot(),
+        matches: this.store.search(this.root, command.query),
+        hits: this.store.hits(this.root, command.query),
+      };
     }
     if (command.type === 'preferences') {
       this.project.preferences = command.value;
@@ -411,7 +452,8 @@ export class ProjectService {
         if (this.project.rootId === file.id) this.project.rootId = null;
       }
       if (command.type === 'restore') {
-        if (!file.deleted) throw new Error('This file is not deleted.');
+        if (!file.deleted && !(file.conflict && file.diskKind === 'missing' && file.recovery))
+          throw new Error('This file has no deleted recovery copy.');
         const bytes =
           file.recovery ?? Array.from(Buffer.from(this.doc(file).getText('source').toString()));
         await fs.mkdir(dirname(await this.safe(file.path)), { recursive: true });
@@ -422,16 +464,26 @@ export class ProjectService {
       }
       if (command.type === 'resolve') {
         if (!file.conflict) throw new Error('This conflict has already changed.');
-        if (file.disk !== command.disk)
+        if (file.disk !== command.disk || (file.diskRevision ?? null) !== command.diskRevision)
           throw new Error('The disk changed again. Review the latest conflict.');
         if (command.choice === 'disk') {
-          if (file.disk === null) {
+          if (file.diskKind === 'binary') {
+            file.binary = true;
+            file.baseline = null;
+          } else if (file.disk === null) {
             file.deleted = true;
           } else {
             this.setText(file, file.disk);
             file.baseline = file.disk;
           }
         } else {
+          if (file.diskKind === 'binary') {
+            if (file.diskRevision?.startsWith('stat:'))
+              throw new Error(
+                'This replacement exceeds the text size limit. Keep the disk asset or recover the source to another file.',
+              );
+            file.overrideHash = file.diskRevision ?? undefined;
+          }
           file.baseline = file.disk;
         }
         file.conflict = false;
@@ -458,6 +510,8 @@ export class ProjectService {
           update: f.id === this.loadedId ? f.state : [],
           baseline: f.id === this.loadedId ? f.baseline : null,
           disk: f.id === this.loadedId ? f.disk : null,
+          diskKind: f.diskKind ?? (f.disk === null ? 'missing' : 'text'),
+          diskRevision: f.id === this.loadedId ? (f.diskRevision ?? null) : null,
           conflict: f.conflict,
           deleted: f.deleted,
           revision: hash(text ?? ''),

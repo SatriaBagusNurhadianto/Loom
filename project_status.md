@@ -89,3 +89,10 @@ Implement and verify the Phase 2 project/editor workflow, then obtain the reques
 - First GPT-6-Luna medium review completed; identified seven gaps. Fixed overlapping dialogs, pending-edit reconciliation with baseline preconditions, reconnect, caret restoration, explicit search extension, SQLite derived indexes and on-demand snapshot payloads. Follow-up review remains pending.
 - Two new real Electron workflow tests now pass: opening through the native-picker boundary, editing/disk acknowledgment, tabs, external edit/reload, service restart, 2048×1096 and 900×700 views; unsent overlapping edits survive reload and resolve explicitly. Native dialog results are supplied by the test; real project service/CodeMirror/IndexedDB/disk I/O run normally.
 - UI static audit: zero findings. Full regression, additional recovery scenarios, final docs and reviewer follow-up remain pending.
+
+## Phase 2 review fixes and regression expansion (in progress)
+
+- Luna follow-up found the seven original gaps addressed and requested line/snippet/jump results for project text search; implemented those bounded results with navigation and clear/IME handling.
+- Added disk fingerprints and binary-vs-deletion conflict handling, interrupted deletion recovery, exclusive folder import destinations, empty-file Yjs initialization, distinct native-project/file commands and rollback of failed project opens.
+- Added incremental external patches, native close preference flush and replacement-window recovery after renderer termination. The Electron debugger's force-crash API hung before emitting termination; acceptance instead uses actual renderer SIGKILL, with committed IndexedDB updates and disk divergence.
+- Deterministic suite now passes 40 tests; nine Electron cases passed before final close/reopen/undo checks were added. Linux unpacked packaging passed. Final full regression and final review remain in progress.

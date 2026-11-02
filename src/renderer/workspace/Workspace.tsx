@@ -531,6 +531,7 @@ export function Workspace() {
                       fileId: projects.active(),
                       choice: 'local',
                       disk: projects.file()!.disk,
+                      diskRevision: projects.file()!.diskRevision,
                     })
                   }
                 >
@@ -543,6 +544,7 @@ export function Workspace() {
                       fileId: projects.active(),
                       choice: 'disk',
                       disk: projects.file()!.disk,
+                      diskRevision: projects.file()!.diskRevision,
                     })
                   }
                 >
@@ -604,6 +606,9 @@ export function Workspace() {
                     </EmptyState>
                   }
                 >
+                  <Show when={projects.loading()}>
+                    <p role="status">Loading source and recovery state…</p>
+                  </Show>
                   <SourceEditor workspace={projects} />
                 </Show>
               </Show>
@@ -787,7 +792,7 @@ export function Workspace() {
             />{' '}
             Wrap source lines
           </label>
-          <ProjectPanel workspace={projects} />
+          <ProjectPanel workspace={projects} onNavigate={() => setDialog(null)} />
         </Show>
       </Modal>
       <Modal

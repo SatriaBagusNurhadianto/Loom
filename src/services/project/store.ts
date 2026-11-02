@@ -43,6 +43,47 @@ export class MetadataStore {
         .all(project, query, query) as { id: string }[]
     ).map((r) => r.id);
   }
+  hits(
+    project: string,
+    query: string,
+  ): Array<{ fileId: string; path: string; line: number; offset: number; snippet: string }> {
+    const ids = this.search(project, query);
+    const result: Array<{
+      fileId: string;
+      path: string;
+      line: number;
+      offset: number;
+      snippet: string;
+    }> = [];
+    for (const id of ids) {
+      const row = this.db
+        .prepare('SELECT path,content FROM file_index WHERE project=? AND id=?')
+        .get(project, id) as { path: string; content: string };
+      let start = 0,
+        count = 0;
+      const lower = row.content.toLowerCase(),
+        needle = query.toLowerCase();
+      let offset = lower.indexOf(needle, start);
+      if (offset < 0)
+        result.push({ fileId: id, path: row.path, line: 1, offset: 0, snippet: row.path });
+      while (offset >= 0 && count++ < 20 && result.length < 200) {
+        const line = row.content.slice(0, offset).split('\n').length;
+        const from = row.content.lastIndexOf('\n', offset - 1) + 1,
+          to = row.content.indexOf('\n', offset);
+        result.push({
+          fileId: id,
+          path: row.path,
+          line,
+          offset,
+          snippet: row.content.slice(from, to < 0 ? undefined : to).slice(0, 200),
+        });
+        start = offset + Math.max(1, needle.length);
+        offset = lower.indexOf(needle, start);
+      }
+      if (result.length >= 200) break;
+    }
+    return result;
+  }
   get(key: string): string | null {
     return (
       (

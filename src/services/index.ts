@@ -8,7 +8,7 @@ if (!port) throw new Error('The Loom service requires a parent port.');
 const projects = new ProjectService(new MetadataStore(process.argv[2]));
 const native = z
   .object({
-    type: z.enum(['open', 'create', 'import-folder', 'import-zip']),
+    type: z.enum(['native-open', 'native-create', 'native-import-folder', 'native-import-zip']),
     path: z.string().min(1),
     destination: z.string().optional(),
   })
@@ -30,9 +30,9 @@ port.on('message', (event: { data: unknown }) => {
       let value;
       if (n.success) {
         const c = n.data;
-        if (c.type === 'open') value = await projects.open(c.path);
-        else if (c.type === 'create') value = await projects.create(c.path);
-        else if (c.type === 'import-folder')
+        if (c.type === 'native-open') value = await projects.open(c.path);
+        else if (c.type === 'native-create') value = await projects.create(c.path);
+        else if (c.type === 'native-import-folder')
           value = await projects.importFolder(c.path, c.destination!);
         else value = await projects.importZip(c.path, c.destination!);
       } else value = await projects.command(projectCommandSchema.parse(parsed.data.command));

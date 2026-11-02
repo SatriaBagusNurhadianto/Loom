@@ -24,6 +24,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     [tabs, setTabs] = createSignal<string[]>([]),
     [pending, setPending] = createSignal(false),
     [error, setError] = createSignal(''),
+    [storageError, setStorageError] = createSignal(''),
     [version, setVersion] = createSignal(0),
     [font, setFont] = createSignal(14),
     [wrap, setWrap] = createSignal(true),
@@ -130,6 +131,15 @@ export function createProjectWorkspace(report: (message: string) => void) {
     clearTimeout(timers.get(id));
     timers.delete(id);
     await d.ready;
+    if (!d.initialized)
+      return {
+        ok: false as const,
+        error: {
+          code: 'RECOVERY_UNAVAILABLE',
+          message: 'Recovery storage is unavailable. Reopen Loom to retry.',
+          retryable: true,
+        },
+      };
     const text = d.doc.getText('source').toString();
     return request(
       {
@@ -154,22 +164,23 @@ export function createProjectWorkspace(report: (message: string) => void) {
     if (c.type !== 'sync' && c.type !== 'current' && !(await flushPending())) return;
     return request(c);
   }
+  function persistPreferences() {
+    if (!project()) return Promise.resolve(undefined);
+    return request({
+      type: 'preferences',
+      value: JSON.stringify({
+        active: active(),
+        tabs: tabs(),
+        font: font(),
+        wrap: wrap(),
+        layout: storedLayout(),
+        carets: Object.fromEntries(carets),
+      }),
+    });
+  }
   function preferences() {
     clearTimeout(preferencesTimer);
-    preferencesTimer = setTimeout(() => {
-      if (project())
-        void command({
-          type: 'preferences',
-          value: JSON.stringify({
-            active: active(),
-            tabs: tabs(),
-            font: font(),
-            wrap: wrap(),
-            layout: storedLayout(),
-            carets: Object.fromEntries(carets),
-          }),
-        });
-    }, 300);
+    preferencesTimer = setTimeout(() => void persistPreferences(), 300);
   }
   async function select(id: string) {
     const f = project()?.files.find((f) => f.id === id);
@@ -204,8 +215,16 @@ export function createProjectWorkspace(report: (message: string) => void) {
       };
       docs.set(id, d);
       loading.delete(id);
-      d.ready = persistence.whenSynced
+      let recoveryTimeout: ReturnType<typeof setTimeout>;
+      const recovered = Promise.race([
+        persistence.whenSynced,
+        new Promise<never>((_resolve, reject) => {
+          recoveryTimeout = setTimeout(() => reject(new Error('Recovery timeout')), 5000);
+        }),
+      ]);
+      d.ready = recovered
         .then(() => {
+          clearTimeout(recoveryTimeout);
           if (disposed || docs.get(id) !== d) return;
           const recovered = doc.getMap('bridge').get('baseline');
           const recoveredText = doc.getText('source').toString();
@@ -216,7 +235,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
             d.baseline = recovered;
             d.dirty = true;
           } else {
-            Y.applyUpdate(doc, Uint8Array.from(loaded.update), 'service');
+            if (loaded.update.length) Y.applyUpdate(doc, Uint8Array.from(loaded.update), 'service');
             d.baseline = loaded.baseline;
             doc.transact(() => doc.getMap('bridge').set('baseline', loaded.baseline), 'service');
           }
@@ -233,12 +252,14 @@ export function createProjectWorkspace(report: (message: string) => void) {
           });
           if (persistence.db)
             persistence.db.onerror = () =>
-              setError('Local recovery storage failed. Save to disk before closing.');
+              setStorageError('Local recovery storage failed. Save to disk before closing.');
           setVersion((v) => v + 1);
           void flush(id);
         })
         .catch(() => {
-          setError('Local recovery storage is unavailable. Keep Loom open and save to disk.');
+          setStorageError(
+            'Local recovery storage is unavailable. Reopen Loom to retry; project files are retained.',
+          );
         });
       setVersion((v) => v + 1);
     }
@@ -254,6 +275,8 @@ export function createProjectWorkspace(report: (message: string) => void) {
     setPending(true);
     try {
       if (!(await flushPending())) return;
+      clearTimeout(preferencesTimer);
+      await persistPreferences();
       await queue;
       const result = await window.loom.chooseProject(choice);
       if (result.ok) {
@@ -300,6 +323,8 @@ export function createProjectWorkspace(report: (message: string) => void) {
             const result = await flush(id);
             if (result && !result.ok) return;
           }
+          clearTimeout(preferencesTimer);
+          await persistPreferences();
           await queue;
           if ([...docs.values()].some((d) => d.dirty)) {
             setError('Still saving. Wait for the disk acknowledgment and close again.');
@@ -334,7 +359,11 @@ export function createProjectWorkspace(report: (message: string) => void) {
     live,
     version,
     pending,
-    error,
+    error: () => storageError() || error(),
+    loading: () => {
+      version();
+      return !!file() && file()?.text !== null && !docs.get(active())?.initialized;
+    },
     saved,
     font,
     wrap,
@@ -355,6 +384,15 @@ export function createProjectWorkspace(report: (message: string) => void) {
     saveCaret: (id: string, c: Caret) => {
       carets.set(id, c);
       preferences();
+    },
+    locate: async (id: string, offset: number) => {
+      await select(id);
+      await docs.get(id)?.ready;
+      requestAnimationFrame(() =>
+        document
+          .querySelector('.cm-editor')
+          ?.dispatchEvent(new CustomEvent('loom:locate', { detail: offset })),
+      );
     },
     select,
     command,

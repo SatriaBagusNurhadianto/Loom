@@ -1,9 +1,13 @@
 import { createEffect, createMemo, createSignal, onCleanup, For, Show } from 'solid-js';
+import type { ProjectSnapshot } from '../../contracts/project';
 import type { ProjectWorkspace } from './documents';
 import { Modal } from '../ui/primitives';
-export function ProjectPanel(props: { workspace: ProjectWorkspace }) {
+export function ProjectPanel(props: { workspace: ProjectWorkspace; onNavigate?: () => void }) {
   const w = props.workspace;
   const [query, setQuery] = createSignal('');
+  const [composing, setComposing] = createSignal(false);
+  const [hits, setHits] = createSignal<NonNullable<ProjectSnapshot['hits']>>([]);
+  let searchInput!: HTMLInputElement;
   const [path, setPath] = createSignal('');
   const [operation, setOperation] = createSignal<'create' | 'rename' | 'delete' | null>(null);
   const [busy, setBusy] = createSignal(false);
@@ -11,14 +15,19 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace }) {
   const [matchIds, setMatchIds] = createSignal<string[] | null>(null);
   createEffect(() => {
     const q = query();
+    if (composing()) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       if (!q) {
         setMatchIds(null);
+        setHits([]);
         return;
       }
       void w.command({ type: 'search', query: q }).then((result) => {
-        if (!cancelled && result?.ok) setMatchIds(result.value?.matches ?? []);
+        if (!cancelled && result?.ok) {
+          setMatchIds(result.value?.matches ?? []);
+          setHits(result.value?.hits ?? []);
+        }
       });
     }, 300);
     onCleanup(() => {
@@ -94,17 +103,52 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace }) {
       </div>
       <div class="search-field">
         <input
+          ref={searchInput}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={(e) => {
+            setQuery(e.currentTarget.value);
+            setComposing(false);
+          }}
           aria-label="Search project text"
           placeholder="Search files and source…"
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
         <Show when={query()}>
-          <button aria-label="Clear project search" onClick={() => setQuery('')}>
+          <button
+            aria-label="Clear project search"
+            onClick={() => {
+              setQuery('');
+              setMatchIds(null);
+              setHits([]);
+              searchInput.focus();
+            }}
+          >
             ×
           </button>
         </Show>
       </div>
+      <Show when={query()}>
+        <section class="search-hits" aria-label="Project search results">
+          <p>{hits().length} matching locations (up to 200)</p>
+          <For each={hits()}>
+            {(hit) => (
+              <button
+                class="search-hit"
+                onClick={() => {
+                  props.onNavigate?.();
+                  void w.locate(hit.fileId, hit.offset);
+                }}
+              >
+                <strong>
+                  {hit.path}:{hit.line}
+                </strong>
+                <span>{hit.snippet}</span>
+              </button>
+            )}
+          </For>
+        </section>
+      </Show>
       <div class="project-files">
         <For each={matches()} fallback={<p>No matching files.</p>}>
           {(f) => (
@@ -147,8 +191,8 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace }) {
             <button
               class="outline-item"
               onClick={() => {
-                const editor = document.querySelector('.cm-editor');
-                editor?.dispatchEvent(new CustomEvent('loom:locate', { detail: s.offset }));
+                props.onNavigate?.();
+                void w.locate(w.active(), s.offset);
               }}
             >
               {s.title}

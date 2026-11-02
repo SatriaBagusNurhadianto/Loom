@@ -78,7 +78,13 @@ describe('ordinary projects and persistence', () => {
       saved: false,
     });
     expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('external');
-    await service.command({ type: 'resolve', fileId: f.id, choice: 'local', disk: f.disk });
+    await service.command({
+      type: 'resolve',
+      fileId: f.id,
+      choice: 'local',
+      disk: f.disk,
+      diskRevision: f.diskRevision,
+    });
     f = service.snapshot().files[0];
     expect(f.saved).toBe(true);
     expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('human');
@@ -109,7 +115,13 @@ describe('ordinary projects and persistence', () => {
     await rm(join(root, 'moved.tex'));
     await service.command({ type: 'refresh' });
     expect(service.snapshot().files[0].conflict).toBe(true);
-    await service.command({ type: 'resolve', fileId: id, choice: 'local', disk: null });
+    await service.command({
+      type: 'resolve',
+      fileId: id,
+      choice: 'local',
+      disk: null,
+      diskRevision: service.snapshot().files[0].diskRevision,
+    });
     expect(await readFile(join(root, 'moved.tex'), 'utf8')).toContain('alpha');
     await writeFile(join(root, 'image.bin'), Buffer.from([0, 255, 3]));
     await service.command({ type: 'refresh' });
@@ -156,4 +168,117 @@ describe('ordinary projects and persistence', () => {
 it('reconciliation refuses overlap, handles inserts and leaves compatible changes', () => {
   expect(reconcile('abc', 'axc', 'ayc')).toBeNull();
   expect(reconcile('abc', 'xabc', 'abcy')).toBe('xabcy');
+});
+
+it('uses an acknowledged baseline when disk was observed before a stale replica arrives', async () => {
+  const command = await edit('human\nbeta\ngamma\n');
+  await writeFile(join(root, 'main.tex'), 'external\nbeta\ngamma\n');
+  await service.command({ type: 'refresh' });
+  await service.command(command);
+  expect(service.snapshot().files[0]).toMatchObject({
+    text: 'human\nbeta\ngamma\n',
+    conflict: true,
+    disk: 'external\nbeta\ngamma\n',
+  });
+});
+it('loads only requested document payloads and rebuilds derived search indexes', async () => {
+  await writeFile(join(root, 'second.tex'), 'searchable phrase');
+  await service.command({ type: 'refresh' });
+  let snap = service.snapshot();
+  const second = snap.files.find((f) => f.path === 'second.tex')!;
+  expect(second.loaded).toBe(false);
+  expect(second.update).toEqual([]);
+  const result = await service.command({ type: 'search', query: 'searchable phrase' });
+  expect(result?.matches).toEqual([second.id]);
+  await service.command({ type: 'load', fileId: second.id });
+  snap = service.snapshot();
+  expect(snap.files.find((f) => f.path === 'main.tex')?.update).toEqual([]);
+  expect(snap.files.find((f) => f.id === second.id)?.text).toBe('searchable phrase');
+  store.db.exec('DELETE FROM file_index');
+  await service.command({ type: 'refresh' });
+  expect((await service.command({ type: 'search', query: 'searchable' }))?.matches).toEqual([
+    second.id,
+  ]);
+});
+it('distinguishes binary replacement from deletion and requires its current revision', async () => {
+  const id = service.snapshot().files[0].id;
+  await writeFile(join(root, 'main.tex'), Buffer.from([0, 255, 1]));
+  await service.command({ type: 'refresh' });
+  let f = service.snapshot().files[0];
+  expect(f).toMatchObject({ conflict: true, diskKind: 'binary', deleted: false });
+  await expect(
+    service.command({
+      type: 'resolve',
+      fileId: id,
+      choice: 'disk',
+      disk: null,
+      diskRevision: 'old',
+    }),
+  ).rejects.toThrow('changed again');
+  await service.command({
+    type: 'resolve',
+    fileId: id,
+    choice: 'local',
+    disk: null,
+    diskRevision: f.diskRevision,
+  });
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('alpha');
+  await writeFile(join(root, 'main.tex'), Buffer.from([0, 255, 2]));
+  await service.command({ type: 'refresh' });
+  f = service.snapshot().files[0];
+  await service.command({
+    type: 'resolve',
+    fileId: id,
+    choice: 'disk',
+    disk: null,
+    diskRevision: f.diskRevision,
+  });
+  expect(service.snapshot().files[0]).toMatchObject({
+    conflict: false,
+    deleted: false,
+    text: null,
+  });
+  expect(await readFile(join(root, 'main.tex'))).toEqual(Buffer.from([0, 255, 2]));
+});
+it('retains a deletion checkpoint when unlink succeeds but completion is interrupted', async () => {
+  const id = service.snapshot().files[0].id;
+  await service.command({ type: 'delete', fileId: id });
+  const raw = JSON.parse(store.load(root)!);
+  raw.files[0].deleted = false;
+  store.save(root, JSON.stringify(raw));
+  await service.open(root);
+  await service.command({ type: 'restore', fileId: id });
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('alpha');
+});
+it('does not merge a folder import into an existing destination', async () => {
+  const dest = join(dir, 'existing');
+  await mkdir(dest);
+  await writeFile(join(dest, 'precious'), 'keep');
+  await expect(service.importFolder(root, dest)).rejects.toThrow();
+  expect(await readFile(join(dest, 'precious'), 'utf8')).toBe('keep');
+});
+
+it('migrates schema v1 to v2 without losing recoverable project identity', async () => {
+  const id = service.snapshot().id;
+  store.db.exec('DROP TABLE file_index; PRAGMA user_version=1;');
+  store.close();
+  store = new MetadataStore(join(dir, 'data'));
+  service = new ProjectService(store);
+  expect((await service.current())?.id).toBe(id);
+  expect(store.search(root, 'alpha')).toHaveLength(1);
+});
+it('retains the old project when opening a new folder fails', async () => {
+  const original = service.snapshot();
+  const unavailable = join(dir, 'new-project');
+  await mkdir(unavailable);
+  await writeFile(join(unavailable, 'other.tex'), 'other');
+  const scan = vi.spyOn(store, 'index').mockImplementationOnce(() => {
+    throw new Error('index unavailable');
+  });
+  await expect(service.open(unavailable)).rejects.toThrow('unavailable');
+  scan.mockRestore();
+  expect(service.snapshot().id).toBe(original.id);
+  expect(store.get('lastProject')).toBe(root);
+  await service.command(await edit('old project remains editable'));
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('old project remains editable');
 });

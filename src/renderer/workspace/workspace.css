@@ -979,3 +979,25 @@ kbd {
 .document-tabs button[aria-pressed='true'] {
   background: var(--surface-raised);
 }
+.search-hits {
+  max-height: 24vh;
+  overflow: auto;
+}
+.search-hit {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.search-hit span {
+  color: var(--text-muted);
+}
+.live-editor .cm-panels {
+  background: var(--surface-sidebar);
+  color: var(--text-primary);
+}
+.live-editor .cm-textfield {
+  background: var(--surface-editor);
+  color: var(--text-primary);
+}

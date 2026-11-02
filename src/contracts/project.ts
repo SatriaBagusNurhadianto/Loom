@@ -36,6 +36,7 @@ export const projectCommandSchema = z.discriminatedUnion('type', [
       type: z.literal('resolve'),
       fileId: id,
       choice: z.enum(['local', 'disk']),
+      diskRevision: z.string().nullable(),
       disk: z.string().nullable(),
     })
     .strict(),
@@ -51,6 +52,8 @@ export const projectFileSchema = z
     update: z.array(z.number()),
     baseline: z.string().nullable(),
     disk: z.string().nullable(),
+    diskKind: z.enum(['text', 'binary', 'missing']),
+    diskRevision: z.string().nullable(),
     conflict: z.boolean(),
     deleted: z.boolean(),
     revision: z.string(),
@@ -66,6 +69,17 @@ export const projectSnapshotSchema = z
     files: z.array(projectFileSchema),
     preferences: z.string().nullable(),
     matches: z.array(id).optional(),
+    hits: z
+      .array(
+        z.object({
+          fileId: id,
+          path: relativePath,
+          line: z.number().int().positive(),
+          offset: z.number().int().nonnegative(),
+          snippet: z.string(),
+        }),
+      )
+      .optional(),
   })
   .strict();
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>;

@@ -28,7 +28,7 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
     const id = w.active();
     let cancelled = false;
     void d.ready.then(() => {
-      if (cancelled) return;
+      if (cancelled || !d.initialized) return;
       const caret = w.caret(id);
       view = new EditorView({
         parent: host,

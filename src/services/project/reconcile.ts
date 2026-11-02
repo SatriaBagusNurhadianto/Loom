@@ -1,6 +1,6 @@
 import { diffChars } from 'diff';
 type Edit = { from: number; to: number; text: string };
-function edits(base: string, next: string): Edit[] {
+export function textChanges(base: string, next: string): Edit[] {
   let offset = 0;
   const result: Edit[] = [];
   for (const part of diffChars(base, next)) {
@@ -20,8 +20,8 @@ function edits(base: string, next: string): Edit[] {
 export function reconcile(base: string, local: string, disk: string): string | null {
   if (local === base || local === disk) return disk;
   if (disk === base) return local;
-  const a = edits(base, local),
-    b = edits(base, disk);
+  const a = textChanges(base, local),
+    b = textChanges(base, disk);
   for (const x of a) for (const y of b) if (x.from <= y.to && y.from <= x.to) return null;
   let merged = base;
   for (const e of [...a, ...b].sort((x, y) => y.from - x.from))
