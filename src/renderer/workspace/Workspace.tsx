@@ -1,4 +1,7 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createProjectWorkspace } from '../editor/documents';
+import { SourceEditor } from '../editor/SourceEditor';
+import { ProjectPanel } from '../editor/ProjectPanel';
+import { untrack, createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import type { LoomDesktop, ServiceStatus } from '../../contracts/desktop';
 import { Icon } from '../ui/Icon';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
@@ -10,7 +13,7 @@ declare global {
     loom?: LoomDesktop;
   }
 }
-type Dialog = 'tools' | 'settings' | 'availability' | 'service' | null;
+type Dialog = 'projects' | 'tools' | 'settings' | 'availability' | 'service' | null;
 export function Workspace() {
   const layoutStorage = {
     getItem: (key: string) => window.localStorage.getItem(key),
@@ -19,6 +22,7 @@ export function Workspace() {
   const initial = loadLayout(layoutStorage);
   const [layout, setLayout] = createSignal(initial.layout);
   const [notice, setNotice] = createSignal(initial.warning ?? '');
+  const projects = createProjectWorkspace(setNotice);
   const [example, setExample] = createSignal(false);
   const [dialog, setDialog] = createSignal<Dialog>(null);
   const [availability, setAvailability] = createSignal({ title: '', detail: '' });
@@ -147,6 +151,20 @@ export function Workspace() {
       setBusy(false);
     }
   };
+  let restoredProject = '';
+  createEffect(() => {
+    const project = projects.project();
+    if (project && restoredProject !== project.id) {
+      restoredProject = project.id;
+      const saved = untrack(projects.storedLayout);
+      if (saved) setLayout(saved);
+      else projects.setStoredLayout(untrack(layout));
+    }
+  });
+  createEffect(() => {
+    const value = layout();
+    if (untrack(projects.project)) projects.setStoredLayout(value);
+  });
   createEffect(() => {
     if (!saveLayout(layoutStorage, layout()))
       setNotice(
@@ -241,168 +259,169 @@ export function Workspace() {
                 onClick={() => update({ sidebarOpen: false })}
               />
             </div>
-            <button
-              class="project-selector"
-              onClick={() =>
-                showUnavailable(
-                  'Projects',
-                  'Opening, creating, and importing ordinary LaTeX projects arrives in Phase 2. Explore the workspace with the read-only example below.',
-                )
-              }
-            >
-              <span>{example() ? 'Example project' : 'No project open'}</span>
+            <button class="project-selector" onClick={() => setDialog('projects')}>
+              <span>
+                {projects.project()?.name ?? (example() ? 'Example project' : 'No project open')}
+              </span>
               <Icon name="down" />
             </button>
-            <div class="file-toolbar">
-              <div class="tab-buttons" role="group" aria-label="Sidebar content">
-                <button
-                  aria-pressed={layout().tab === 'files'}
-                  classList={{ selected: layout().tab === 'files' }}
-                  onClick={() => update({ tab: 'files' })}
-                >
-                  Files
-                </button>
-                <button
-                  aria-pressed={layout().tab === 'chats'}
-                  classList={{ selected: layout().tab === 'chats' }}
-                  onClick={() => update({ tab: 'chats' })}
-                >
-                  Chats
-                </button>
-              </div>
-              <IconButton
-                label="Search example files"
-                icon="search"
-                active={searchOpen()}
-                onClick={() => {
-                  setSearchOpen(!searchOpen());
-                  if (searchOpen()) requestAnimationFrame(() => search?.focus());
-                  else setQuery('');
-                }}
-              />
-              <IconButton
-                label={
-                  layout().tab === 'files' ? 'Add file — availability' : 'New chat — availability'
-                }
-                icon="plus"
-                onClick={() =>
-                  showUnavailable(
-                    layout().tab === 'files' ? 'File operations' : 'Agent conversations',
-                    layout().tab === 'files'
-                      ? 'File creation and project persistence arrive in Phase 2.'
-                      : 'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
-                  )
-                }
-              />
-            </div>
-            <Show when={searchOpen()}>
-              <div class="search-field">
-                <Icon name="search" />
-                <input
-                  ref={search}
-                  aria-label="Search example files"
-                  placeholder="Search example files…"
-                  value={query()}
-                  onInput={(e) => setQuery(e.currentTarget.value)}
+            <Show when={!projects.project()}>
+              <div class="file-toolbar">
+                <div class="tab-buttons" role="group" aria-label="Sidebar content">
+                  <button
+                    aria-pressed={layout().tab === 'files'}
+                    classList={{ selected: layout().tab === 'files' }}
+                    onClick={() => update({ tab: 'files' })}
+                  >
+                    Files
+                  </button>
+                  <button
+                    aria-pressed={layout().tab === 'chats'}
+                    classList={{ selected: layout().tab === 'chats' }}
+                    onClick={() => update({ tab: 'chats' })}
+                  >
+                    Chats
+                  </button>
+                </div>
+                <IconButton
+                  label="Search example files"
+                  icon="search"
+                  active={searchOpen()}
+                  onClick={() => {
+                    setSearchOpen(!searchOpen());
+                    if (searchOpen()) requestAnimationFrame(() => search?.focus());
+                    else setQuery('');
+                  }}
                 />
-                <Show when={query()}>
-                  <IconButton
-                    label="Clear file search"
-                    icon="close"
-                    onClick={() => {
-                      setQuery('');
-                      search.focus();
-                    }}
-                  />
-                </Show>
+                <IconButton
+                  label={
+                    layout().tab === 'files' ? 'Add file — availability' : 'New chat — availability'
+                  }
+                  icon="plus"
+                  onClick={() =>
+                    showUnavailable(
+                      layout().tab === 'files' ? 'File operations' : 'Agent conversations',
+                      layout().tab === 'files'
+                        ? 'File creation and project persistence arrive in Phase 2.'
+                        : 'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
+                    )
+                  }
+                />
               </div>
-            </Show>
-            <div class="file-list" aria-live="polite">
-              <Show
-                when={layout().tab === 'files'}
-                fallback={
-                  <div class="sidebar-empty">
-                    <Icon name="chat" />
-                    <p>No conversations yet</p>
-                    <span>Connect an agent in Phase 4.</span>
-                  </div>
-                }
-              >
+              <Show when={searchOpen()}>
+                <div class="search-field">
+                  <Icon name="search" />
+                  <input
+                    ref={search}
+                    aria-label="Search example files"
+                    placeholder="Search example files…"
+                    value={query()}
+                    onInput={(e) => setQuery(e.currentTarget.value)}
+                  />
+                  <Show when={query()}>
+                    <IconButton
+                      label="Clear file search"
+                      icon="close"
+                      onClick={() => {
+                        setQuery('');
+                        search.focus();
+                      }}
+                    />
+                  </Show>
+                </div>
+              </Show>
+              <div class="file-list" aria-live="polite">
                 <Show
-                  when={example()}
+                  when={layout().tab === 'files'}
                   fallback={
                     <div class="sidebar-empty">
-                      <Icon name="folder" />
-                      <p>Your project starts here</p>
-                      <span>Project support arrives in Phase 2.</span>
-                      <button class="text-button" onClick={showExample}>
-                        View workspace example
-                      </button>
+                      <Icon name="chat" />
+                      <p>No conversations yet</p>
+                      <span>Connect an agent in Phase 4.</span>
                     </div>
                   }
                 >
                   <Show
-                    when={'main.tex'.includes(query().toLowerCase())}
+                    when={example()}
                     fallback={
                       <div class="sidebar-empty">
-                        <p>No matching example files</p>
-                        <button
-                          class="text-button"
-                          onClick={() => {
-                            setQuery('');
-                            search?.focus();
-                          }}
-                        >
-                          Clear search
+                        <Icon name="folder" />
+                        <p>Your project starts here</p>
+                        <span>Open or create a project to begin.</span>
+                        <button class="text-button" onClick={showExample}>
+                          View workspace example
                         </button>
                       </div>
                     }
                   >
+                    <Show
+                      when={'main.tex'.includes(query().toLowerCase())}
+                      fallback={
+                        <div class="sidebar-empty">
+                          <p>No matching example files</p>
+                          <button
+                            class="text-button"
+                            onClick={() => {
+                              setQuery('');
+                              search?.focus();
+                            }}
+                          >
+                            Clear search
+                          </button>
+                        </div>
+                      }
+                    >
+                      <button
+                        class="file-row selected"
+                        onClick={() => {
+                          focusMode('split');
+                          source?.focus();
+                        }}
+                      >
+                        <Icon name="file" />
+                        <span>main.tex</span>
+                        <span class="file-badge">example</span>
+                      </button>
+                    </Show>
+                  </Show>
+                </Show>
+              </div>
+            </Show>
+            <Show when={projects.project()}>
+              <ProjectPanel workspace={projects} />
+            </Show>
+            <Show when={!projects.project()}>
+              <section class="outline">
+                <button
+                  class="outline-heading"
+                  aria-expanded={layout().outlineOpen}
+                  onClick={() => update({ outlineOpen: !layout().outlineOpen })}
+                >
+                  <span classList={{ rotated: !layout().outlineOpen }}>
+                    <Icon name="down" size={16} />
+                  </span>
+                  Outline
+                </button>
+                <Show when={layout().outlineOpen}>
+                  <Show
+                    when={example()}
+                    fallback={<p class="outline-empty">Sections will appear here.</p>}
+                  >
                     <button
-                      class="file-row selected"
+                      class="outline-item"
                       onClick={() => {
-                        focusMode('split');
-                        source?.focus();
+                        focusMode('source');
+                        requestAnimationFrame(() =>
+                          document.getElementById('line-19')?.scrollIntoView({ block: 'center' }),
+                        );
                       }}
                     >
-                      <Icon name="file" />
-                      <span>main.tex</span>
-                      <span class="file-badge">example</span>
+                      Introduction
                     </button>
                   </Show>
                 </Show>
-              </Show>
-            </div>
-            <section class="outline">
-              <button
-                class="outline-heading"
-                aria-expanded={layout().outlineOpen}
-                onClick={() => update({ outlineOpen: !layout().outlineOpen })}
-              >
-                <span classList={{ rotated: !layout().outlineOpen }}>
-                  <Icon name="down" size={16} />
-                </span>
-                Outline
-              </button>
-              <Show when={layout().outlineOpen}>
-                <Show
-                  when={example()}
-                  fallback={<p class="outline-empty">Sections will appear here.</p>}
-                >
-                  <button
-                    class="outline-item"
-                    onClick={() => {
-                      focusMode('source');
-                      requestAnimationFrame(() =>
-                        document.getElementById('line-19')?.scrollIntoView({ block: 'center' }),
-                      );
-                    }}
-                  >
-                    Introduction
-                  </button>
-                </Show>
-              </Show>
-            </section>
+              </section>
+            </Show>
             <footer class="sidebar-footer">
               <span class="avatar">L</span>
               <div>
@@ -440,48 +459,153 @@ export function Workspace() {
               </Show>
               <span class="source-tab">
                 <Icon name="file" />
-                <span>{example() ? 'main.tex' : 'Workspace'}</span>
+                <span>{projects.file()?.path ?? (example() ? 'main.tex' : 'Workspace')}</span>
               </span>
-              <span class="readonly-label">{example() ? 'Example · read only' : 'Phase 1'}</span>
+              <span class="readonly-label">
+                {projects.project()
+                  ? projects.saved()
+                    ? 'Saved to disk'
+                    : projects.file()?.conflict
+                      ? 'Conflict · review required'
+                      : 'Unsaved · recovery pending'
+                  : example()
+                    ? 'Example · read only'
+                    : 'Phase 2'}
+              </span>
               <button class="tools-button" onClick={() => setDialog('tools')}>
                 Tools <Icon name="tools" />
               </button>
             </div>
+            <Show when={projects.project()}>
+              <div class="document-tabs">
+                <For
+                  each={projects
+                    .tabs()
+                    .filter((id) =>
+                      projects.project()?.files.some((f) => f.id === id && !f.deleted),
+                    )}
+                >
+                  {(id) => (
+                    <button
+                      aria-pressed={projects.active() === id}
+                      onClick={() => void projects.select(id)}
+                    >
+                      {projects.project()?.files.find((f) => f.id === id)?.path}
+                    </button>
+                  )}
+                </For>
+                <button onClick={() => void projects.flush()}>Save</button>
+                <button
+                  onClick={() =>
+                    document
+                      .querySelector('.cm-editor')
+                      ?.dispatchEvent(new CustomEvent('loom:find'))
+                  }
+                >
+                  Find / replace
+                </button>
+                <button onClick={() => setDialog('projects')}>Project</button>
+              </div>
+            </Show>
+            <Show when={projects.error()}>
+              <div role="alert" class="project-error">
+                {projects.error()}
+                <button onClick={() => void projects.flush()}>Retry save</button>
+              </div>
+            </Show>
+            <Show when={projects.file()?.conflict}>
+              <section class="conflict-panel" aria-label="File conflict">
+                <h3>External changes need review</h3>
+                <p>Your text and the disk version are preserved. Choose which version to keep.</p>
+                <details>
+                  <summary>Compare baseline and disk</summary>
+                  <h4>Last synchronized</h4>
+                  <pre>{projects.file()?.baseline ?? '(missing)'}</pre>
+                  <h4>Current disk</h4>
+                  <pre>{projects.file()?.disk ?? '(deleted or binary)'}</pre>
+                </details>
+                <button
+                  onClick={() =>
+                    void projects.command({
+                      type: 'resolve',
+                      fileId: projects.active(),
+                      choice: 'local',
+                      disk: projects.file()!.disk,
+                    })
+                  }
+                >
+                  Keep local text
+                </button>
+                <button
+                  onClick={() =>
+                    void projects.command({
+                      type: 'resolve',
+                      fileId: projects.active(),
+                      choice: 'disk',
+                      disk: projects.file()!.disk,
+                    })
+                  }
+                >
+                  Use disk version
+                </button>
+              </section>
+            </Show>
             <div class="source-content">
               <Show
-                when={example()}
+                when={projects.project()}
                 fallback={
-                  <EmptyState icon="file" title="A place for your next paper">
-                    <p>Your source, assistant, and PDF, together.</p>
-                    <p>Explore the layout while project support is being built.</p>
-                    <button class="primary-button" onClick={showExample}>
-                      View workspace example
-                    </button>
-                  </EmptyState>
+                  <>
+                    <Show
+                      when={example()}
+                      fallback={
+                        <EmptyState icon="file" title="A place for your next paper">
+                          <p>Your source, assistant, and PDF, together.</p>
+                          <p>Open a folder or create an ordinary LaTeX project.</p>
+                          <button class="primary-button" onClick={() => setDialog('projects')}>
+                            Open or create project
+                          </button>
+                          <button class="text-button" onClick={showExample}>
+                            View workspace example
+                          </button>
+                        </EmptyState>
+                      }
+                    >
+                      <div
+                        class="code-view"
+                        role="region"
+                        aria-label="Read-only LaTeX example"
+                        tabIndex={0}
+                      >
+                        <For each={exampleSource.split('\n')}>
+                          {(line, i) => (
+                            <div class="code-line" id={`line-${i()}`}>
+                              <span class="line-number" aria-hidden="true">
+                                {i() + 1}
+                              </span>
+                              <code>
+                                <For each={tokenize(line)}>
+                                  {(token) => <span class={token.kind}>{token.text}</span>}
+                                </For>
+                                {line === '' ? ' ' : ''}
+                              </code>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </>
                 }
               >
-                <div
-                  class="code-view"
-                  role="region"
-                  aria-label="Read-only LaTeX example"
-                  tabIndex={0}
+                <Show
+                  when={projects.file()?.text !== null}
+                  fallback={
+                    <EmptyState icon="file" title="Project asset">
+                      <p>This asset stays in its original format. Text editing is unavailable.</p>
+                    </EmptyState>
+                  }
                 >
-                  <For each={exampleSource.split('\n')}>
-                    {(line, i) => (
-                      <div class="code-line" id={`line-${i()}`}>
-                        <span class="line-number" aria-hidden="true">
-                          {i() + 1}
-                        </span>
-                        <code>
-                          <For each={tokenize(line)}>
-                            {(token) => <span class={token.kind}>{token.text}</span>}
-                          </For>
-                          {line === '' ? ' ' : ''}
-                        </code>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                  <SourceEditor workspace={projects} />
+                </Show>
               </Show>
             </div>
             <div class="composer-area">
@@ -523,7 +647,7 @@ export function Workspace() {
                 <span>
                   {example()
                     ? 'Synthetic example · no files on disk'
-                    : 'Local workspace · Phase 1 foundation'}
+                    : 'Local workspace · Phase 2 projects'}
                 </span>
                 <button class="status-button" onClick={() => setDialog('service')}>
                   <span class="status-dot" classList={{ ready: service().state === 'ready' }} />
@@ -618,6 +742,54 @@ export function Workspace() {
           <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
         </div>
       </Show>
+      <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
+        <p>Source and assets stay in an ordinary folder. Imports create a new copy.</p>
+        <div class="project-actions">
+          <button disabled={projects.pending()} onClick={() => void projects.choose('open')}>
+            Open folder
+          </button>
+          <button disabled={projects.pending()} onClick={() => void projects.choose('create')}>
+            Create project
+          </button>
+          <button
+            disabled={projects.pending()}
+            onClick={() => void projects.choose('import-folder')}
+          >
+            Import folder
+          </button>
+          <button disabled={projects.pending()} onClick={() => void projects.choose('import-zip')}>
+            Import ZIP
+          </button>
+        </div>
+        <Show when={projects.pending()}>
+          <p role="status">Waiting for project selection…</p>
+        </Show>
+        <Show when={projects.error()}>
+          <p role="alert">{projects.error()}</p>
+        </Show>
+        <Show when={projects.project()}>
+          <label>
+            Editor font size
+            <input
+              aria-label="Editor font size"
+              type="range"
+              min="11"
+              max="24"
+              value={projects.font()}
+              onInput={(e) => projects.setFont(Number(e.currentTarget.value))}
+            />
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={projects.wrap()}
+              onChange={(e) => projects.setWrap(e.currentTarget.checked)}
+            />{' '}
+            Wrap source lines
+          </label>
+          <ProjectPanel workspace={projects} />
+        </Show>
+      </Modal>
       <Modal
         title={
           dialog() === 'tools'
@@ -628,7 +800,7 @@ export function Workspace() {
                 ? 'Desktop service'
                 : availability().title
         }
-        open={dialog() !== null}
+        open={dialog() !== null && dialog() !== 'projects'}
         onClose={() => setDialog(null)}
       >
         <Show when={dialog() === 'availability'}>
@@ -638,7 +810,7 @@ export function Workspace() {
           </button>
         </Show>
         <Show when={dialog() === 'tools' || dialog() === 'settings'}>
-          <p class="muted">Phase 1 · workspace foundation</p>
+          <p class="muted">Phase 2 · local projects</p>
           <div class="settings-section">
             <h3>View</h3>
             <div class="view-buttons">

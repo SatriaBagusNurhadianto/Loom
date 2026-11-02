@@ -7,6 +7,8 @@ import {
 import { z } from 'zod';
 
 export const channels = {
+  closeRequest: 'loom:window:close-request',
+  closeReady: 'loom:window:close-ready',
   status: 'loom:service:status',
   restart: 'loom:service:restart',
   event: 'loom:service:event',
@@ -59,6 +61,8 @@ export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 export interface LoomDesktop {
   project(command: ProjectCommand): Promise<ProjectResult>;
   chooseProject(choice: ProjectChoice): Promise<ProjectResult>;
+  onCloseRequest(listener: () => void): () => void;
+  completeClose(): Promise<void>;
   getStatus(): Promise<Result<ServiceStatus>>;
   restartService(): Promise<Result<ServiceStatus>>;
   onServiceEvent(listener: (event: ServiceEvent) => void): () => void;

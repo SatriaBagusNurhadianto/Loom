@@ -18,10 +18,14 @@ export const projectCommandSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('sync'),
       fileId: id,
+      baseline: z.string().nullable(),
+      text: z.string().max(8 * 1024 * 1024),
       update: z.array(z.number().int().min(0).max(255)).max(32_000_000),
     })
     .strict(),
   z.object({ type: z.literal('refresh') }).strict(),
+  z.object({ type: z.literal('load'), fileId: id }).strict(),
+  z.object({ type: z.literal('search'), query: z.string().max(500) }).strict(),
   z.object({ type: z.literal('create'), path: relativePath }).strict(),
   z.object({ type: z.literal('rename'), fileId: id, path: relativePath }).strict(),
   z.object({ type: z.literal('delete'), fileId: id }).strict(),
@@ -41,6 +45,7 @@ export type ProjectCommand = z.infer<typeof projectCommandSchema>;
 export const projectFileSchema = z
   .object({
     id,
+    loaded: z.boolean(),
     path: relativePath,
     text: z.string().nullable(),
     update: z.array(z.number()),
@@ -60,6 +65,7 @@ export const projectSnapshotSchema = z
     rootId: id.nullable(),
     files: z.array(projectFileSchema),
     preferences: z.string().nullable(),
+    matches: z.array(id).optional(),
   })
   .strict();
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>;

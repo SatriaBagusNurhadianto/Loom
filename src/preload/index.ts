@@ -48,6 +48,14 @@ const desktop: LoomDesktop = {
       return failure('SERVICE_UNAVAILABLE', 'Project dialog failed. Retry.');
     }
   },
+  onCloseRequest: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(channels.closeRequest, handler);
+    return () => ipcRenderer.removeListener(channels.closeRequest, handler);
+  },
+  completeClose: async () => {
+    await ipcRenderer.invoke(channels.closeReady, {});
+  },
   getStatus: () => invoke(channels.status),
   restartService: () => invoke(channels.restart),
   onServiceEvent: (listener) => {

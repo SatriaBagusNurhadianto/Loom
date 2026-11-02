@@ -1,5 +1,5 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 
@@ -93,7 +93,15 @@ test('real isolated Electron boundary and a restartable utility process', async 
       process: typeof (window as unknown as { process?: unknown }).process,
     })),
   ).toEqual({
-    api: ['getStatus', 'onServiceEvent', 'restartService'],
+    api: [
+      'chooseProject',
+      'completeClose',
+      'getStatus',
+      'onCloseRequest',
+      'onServiceEvent',
+      'project',
+      'restartService',
+    ],
     require: 'undefined',
     process: 'undefined',
   });
@@ -228,4 +236,79 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.keyboard.press('Enter');
   await expect(page.getByRole('main', { name: 'Source workspace' })).toBeFocused();
   await expect(page.getByRole('region', { name: 'Read-only LaTeX example' })).toBeVisible();
+});
+
+async function openSyntheticProject(): Promise<string> {
+  await dimensions(1440, 960);
+  const folder = join(userData, 'synthetic-project');
+  await mkdir(folder);
+  await writeFile(
+    join(folder, 'main.tex'),
+    '\\documentclass{article}\n\\begin{document}\n\\section{Introduction}\nOriginal text.\n\\end{document}\n',
+  );
+  await writeFile(join(folder, 'references.bib'), '@article{test, title={Synthetic}}\n');
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, folder);
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Root: main.tex');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Original text.',
+  );
+  return folder;
+}
+test('real project editing, external reconciliation, restart, IndexedDB, tabs and small window', async () => {
+  const folder = await openSyntheticProject();
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('% Human addition');
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('% Human addition');
+  await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
+  await page.getByRole('button', { name: 'references.bib', exact: true }).click();
+  await expect(editor).toContainText('@article');
+  await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
+  await expect(editor).toContainText('% Human addition');
+  const text = await readFile(join(folder, 'main.tex'), 'utf8');
+  await writeFile(join(folder, 'main.tex'), text.replace('Original text.', 'External text.'));
+  await expect(editor).toContainText('External text.');
+  await expect(editor).toContainText('% Human addition');
+  await page.reload();
+  await expect(editor).toContainText('% Human addition');
+  await expect(editor).toContainText('External text.');
+  await page.evaluate(() => window.loom!.restartService());
+  await expect(editor).toContainText('% Human addition');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type(' after restart');
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('after restart');
+  await mkdir(resolve('artifacts'), { recursive: true });
+  await dimensions(2048, 1096);
+  await page.screenshot({ path: resolve('artifacts/phase-2-electron-reference.png') });
+  await dimensions(900, 700);
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('references.bib');
+  await page.screenshot({ path: resolve('artifacts/phase-2-electron-small.png') });
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test('unsent local edits and external overlaps remain reviewable', async () => {
+  const folder = await openSyntheticProject();
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type('Human replacement');
+  await writeFile(join(folder, 'main.tex'), 'External replacement');
+  await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible();
+  await expect(editor).toContainText('Human replacement');
+  expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe('External replacement');
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible();
+  await expect(editor).toContainText('Human replacement');
+  await page.getByRole('button', { name: 'Keep local text' }).click();
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toBe('Human replacement');
 });

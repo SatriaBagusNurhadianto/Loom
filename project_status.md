@@ -82,3 +82,10 @@ Implement and verify the Phase 2 project/editor workflow, then obtain the reques
 - Added validated project commands, native folder/ZIP selection, utility-process project service, SQLite schema v1, stable file identities, recovery checkpoints, serialized atomic saves, and baseline reconciliation.
 - Nine new deterministic service tests pass (31 total): ordinary/non-ASCII paths, rename, binary delete/restore, overlap/disjoint edits, duplicate refresh, interrupted rename, reopen divergence, imports, path protection and migration guard.
 - Renderer integration and real Electron persistence verification remain pending; Phase 2 gates remain unchecked.
+
+## Phase 2 editor workflow (in progress)
+
+- Added CodeMirror/Yjs editing, IndexedDB recovery, project picker/file operations, tabs, section outline, explicit save, conflict review, font/wrapping and per-file caret preferences.
+- First GPT-6-Luna medium review completed; identified seven gaps. Fixed overlapping dialogs, pending-edit reconciliation with baseline preconditions, reconnect, caret restoration, explicit search extension, SQLite derived indexes and on-demand snapshot payloads. Follow-up review remains pending.
+- Two new real Electron workflow tests now pass: opening through the native-picker boundary, editing/disk acknowledgment, tabs, external edit/reload, service restart, 2048×1096 and 900×700 views; unsent overlapping edits survive reload and resolve explicitly. Native dialog results are supplied by the test; real project service/CodeMirror/IndexedDB/disk I/O run normally.
+- UI static audit: zero findings. Full regression, additional recovery scenarios, final docs and reviewer follow-up remain pending.

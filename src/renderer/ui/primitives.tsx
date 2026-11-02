@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, type JSX } from 'solid-js';
+import { createEffect, createUniqueId, onCleanup, type JSX } from 'solid-js';
 import { Icon, type IconName } from './Icon';
 export function IconButton(props: {
   label: string;
@@ -43,6 +43,7 @@ export function Modal(props: {
   onClose: () => void;
   children: JSX.Element;
 }) {
+  const titleId = createUniqueId();
   let dialog!: HTMLDialogElement;
   let previous: HTMLElement | null = null;
   createEffect(() => {
@@ -60,7 +61,7 @@ export function Modal(props: {
   return (
     <dialog
       ref={dialog}
-      aria-labelledby="modal-title"
+      aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
         props.onClose();
@@ -79,7 +80,7 @@ export function Modal(props: {
       }}
     >
       <div class="modal-heading">
-        <h2 id="modal-title">{props.title}</h2>
+        <h2 id={titleId}>{props.title}</h2>
         <IconButton label="Close dialog" icon="close" onClick={props.onClose} />
       </div>
       <div class="modal-body">{props.children}</div>

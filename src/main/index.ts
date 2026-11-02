@@ -21,6 +21,7 @@ import {
 import { ServiceController } from './service-controller';
 
 let window: BrowserWindow | undefined;
+let closeAllowed = false;
 const service = new ServiceController(() => {
   const child = utilityProcess.fork(join(__dirname, 'service.cjs'), [app.getPath('userData')], {
     serviceName: 'Loom local services',
@@ -94,6 +95,13 @@ function createWindow(): void {
     },
   });
   const current = window;
+  closeAllowed = false;
+  current.on('close', (event) => {
+    if (!closeAllowed) {
+      event.preventDefault();
+      current.webContents.send(channels.closeRequest, {});
+    }
+  });
   current.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   current.webContents.on('will-navigate', (event) => {
     event.preventDefault();
@@ -117,6 +125,11 @@ void app.whenReady().then(() => {
     callback(false);
   });
   session.defaultSession.setPermissionCheckHandler(() => false);
+  ipcMain.handle(channels.closeReady, (event, payload: unknown) => {
+    if (!trustedSender(event) || !emptyRequestSchema.safeParse(payload).success) return;
+    closeAllowed = true;
+    window?.close();
+  });
   handle(channels.status, () => service.getStatus());
   handle(channels.restart, () => service.restart());
   service.subscribe((event) => {
@@ -177,7 +190,7 @@ void app.whenReady().then(() => {
   });
 });
 
-app.on('before-quit', () => {
+app.on('will-quit', () => {
   service.stop();
 });
 app.on('window-all-closed', () => {

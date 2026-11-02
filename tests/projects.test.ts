@@ -17,6 +17,7 @@ beforeEach(async () => {
   store = new MetadataStore(join(dir, 'data'));
   service = new ProjectService(store);
   await service.open(root);
+  await service.command({ type: 'load', fileId: service.snapshot().files[0].id });
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -29,7 +30,13 @@ async function edit(text: string) {
   Y.applyUpdate(doc, Uint8Array.from(f.update));
   doc.getText('source').delete(0, doc.getText('source').length);
   doc.getText('source').insert(0, text);
-  return { type: 'sync' as const, fileId: f.id, update: Array.from(Y.encodeStateAsUpdate(doc)) };
+  return {
+    type: 'sync' as const,
+    fileId: f.id,
+    update: Array.from(Y.encodeStateAsUpdate(doc)),
+    baseline: f.baseline,
+    text,
+  };
 }
 describe('ordinary projects and persistence', () => {
   it('saves, checkpoints, reopens and retains stable IDs on non-ASCII rename', async () => {
@@ -40,7 +47,8 @@ describe('ordinary projects and persistence', () => {
     store.close();
     store = new MetadataStore(join(dir, 'data'));
     service = new ProjectService(store);
-    const reopened = await service.current();
+    await service.current();
+    const reopened = await service.command({ type: 'load', fileId: id });
     expect(reopened?.files[0]).toMatchObject({
       id,
       path: '章节/导论.tex',
@@ -86,6 +94,7 @@ describe('ordinary projects and persistence', () => {
     store = new MetadataStore(join(dir, 'data'));
     service = new ProjectService(store);
     await service.open(root);
+    await service.command({ type: 'load', fileId: service.snapshot().files[0].id });
     expect(service.snapshot().files[0]).toMatchObject({
       text: 'human',
       disk: 'external',
@@ -138,6 +147,7 @@ describe('ordinary projects and persistence', () => {
   it('persists preferences and rejects newer metadata versions', async () => {
     await service.command({ type: 'preferences', value: '{"font":14}' });
     await service.open(root);
+    await service.command({ type: 'load', fileId: service.snapshot().files[0].id });
     expect(service.snapshot().preferences).toBe('{"font":14}');
     store.db.exec('PRAGMA user_version=99');
     expect(() => new MetadataStore(join(dir, 'data'))).toThrow('newer');

@@ -131,3 +131,9 @@ Notifications use one stable status region with a dismiss action; errors that re
 - Label proposed Loom extensions separately from observed Prism behavior.
 - Do not describe an unmeasured draft as an exact visual reproduction.
 - Do not allow agent changes or collaboration updates to silently replace newer manuscript edits.
+
+## Phase 2 project and editor interactions
+
+The real project surface reuses the Phase 1 shell, shared Modal and notification region. Project selection uses operating-system folder/ZIP dialogs; file create/rename/delete use app-owned dialogs. Delete retains a recoverable copy. Project controls are available through the center toolbar on a narrow desktop. File tabs are labeled toggle buttons, not incomplete ARIA tabs. Search is transient local manuscript state rather than a shareable URL; it runs against the service's rebuildable SQLite index with stale-result suppression and an immediate clear control.
+
+CodeMirror owns source editing, syntax, line numbers, selection, search/replace and keyboard commands; Yjs owns live text. External updates apply through the binding rather than remounting the editor. Font/wrapping, file tabs, caret/selection/scroll and project layout are stored in SQLite project preferences. The existing validated local-storage layout remains the startup/browser fallback. Disk acknowledgment alone permits “Saved to disk”; conflicts and connection errors stay visible. PDF and assistant remain explicitly unavailable until their respective phases.

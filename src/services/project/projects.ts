@@ -29,6 +29,7 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
 export class ProjectService {
   private root = '';
+  private loadedId = '';
   private project: Project | null = null;
   private documents = new Map<string, Y.Doc>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -88,6 +89,7 @@ export class ProjectService {
   }
   private async scan(): Promise<Map<string, { text: string | null; inode: string }>> {
     const found = new Map<string, { text: string | null; inode: string }>();
+    let total = 0;
     const walk = async (dir: string) => {
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
         if (entry.name === '.git' || entry.name.startsWith('.loom-save-')) continue;
@@ -99,6 +101,9 @@ export class ProjectService {
           const stat = await fs.stat(path);
           let text: string | null = null;
           if (stat.size <= MAX_FILE) {
+            total += stat.size;
+            if (total > 32 * 1024 * 1024)
+              throw new Error('This pilot supports up to 32 MiB of indexed project content.');
             const bytes = await fs.readFile(path);
             try {
               const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -124,6 +129,7 @@ export class ProjectService {
     for (const doc of this.documents.values()) doc.destroy();
     this.documents.clear();
     this.root = root;
+    this.loadedId = '';
     const stored = this.store.load(root);
     this.project = stored
       ? JSON.parse(stored)
@@ -268,6 +274,16 @@ export class ProjectService {
       if (roots.length === 1) this.project.rootId = roots[0].id;
     }
     this.persist();
+    this.store.index(
+      this.root,
+      this.project.files
+        .filter((f) => !f.deleted)
+        .map((f) => ({
+          id: f.id,
+          path: f.path,
+          content: f.binary ? '' : this.doc(f).getText('source').toString(),
+        })),
+    );
   }
   private async save(file: RecordFile): Promise<void> {
     if (file.binary || file.deleted || file.conflict) return;
@@ -331,15 +347,29 @@ export class ProjectService {
   }
   async command(command: ProjectCommand): Promise<ProjectSnapshot | null> {
     if (command.type === 'current') return this.current();
+    if (!this.project) await this.current();
     if (!this.project) throw new Error('Open a project first.');
+    if (command.type === 'load') this.loadedId = command.fileId;
     if (command.type === 'sync') {
+      this.loadedId = command.fileId;
       const file = this.project.files.find((f) => f.id === command.fileId);
       if (!file || file.binary) throw new Error('Text file is unavailable.');
       Y.applyUpdate(this.doc(file), Uint8Array.from(command.update));
+      if (command.baseline !== file.baseline && command.text !== command.baseline) {
+        const merged = reconcile(command.baseline ?? '', command.text, file.baseline ?? '');
+        this.setText(file, merged ?? command.text);
+        if (merged === null) {
+          file.conflict = true;
+          file.disk = file.baseline;
+        }
+      }
       file.state = Array.from(Y.encodeStateAsUpdate(this.doc(file)));
       this.persist();
     }
     await this.refresh();
+    if (command.type === 'search') {
+      return { ...this.snapshot(), matches: this.store.search(this.root, command.query) };
+    }
     if (command.type === 'preferences') {
       this.project.preferences = command.value;
       this.persist();
@@ -353,12 +383,6 @@ export class ProjectService {
     } else if ('fileId' in command) {
       const file = this.project.files.find((f) => f.id === command.fileId);
       if (!file) throw new Error('File is no longer in this project.');
-      if (command.type === 'sync') {
-        if (file.binary) throw new Error('Binary files cannot be edited as text.');
-        Y.applyUpdate(this.doc(file), Uint8Array.from(command.update));
-        file.state = Array.from(Y.encodeStateAsUpdate(this.doc(file)));
-        this.persist();
-      }
       if (command.type === 'root') {
         if (file.deleted || !file.path.endsWith('.tex'))
           throw new Error('Select a .tex root document.');
@@ -429,10 +453,11 @@ export class ProjectService {
         return {
           id: f.id,
           path: f.path,
-          text,
-          update: f.state,
-          baseline: f.baseline,
-          disk: f.disk,
+          loaded: f.id === this.loadedId,
+          text: f.binary ? null : f.id === this.loadedId ? text : '',
+          update: f.id === this.loadedId ? f.state : [],
+          baseline: f.id === this.loadedId ? f.baseline : null,
+          disk: f.id === this.loadedId ? f.disk : null,
           conflict: f.conflict,
           deleted: f.deleted,
           revision: hash(text ?? ''),
