@@ -1,3 +1,5 @@
+import { agentCommandSchema, agentResultSchema } from '../contracts/agent';
+import { AgentService } from './agents/service';
 import { latexCommandSchema, latexResultSchema, type LatexValue } from '../contracts/latex';
 import { BuildService } from './latex/builds';
 import { TexlabClient, projectStructure } from './latex/language';
@@ -11,6 +13,10 @@ const port = process.parentPort;
 if (!port) throw new Error('The Loom service requires a parent port.');
 const projects = new ProjectService(new MetadataStore(process.argv[2]));
 const builds = new BuildService(projects, join(process.argv[2], 'builds'));
+const agents = new AgentService(projects, builds, process.argv[2]);
+const agentRequest = z
+  .object({ type: z.literal('agent'), id: z.string(), command: agentCommandSchema })
+  .strict();
 const language = new TexlabClient();
 const latexRequest = z
   .object({ type: z.literal('latex'), id: z.string(), command: latexCommandSchema })
@@ -47,6 +53,33 @@ port.on('message', (event: { data: unknown }) => {
   const ping = serviceRequestSchema.safeParse(event.data);
   if (ping.success) {
     port.postMessage({ type: 'pong', id: ping.data.id, pid: process.pid, version: '0.1.0' });
+    return;
+  }
+  const agent = agentRequest.safeParse(event.data);
+  if (agent.success) {
+    void agents
+      .command(agent.data.command)
+      .then((value) =>
+        port.postMessage({
+          type: 'agent-result',
+          id: agent.data.id,
+          result: agentResultSchema.parse({ ok: true, value }),
+        }),
+      )
+      .catch((error) =>
+        port.postMessage({
+          type: 'agent-result',
+          id: agent.data.id,
+          result: {
+            ok: false,
+            error: {
+              code: 'AGENT_ERROR',
+              message: error instanceof Error ? error.message : 'Agent operation failed.',
+              retryable: true,
+            },
+          },
+        }),
+      );
     return;
   }
   const latex = latexRequest.safeParse(event.data);
@@ -106,6 +139,22 @@ port.on('message', (event: { data: unknown }) => {
   if (!parsed.success) return;
   void projects.run(async () => {
     try {
+      const rawCommand = event.data as { command?: { type?: string } };
+      if (
+        agents.active() &&
+        [
+          'native-open',
+          'native-create',
+          'native-import-folder',
+          'native-import-zip',
+          'native-sample',
+          'native-main-folder',
+          'rename',
+          'delete',
+          'restore',
+        ].includes(rawCommand.command?.type ?? '')
+      )
+        throw new Error('Stop the current agent request before changing papers or moving files.');
       const previousProject = projects.nativeLocation()?.projectId;
       const n = native.safeParse(parsed.data.command);
       let value;

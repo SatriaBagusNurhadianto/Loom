@@ -1,0 +1,354 @@
+import { createClient } from '@opencode-ai/sdk/v2/gen/client';
+import { z } from 'zod';
+import { randomBytes } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { findExecutable, runTool, spawnOwnedTool } from '../latex/tools';
+import type { AgentMessage, AgentModel } from '../../contracts/agent';
+
+const nativeObject = z.record(z.string(), z.unknown());
+export const object = (value: unknown): Record<string, unknown> => nativeObject.parse(value);
+export const list = (value: unknown): unknown[] => z.array(z.unknown()).parse(value);
+export const string = (value: unknown, fallback = '') =>
+  typeof value === 'string' ? value : fallback;
+export const dataList = (value: unknown) => list(object(value).data);
+export function supportedVersion(version: string) {
+  return /^2\.2\.(?:[1-9]\d*)(?:$|[-+])/.test(version);
+}
+export function privateEndpoint(endpoint: string) {
+  const url = new URL(endpoint);
+  if (
+    url.protocol !== 'http:' ||
+    !['127.0.0.1', '[::1]'].includes(url.hostname) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/'
+  )
+    throw new Error('Use a private loopback address such as http://127.0.0.1:4096.');
+  return url.origin;
+}
+export type HarnessCapabilities = {
+  streaming: boolean;
+  permissions: boolean;
+  questions: boolean;
+  nativeWrites: boolean;
+  images: boolean;
+};
+export interface HarnessAdapter {
+  version: string;
+  ownership: 'loom' | 'external';
+  onEvent?: (event: Record<string, unknown>) => void;
+  onLost?: () => void;
+  session(sessionId: string): Promise<Record<string, unknown>>;
+  active(sessionId: string): Promise<boolean>;
+  pending(
+    sessionId: string,
+  ): Promise<{ permissions: Record<string, unknown>[]; questions: Record<string, unknown>[] }>;
+  permission(sessionId: string, id: string, reply: 'once' | 'reject'): Promise<void>;
+  answer(sessionId: string, id: string, answer: unknown): Promise<void>;
+  readonly capabilities: HarnessCapabilities;
+  models(directory: string): Promise<AgentModel[]>;
+  create(directory: string): Promise<string>;
+  submit(sessionId: string, prompt: string, model: AgentModel, files: string[]): Promise<void>;
+  interrupt(sessionId: string): Promise<void>;
+  messages(sessionId: string): Promise<AgentMessage[]>;
+  close(): Promise<void>;
+}
+/** OpenCode owns execution. This adapter transports structured API/SSE only. */
+export class OpenCodeAdapter implements HarnessAdapter {
+  readonly capabilities = {
+    streaming: true,
+    permissions: true,
+    questions: true,
+    nativeWrites: true,
+    images: true,
+  };
+  private client: ReturnType<typeof createClient>;
+  private process: ReturnType<typeof spawnOwnedTool> | null = null;
+  private events = new AbortController();
+  version = '';
+  ownership: 'loom' | 'external' = 'external';
+  onEvent?: (event: Record<string, unknown>) => void;
+  onLost?: () => void;
+  constructor(endpoint: string, password: string, username = 'opencode') {
+    this.client = createClient({
+      baseUrl: privateEndpoint(endpoint),
+      headers: {
+        Authorization: 'Basic ' + Buffer.from(username + ':' + password).toString('base64'),
+      },
+      throwOnError: true,
+      responseStyle: 'data',
+      fetch: async (input, init) => fetch(input, { ...init, redirect: 'error' }),
+    });
+  }
+  async request(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    try {
+      return await this.client.request({
+        method,
+        url: path,
+        ...(body === undefined ? {} : { body, headers: { 'Content-Type': 'application/json' } }),
+        signal: signal ?? AbortSignal.timeout(12000),
+        responseStyle: 'data',
+        throwOnError: true,
+      });
+    } catch {
+      throw new Error(
+        'OpenCode did not accept the request. Check the connection, provider sign-in and supported version, then reconnect.',
+      );
+    }
+  }
+  static async detect() {
+    const executable = await findExecutable('opencode');
+    if (!executable) return { installed: false, version: 'Not installed', executable: null };
+    try {
+      const r = await runTool(executable, ['--version'], { timeoutMs: 5000 });
+      const version = r.output.match(/(?:v)?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/)?.[1] ?? 'Unknown';
+      return { installed: r.code === 0, version, executable };
+    } catch {
+      return { installed: false, version: 'Version check failed', executable };
+    }
+  }
+  static async owned(directory: string) {
+    const found = await this.detect();
+    if (!found.installed || !found.executable)
+      throw new Error(
+        'Install OpenCode and sign in with “opencode auth login”, then connect again.',
+      );
+    if (!supportedVersion(found.version))
+      throw new Error(
+        `OpenCode ${found.version} is not supported. This Loom build supports OpenCode 2.2.x from 2.2.1.`,
+      );
+    const password = randomBytes(32).toString('hex');
+    const child = spawnOwnedTool(
+      found.executable,
+      ['serve', '--hostname', '127.0.0.1', '--port', '0'],
+      directory,
+      { OPENCODE_SERVER_PASSWORD: password, OPENCODE_SERVER_USERNAME: 'opencode' },
+    );
+    try {
+      const endpoint = await new Promise<string>((resolve, reject) => {
+        let output = '';
+        const timer = setTimeout(
+          () => reject(new Error('OpenCode did not start. Check its installation and try again.')),
+          10000,
+        );
+        const finish = (error?: Error, url?: string) => {
+          clearTimeout(timer);
+          child.stdout.removeListener('data', append);
+          child.stderr.removeListener('data', append);
+          error ? reject(error) : resolve(url!);
+        };
+        const append = (bytes: Buffer) => {
+          output = (output + bytes.toString('utf8')).slice(-4096);
+          const match = output.match(/http:\/\/127\.0\.0\.1:\d+/);
+          if (match) finish(undefined, match[0]);
+        };
+        child.stdout.on('data', append);
+        child.stderr.on('data', append);
+        child.once('error', () => finish(new Error('OpenCode could not start.')));
+        child.once('exit', () => finish(new Error('OpenCode stopped before connecting.')));
+      });
+      const adapter = new OpenCodeAdapter(endpoint, password);
+      adapter.process = child;
+      adapter.ownership = 'loom';
+      child.stdout.resume();
+      child.stderr.resume();
+      child.once('exit', () => adapter.onLost?.());
+      await adapter.verify();
+      // Verify authentication is actually enforced by this server implementation.
+      const response = await fetch(endpoint + '/api/info', {
+        signal: AbortSignal.timeout(3000),
+        redirect: 'error',
+      });
+      if (response.status !== 401)
+        throw new Error('OpenCode did not protect its local endpoint. Connection closed.');
+      return adapter;
+    } catch (error) {
+      child.stdin.end();
+      throw error;
+    }
+  }
+  async verify() {
+    const info = object(await this.request('GET', '/api/info'));
+    this.version = string(info.version);
+    if (!supportedVersion(this.version))
+      throw new Error(
+        `OpenCode ${this.version || 'unknown'} is incompatible. This Loom build supports 2.2.x from 2.2.1.`,
+      );
+  }
+  async models(directory: string): Promise<AgentModel[]> {
+    const response = await this.request(
+      'GET',
+      '/api/model?location[directory]=' + encodeURIComponent(directory),
+    );
+    return dataList(response)
+      .map(object)
+      .filter((m) => m.enabled === true && m.type === 'chat')
+      .map((m) => {
+        const c = object(m.capabilities);
+        return {
+          id: string(m.id),
+          providerId: string(m.providerID),
+          name: string(m.name),
+          images: Array.isArray(c.input) && c.input.includes('image'),
+          tools: c.tools === true,
+        };
+      })
+      .filter((m) => m.id && m.providerId)
+      .slice(0, 3000);
+  }
+  async create(directory: string) {
+    return string(
+      object(
+        object(
+          await this.request('POST', '/api/session', {
+            location: { directory },
+            title: 'Paper conversation',
+          }),
+        ).data,
+      ).id,
+    );
+  }
+  async session(sessionId: string) {
+    return object(
+      object(await this.request('GET', '/api/session/' + encodeURIComponent(sessionId))).data,
+    );
+  }
+  async submit(sessionId: string, prompt: string, model: AgentModel, files: string[]) {
+    const path = '/api/session/' + encodeURIComponent(sessionId);
+    await this.request('PUT', path + '/model', {
+      model: { id: model.id, providerID: model.providerId },
+    });
+    await this.request('POST', path + '/prompt', {
+      text: prompt,
+      files: files.map((path) => ({ uri: pathToFileURL(path).href })),
+      metadata: { loom: true },
+    });
+  }
+  async interrupt(sessionId: string) {
+    await this.request('POST', '/api/session/' + encodeURIComponent(sessionId) + '/interrupt', {});
+  }
+  async active(sessionId: string) {
+    const response = object(await this.request('GET', '/api/session/active'));
+    return Object.hasOwn(object(response.data), sessionId);
+  }
+  async messages(sessionId: string): Promise<AgentMessage[]> {
+    const messages = dataList(
+      await this.request(
+        'GET',
+        '/api/session/' + encodeURIComponent(sessionId) + '/message?limit=100&order=desc',
+      ),
+    ).reverse();
+    const result: AgentMessage[] = [];
+    for (const raw of messages) {
+      const m = object(raw),
+        id = string(m.id),
+        type = string(m.type);
+      if (type === 'user')
+        result.push({ id, role: 'user', text: string(m.text).slice(0, 100000), state: '' });
+      if (type === 'assistant') {
+        const content = list(m.content);
+        let text = '';
+        for (const item of content) {
+          const part = object(item);
+          if (part.type === 'text') text += string(part.text);
+          if (part.type === 'tool') {
+            const state = object(part.state);
+            result.push({
+              id: id + ':' + string(part.id),
+              role: 'tool',
+              text: string(part.name),
+              state: string(state.status),
+            });
+          }
+        }
+        if (text) result.push({ id, role: 'assistant', text: text.slice(0, 100000), state: '' });
+        if (m.error)
+          result.push({
+            id: id + ':error',
+            role: 'status',
+            text: 'The provider could not complete this response. Check sign-in and model access in OpenCode.',
+            state: 'failed',
+          });
+      }
+      if (type === 'idle')
+        result.push({
+          id,
+          role: 'status',
+          text:
+            m.outcome === 'succeeded'
+              ? 'Request complete'
+              : m.outcome === 'interrupted'
+                ? 'Request stopped · partial work is retained'
+                : 'Request failed · partial work is retained',
+          state: string(m.outcome),
+        });
+    }
+    return result.slice(-200);
+  }
+  async pending(sessionId: string) {
+    const path = '/api/session/' + encodeURIComponent(sessionId);
+    const [permissions, questions] = await Promise.all([
+      this.request('GET', path + '/permission'),
+      this.request('GET', path + '/form'),
+    ]);
+    return {
+      permissions: dataList(permissions).map(object),
+      questions: dataList(questions).map(object),
+    };
+  }
+  async permission(sessionId: string, id: string, reply: 'once' | 'reject') {
+    await this.request(
+      'POST',
+      `/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(id)}/reply`,
+      { decision: reply },
+    );
+  }
+  async answer(sessionId: string, id: string, answer: unknown) {
+    await this.request(
+      'POST',
+      `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(id)}/reply`,
+      { answer },
+    );
+  }
+  async stream() {
+    const response = await this.client.sse.get({
+      url: '/api/event',
+      signal: this.events.signal,
+      sseMaxRetryAttempts: 1,
+    });
+    void (async () => {
+      try {
+        for await (const event of response.stream) {
+          const value = typeof event === 'string' ? JSON.parse(event) : event;
+          this.onEvent?.(object(value));
+        }
+        if (!this.events.signal.aborted) this.onLost?.();
+      } catch {
+        if (!this.events.signal.aborted) this.onLost?.();
+      }
+    })();
+  }
+  async close() {
+    this.events.abort();
+    this.onLost = undefined;
+    if (this.process) {
+      const child = this.process;
+      this.process = null;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 1800);
+        child.once('exit', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        child.stdin.end();
+      });
+    }
+  }
+}

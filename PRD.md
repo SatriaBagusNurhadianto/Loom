@@ -30,7 +30,7 @@ The distinction below prevents recommendations from being mistaken for explicit 
 | -------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | Application form           | Electron desktop application                                                                     | Confirmed by user                                                                                             |
 | Agent approach             | Integrate existing harnesses; researchers bring their own agent setup                            | Confirmed by user                                                                                             |
-| First harness              | OpenCode, through its local server and TypeScript SDK                                            | Engineering default; user delegated the simplest initial choice                                               |
+| First harnesses            | OpenCode native server/SDK and Codex app-server                                                  | Engineering default; user delegated the simplest initial choice                                               |
 | Additional harnesses       | Codex and other supported agents through adapters                                                | Product direction; staged after the first integration                                                         |
 | Live collaboration         | Deferred until after the initial desktop release                                                 | Confirmed by user                                                                                             |
 | Accounts                   | No Loom account required for the local release; introduce with cloud services                    | Engineering default; user explicitly deferred live collaboration but did not separately decide account timing |
@@ -201,7 +201,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 
 ### FR-05 — External harness connection
 
-- OpenCode is the first supported harness, using its documented local HTTP server and TypeScript SDK. This is an implementation choice based on a structured integration surface, not a measured claim that it is universally the easiest harness.
+- The initial selectable harnesses are OpenCode through its native structured local server/SDK and Codex through its app-server protocol. The user expanded Phase 4 to both on 4 November 2026, using T3 Code provider settings as inspiration. Further harnesses use explicit protocol adapters; model execution stays harness-owned.
 - Discover installation and configuration state, show setup guidance, and provide connect/disconnect/reconnect actions.
 - Run the local agent in the intended project context; show that project identity in the conversation.
 - Reuse the harness's supported authentication and configured models. An API key grants model access through the harness; it does not create a new Loom-owned agent runtime.

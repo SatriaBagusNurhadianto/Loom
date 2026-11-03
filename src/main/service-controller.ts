@@ -1,3 +1,4 @@
+import type { AgentCommand, AgentResult } from '../contracts/agent';
 import type { LatexCommand, LatexResult } from '../contracts/latex';
 import type { ProjectResult } from '../contracts/project';
 import {
@@ -35,6 +36,10 @@ export class ServiceController {
   private latexPending = new Map<
     string,
     { resolve: (result: LatexResult) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private agentPending = new Map<
+    string,
+    { resolve: (result: AgentResult) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private pending = new Map<string, Pending>();
   private startup: Promise<Result<ServiceStatus>> | undefined;
@@ -103,6 +108,11 @@ export class ServiceController {
       pending.resolve(result);
     }
     this.latexPending.clear();
+    for (const p of this.agentPending.values()) {
+      clearTimeout(p.timer);
+      p.resolve(result);
+    }
+    this.agentPending.clear();
     if (!result.ok) this.publish(result.error);
     return result;
   }
@@ -136,6 +146,15 @@ export class ServiceController {
           return;
         }
         const data = parsed.data;
+        if (data.type === 'agent-result') {
+          const p = this.agentPending.get(data.id);
+          if (p) {
+            clearTimeout(p.timer);
+            this.agentPending.delete(data.id);
+            p.resolve(data.result);
+          }
+          return;
+        }
         if (data.type === 'latex-result') {
           const pending = this.latexPending.get(data.id);
           if (pending) {
@@ -267,6 +286,29 @@ export class ServiceController {
         this.transport!.postMessage({ type: 'latex', id, command });
       } catch {
         this.unavailable('SERVICE_UNAVAILABLE', 'LaTeX connection interrupted.');
+      }
+    });
+  }
+  async agent(command: AgentCommand): Promise<AgentResult> {
+    const ready = await this.start();
+    if (!ready.ok) return ready;
+    if (this.agentPending.size >= 16) return failure('BUSY', 'Too many agent requests.');
+    const id = `${this.generation}:agent:${++this.nextId}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.agentPending.delete(id);
+        resolve(
+          failure(
+            'TIMEOUT',
+            'Agent operation timed out. Reconnect and inspect the chat before retrying.',
+          ),
+        );
+      }, 60000);
+      this.agentPending.set(id, { resolve, timer });
+      try {
+        this.transport!.postMessage({ type: 'agent', id, command });
+      } catch {
+        this.unavailable('SERVICE_UNAVAILABLE', 'Agent connection interrupted.');
       }
     });
   }

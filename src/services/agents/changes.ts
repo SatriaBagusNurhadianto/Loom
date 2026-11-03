@@ -11,6 +11,7 @@ type RecordTurn = {
   after: Record<string, string>;
   human: string[];
   unsettled?: boolean;
+  external?: boolean;
 };
 export function decodeText(bytes: Buffer | null): string | null {
   if (!bytes) return null;
@@ -79,7 +80,7 @@ export class AgentChanges {
     }
     return index;
   }
-  async begin(sessionId: string, revision: string) {
+  async begin(sessionId: string, revision: string, external = false) {
     if (this.running()) throw new Error('Wait for the current request to finish.');
     if (this.turns.length >= 100)
       throw new Error(
@@ -115,6 +116,7 @@ export class AgentChanges {
       after: {},
       human: [],
       unsettled: true,
+      external,
     };
     this.turns.unshift(turn);
     this.persist();
@@ -167,8 +169,19 @@ export class AgentChanges {
     turn.unsettled = false;
     this.persist();
   }
+  unsettledExternal() {
+    return this.turns.find((t) => t.unsettled && t.external);
+  }
+  async settleExternal() {
+    const turn = this.unsettledExternal();
+    if (turn) {
+      await this.observe(turn);
+      turn.unsettled = false;
+      this.persist();
+    }
+  }
   async recoverInterrupted() {
-    const turn = this.turns.find((t) => t.unsettled);
+    const turn = this.turns.find((t) => t.unsettled && !t.external);
     if (turn) {
       // The native supervisor closes owned process groups within 500 ms after service EOF.
       await new Promise((resolve) => setTimeout(resolve, 750));
@@ -178,7 +191,8 @@ export class AgentChanges {
     }
   }
   async review(turnId: string, path: string, action: 'keep' | 'revert', revision: string) {
-    if (this.running()) throw new Error('Stop the request before reviewing its changes.');
+    if (this.running() || this.unsettledExternal())
+      throw new Error('Reconnect and stop the request before reviewing its changes.');
     const turn = this.turns.find((t) => t.view.id === turnId),
       change = turn?.view.changes.find((c) => c.path === path);
     if (!turn || !change || change.review !== 'pending')

@@ -5,6 +5,7 @@ import solid from 'vite-plugin-solid';
 export default defineConfig({
   main: {
     build: {
+      externalizeDeps: { exclude: ['@opencode-ai/sdk'] },
       rollupOptions: {
         input: { index: resolve('src/main/index.ts'), service: resolve('src/services/index.ts') },
         output: {

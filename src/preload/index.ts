@@ -1,3 +1,4 @@
+import { agentCommandSchema, agentResultSchema } from '../contracts/agent';
 import { latexCommandSchema, latexResultSchema, exportPdfSchema } from '../contracts/latex';
 import {
   projectCommandSchema,
@@ -34,8 +35,21 @@ async function invoke(
 }
 
 const desktop: LoomDesktop = {
+  agent: async (command) => {
+    const input = agentCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid agent command.', false);
+    try {
+      return agentResultSchema.parse(await ipcRenderer.invoke(channels.agent, input.data));
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'Agent connection interrupted. Reconnect before continuing.',
+      );
+    }
+  },
   openSetup: async (guide) => {
-    if (guide === 'tex' || guide === 'texlab') await ipcRenderer.invoke(channels.setup, guide);
+    if (guide === 'tex' || guide === 'texlab' || guide === 'opencode' || guide === 'codex')
+      await ipcRenderer.invoke(channels.setup, guide);
   },
   latex: async (command) => {
     const input = latexCommandSchema.safeParse(command);

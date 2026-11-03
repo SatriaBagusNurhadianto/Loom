@@ -115,6 +115,7 @@ test('real isolated Electron boundary and a restartable utility process', async 
     })),
   ).toEqual({
     api: [
+      'agent',
       'chooseFile',
       'chooseProject',
       'completeClose',

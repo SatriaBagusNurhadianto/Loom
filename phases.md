@@ -86,13 +86,13 @@
 
 **Recorded exit evidence:** 82 deterministic checks, 19 default Electron regression/missing-tool cases, eight real native TeX/TexLab checks, nine live Electron LaTeX/PDF scenarios, actual process cancellation/utility interruption/no-orphan verification, packaged sandboxed render/map/export smoke, Prism/narrow inspection, strict UI/DESIGN checks and iterative GPT-6.1 Terra review. Six synthetic sample folders, built-in editable sample actions and an isolated launcher are provided. The researcher UX correction and targeted Terra review are recorded in [the UX review](docs/phase-3-ux-review.md). Independent review's one app-startup failure and successful focused rerun are explicitly recorded. See [status](project_status.md), [testing](docs/phase-3-testing.md) and [review](docs/phase-3-review.md). Installed/cross-platform/performance acceptance remains Phase 8.
 
-## Phase 4 — OpenCode agent and safe change review
+## Phase 4 — Selectable agent harnesses and safe change review
 
 **PRD coverage:** FR-05, FR-06, FR-07.
 
 **Prerequisites:** Phases 2–3 complete.
 
-- [ ] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK.
+- [ ] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK and Codex through its native app-server (user scope decision, 4 November 2026).
 - [ ] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
 - [ ] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
 - [ ] Support sessions, model selection, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.

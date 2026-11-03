@@ -1,3 +1,4 @@
+import { agentCommandSchema } from '../contracts/agent';
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
 import { writePdfExport } from './pdf-export';
 import {
@@ -155,9 +156,20 @@ void app.whenReady().then(() => {
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);
     return service.project(command.data);
   });
+  ipcMain.handle(channels.agent, (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot access agents.', false);
+    const input = agentCommandSchema.safeParse(payload);
+    return input.success
+      ? service.agent(input.data)
+      : failure('INVALID_REQUEST', 'Invalid agent command.', false);
+  });
   ipcMain.handle(channels.setup, async (event, guide: unknown) => {
     if (!trustedSender(event)) return;
-    if (guide === 'tex') await shell.openExternal('https://www.latex-project.org/get/');
+    if (guide === 'opencode') await shell.openExternal('https://opencode.ai/docs/');
+    else if (guide === 'codex')
+      await shell.openExternal('https://developers.openai.com/codex/cli/');
+    else if (guide === 'tex') await shell.openExternal('https://www.latex-project.org/get/');
     else if (guide === 'texlab')
       await shell.openExternal('https://github.com/latex-lsp/texlab#installation');
   });

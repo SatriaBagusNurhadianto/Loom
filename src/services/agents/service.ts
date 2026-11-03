@@ -1,0 +1,480 @@
+import { join } from 'node:path';
+import type { AgentCommand, AgentState, HarnessKind } from '../../contracts/agent';
+import { ProjectService } from '../project/projects';
+import { BuildService } from '../latex/builds';
+import { AgentChanges } from './changes';
+import { OpenCodeAdapter, object, string, list, type HarnessAdapter } from './opencode';
+import { CodexAdapter } from './codex';
+import { AgentTools } from './tools';
+
+type SessionRef = { id: string; harness: HarnessKind; title: string };
+export class AgentService {
+  private adapter: HarnessAdapter | null = null;
+  private tools: AgentTools | null = null;
+  private changes: AgentChanges;
+  private projectId = '';
+  private generation = 0;
+  private refreshBusy = false;
+  private state: AgentState | null = null;
+  private sessions: SessionRef[] = [];
+  private queue: Promise<unknown> = Promise.resolve();
+  private backgroundQueued = false;
+  private timer: ReturnType<typeof setInterval>;
+  constructor(
+    private projects: ProjectService,
+    private builds: BuildService,
+    directory: string,
+  ) {
+    this.changes = new AgentChanges(projects, join(directory, 'agent-recovery'));
+    this.timer = setInterval(() => {
+      if (this.state?.running && !this.backgroundQueued) {
+        this.backgroundQueued = true;
+        void this.serialized(() => this.refresh())
+          .catch(() => {})
+          .finally(() => {
+            this.backgroundQueued = false;
+          });
+      }
+    }, 650);
+  }
+  private serialized<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(action);
+    this.queue = next.catch(() => {});
+    return next;
+  }
+  active() {
+    return !!this.state?.running;
+  }
+  private persist() {
+    this.projects.store.set(
+      `agent-sessions:${this.projectId}`,
+      JSON.stringify({
+        sessions: this.sessions,
+        sessionId: this.state?.sessionId,
+        harness: this.state?.harness,
+      }),
+    );
+  }
+  private async bind(projectId: string) {
+    await this.projects.run(async () => {
+      await this.projects.current();
+      this.projects.buildContext(projectId);
+    });
+    if (this.projectId === projectId) return;
+    if (this.active()) throw new Error('Stop the current agent request before changing papers.');
+    await this.disconnect();
+    this.projectId = projectId;
+    await this.changes.bind(projectId);
+    const stored = JSON.parse(this.projects.store.get(`agent-sessions:${projectId}`) ?? '{}') as {
+      sessions?: SessionRef[];
+      sessionId?: string;
+      harness?: HarnessKind;
+    };
+    this.sessions = stored.sessions ?? [];
+    this.state = {
+      projectId,
+      harness: stored.harness ?? 'opencode',
+      providers: [
+        { id: 'opencode', installed: false, version: 'Not checked', auth: 'unknown' },
+        { id: 'codex', installed: false, version: 'Not checked', auth: 'unknown' },
+      ],
+      connection: 'disconnected',
+      installed: false,
+      version: 'Not checked',
+      ownership: null,
+      models: [],
+      sessions: this.sessions,
+      sessionId: stored.sessionId ?? null,
+      messages: [],
+      permissions: [],
+      questions: [],
+      turns: this.changes.views(),
+      running: false,
+      error: '',
+      toolsAvailable: false,
+    };
+    await this.projects.run(() => this.changes.recoverInterrupted());
+  }
+  private async detect() {
+    const [opencode, codex] = await Promise.all([OpenCodeAdapter.detect(), CodexAdapter.detect()]);
+    this.state!.providers = this.state!.providers.map((p) => ({
+      ...p,
+      ...(p.id === 'opencode'
+        ? { installed: opencode.installed, version: opencode.version }
+        : { installed: codex.installed, version: codex.version }),
+    }));
+    const current = this.state!.providers.find((p) => p.id === this.state!.harness)!;
+    this.state!.installed = current.installed;
+    this.state!.version = current.version;
+  }
+  private async confirmedIdle(adapter: HarnessAdapter, sessionId: string) {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      if (!(await adapter.active(sessionId))) {
+        const session = await adapter.session(sessionId);
+        const turn = this.changes.running() ?? this.changes.unsettledExternal();
+        if (
+          adapter instanceof CodexAdapter ||
+          !turn ||
+          Number(object(session.time).idle) >= Date.parse(turn.view.startedAt)
+        )
+          return true;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return false;
+  }
+  private async disconnect() {
+    ++this.generation;
+    const adapter = this.adapter,
+      s = this.state;
+    if (adapter) {
+      adapter.onLost = undefined;
+      if (s?.running && s.sessionId) {
+        let idle = false;
+        try {
+          await adapter.interrupt(s.sessionId);
+          idle = await this.confirmedIdle(adapter, s.sessionId);
+        } catch {
+          /* Owned process closure below is the fallback. */
+        }
+        if (!idle && adapter.ownership === 'external') {
+          s.connection = 'interrupted';
+          s.error =
+            'OpenCode has not confirmed that this request stopped. Stop it in OpenCode, then retry Disconnect. Partial work remains protected.';
+          throw new Error(s.error);
+        }
+      }
+      await adapter.close();
+      // Close/confirmed-idle precedes the final observation so late partial writes are included.
+      if (s?.running) await this.projects.run(() => this.changes.finish('interrupted'));
+    }
+    this.adapter = null;
+    await this.tools?.close();
+    this.tools = null;
+    if (s) {
+      s.connection = 'disconnected';
+      s.running = false;
+      s.permissions = [];
+      s.questions = [];
+      s.ownership = null;
+      s.toolsAvailable = false;
+    }
+  }
+  async command(command: AgentCommand): Promise<AgentState> {
+    // Cancel/permission requests must not wait behind a long model execution; submit returns only admission.
+    return this.serialized(async () => {
+      await this.bind(command.projectId);
+      const s = this.state!;
+      if (command.type === 'status') {
+        if (command.detect || s.version === 'Not checked') await this.detect();
+        if (this.adapter) await this.refresh();
+        s.turns = this.changes.views();
+        return structuredClone(s);
+      }
+      if (command.type === 'disconnect') {
+        await this.disconnect();
+        return structuredClone(s);
+      }
+      if (command.type === 'connect') {
+        if (s.running && s.connection === 'connected')
+          throw new Error('Stop the current request before changing agent connections.');
+        await this.disconnect();
+        s.harness = command.harness;
+        s.error = '';
+        const context = await this.projects.run(async () =>
+          this.projects.buildContext(command.projectId),
+        );
+        const generation = ++this.generation;
+        try {
+          this.tools = await new AgentTools(this.projects, this.builds, command.projectId).start();
+          const adapter =
+            command.harness === 'codex'
+              ? await CodexAdapter.owned(context.root, {
+                  url: this.tools.url,
+                  token: this.tools.token,
+                })
+              : command.endpoint
+                ? new OpenCodeAdapter(
+                    command.endpoint,
+                    command.password ?? '',
+                    command.username ?? 'opencode',
+                  )
+                : await OpenCodeAdapter.owned(context.root);
+          this.adapter = adapter;
+          if (adapter instanceof OpenCodeAdapter) {
+            await adapter.verify();
+            if (adapter.ownership === 'loom')
+              await adapter.request(
+                'PUT',
+                '/api/experimental/mcp/loom-paper?location[directory]=' +
+                  encodeURIComponent(context.root),
+                {
+                  config: {
+                    type: 'remote',
+                    url: this.tools.url,
+                    headers: { Authorization: 'Bearer ' + this.tools.token },
+                  },
+                },
+              );
+            await adapter.stream();
+          }
+          s.models = await adapter.models(context.root);
+          s.version = adapter.version;
+          s.installed = true;
+          s.ownership = adapter.ownership;
+          s.connection = 'connected';
+          s.toolsAvailable = adapter.ownership === 'loom';
+          s.providers = s.providers.map((p) =>
+            p.id === s.harness
+              ? {
+                  ...p,
+                  installed: true,
+                  version: adapter.version,
+                  auth: adapter instanceof CodexAdapter ? adapter.auth : 'unknown',
+                }
+              : p,
+          );
+          adapter.onLost = () => {
+            if (generation !== this.generation) return;
+            s.connection = 'interrupted';
+            s.error =
+              'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
+            s.permissions = [];
+            s.questions = [];
+            // Do not finalize an unknown native execution merely because its stream failed.
+          };
+          if (
+            s.sessionId &&
+            this.sessions.find((r) => r.id === s.sessionId)?.harness === s.harness
+          ) {
+            try {
+              await this.resume(s.sessionId);
+            } catch (error) {
+              if (this.changes.unsettledExternal()) throw error;
+              s.error =
+                'The saved conversation is unavailable on this server. Start a new chat to continue; recovery comparisons are retained.';
+              s.sessionId = null;
+            }
+          } else s.sessionId = null;
+          this.persist();
+          return structuredClone(s);
+        } catch (error) {
+          await this.disconnect();
+          s.error = error instanceof Error ? error.message : 'Agent connection failed.';
+          throw error;
+        }
+      }
+      const adapter = this.adapter;
+      if (!adapter || s.connection !== 'connected')
+        throw new Error('Connect an agent in Agent connections first.');
+      if (command.type === 'session') {
+        if (s.running) throw new Error('Stop the current request before changing chats.');
+        if (command.sessionId) {
+          if (!this.sessions.some((r) => r.id === command.sessionId && r.harness === s.harness))
+            throw new Error('This conversation belongs to another agent. Connect its agent first.');
+          await this.resume(command.sessionId);
+        } else {
+          if (this.sessions.length >= 100)
+            throw new Error('This pilot supports up to 100 chats per paper.');
+          const id = await adapter.create(
+            (await this.projects.run(async () => this.projects.buildContext(command.projectId)))
+              .root,
+          );
+          if (!id) throw new Error('The harness did not return a session identity.');
+          s.sessionId = id;
+          this.sessions.unshift({ id, harness: s.harness, title: 'New conversation' });
+          s.messages = [];
+          this.persist();
+        }
+      } else if (command.type === 'send') {
+        if (s.running || this.changes.unsettledExternal())
+          throw new Error('Reconnect and stop the previous request before sending another.');
+        if (command.sessionId !== s.sessionId)
+          throw new Error('The active conversation changed. Try again.');
+        const model = s.models.find(
+          (m) => m.id === command.model.id && m.providerId === command.model.providerId,
+        );
+        if (!model)
+          throw new Error('This model is no longer available. Choose an available model.');
+        const context = await this.projects.run(async () => {
+          const context = this.projects.buildContext(command.projectId);
+          for (const path of command.attachments) {
+            const file = context.files.find((f) => f.path === path && f.diskKind === 'text');
+            if (!file)
+              throw new Error(
+                'Attach a text file from this paper. Image workflows arrive separately.',
+              );
+          }
+          if (
+            command.selection &&
+            !context.files.some(
+              (f) =>
+                f.path === command.selection!.path && f.text?.includes(command.selection!.text),
+            )
+          )
+            throw new Error('The selected passage changed. Attach it again.');
+          await this.changes.begin(
+            command.sessionId,
+            command.revision,
+            adapter.ownership === 'external',
+          );
+          return context;
+        });
+        const selection = command.selection;
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result. Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.\n\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
+        s.running = true;
+        s.error = '';
+        try {
+          await adapter.submit(
+            command.sessionId,
+            prompt,
+            model,
+            command.attachments.map((path) => join(context.root, path)),
+          );
+          const ref = this.sessions.find((r) => r.id === command.sessionId)!;
+          if (ref.title === 'New conversation') ref.title = command.prompt.slice(0, 80);
+          this.persist();
+        } catch (error) {
+          s.connection = 'interrupted';
+          s.error =
+            'Request admission was interrupted. Reconnect and inspect the chat before sending again; partial work is retained.';
+          throw error;
+        }
+      } else if (command.type === 'cancel') {
+        if (s.sessionId && s.running) {
+          await adapter.interrupt(s.sessionId);
+          await this.refresh();
+          if (!s.running) await this.projects.run(() => this.changes.finish('cancelled'));
+        }
+      } else if (command.type === 'permission' || command.type === 'answer') {
+        if (!s.sessionId) throw new Error('No active conversation.');
+        if (command.type === 'permission') {
+          if (!s.permissions.some((p) => p.id === command.requestId))
+            throw new Error('This permission request is no longer pending.');
+          await adapter.permission(s.sessionId, command.requestId, command.reply);
+        } else {
+          if (!s.questions.some((q) => q.id === command.requestId))
+            throw new Error('This question is no longer pending.');
+          await adapter.answer(s.sessionId, command.requestId, command.answer);
+        }
+        await this.refresh();
+      } else if (command.type === 'review') {
+        await this.projects.run(() =>
+          this.changes.review(command.turnId, command.path, command.action, command.revision),
+        );
+      }
+      s.turns = this.changes.views();
+      return structuredClone(s);
+    });
+  }
+  private async resume(id: string) {
+    const adapter = this.adapter!,
+      s = this.state!;
+    const context = await this.projects.run(async () => this.projects.buildContext(this.projectId));
+    if (adapter instanceof CodexAdapter) await adapter.resume(id, context.root);
+    const session = await adapter.session(id);
+    if (string(object(session.location).directory) !== context.root)
+      throw new Error('This conversation belongs to a different paper folder.');
+    const unresolved = this.changes.unsettledExternal();
+    if ((await adapter.active(id)) || unresolved?.view.sessionId === id) {
+      await adapter.interrupt(id);
+      if (!(await this.confirmedIdle(adapter, id)))
+        throw new Error('The native request is still stopping. Reconnect again before continuing.');
+    }
+    if (unresolved?.view.sessionId === id)
+      await this.projects.run(() => this.changes.settleExternal());
+    s.sessionId = id;
+    s.messages = await adapter.messages(id);
+    this.persist();
+  }
+  private async refresh() {
+    if (this.refreshBusy || !this.adapter || !this.state?.sessionId) return;
+    this.refreshBusy = true;
+    const generation = this.generation,
+      adapter = this.adapter,
+      s = this.state,
+      sessionId = s.sessionId!;
+    try {
+      const [messages, pending, active] = await Promise.all([
+        adapter.messages(sessionId),
+        adapter.pending(sessionId),
+        adapter.active(sessionId),
+      ]);
+      if (generation !== this.generation || s.sessionId !== sessionId) return;
+      s.messages = messages;
+      s.permissions = pending.permissions.map((p) => ({
+        id: string(p.id),
+        action: string(p.action),
+        resources: Array.isArray(p.resources)
+          ? p.resources.slice(0, 100).map((v) => string(v).slice(0, 3000))
+          : [],
+      }));
+      s.questions = pending.questions.map((q) => ({
+        id: string(q.id),
+        title: string(q.title),
+        fields: list(q.fields)
+          .slice(0, 100)
+          .map((value) => {
+            const f = object(value);
+            return {
+              key: string(f.key),
+              title: string(f.title),
+              description: string(f.description),
+              type: ['string', 'multiselect', 'boolean', 'number', 'integer', 'external'].includes(
+                string(f.type),
+              )
+                ? (string(f.type) as 'string')
+                : 'external',
+              required: f.required === true,
+              options: Array.isArray(f.options)
+                ? f.options.slice(0, 100).map((value) => {
+                    const o = object(value);
+                    return { value: string(o.value), label: string(o.label) };
+                  })
+                : [],
+            };
+          }),
+      }));
+      if (s.running) {
+        const session = !active ? await adapter.session(sessionId) : null;
+        await this.projects.run(async () => {
+          if (generation !== this.generation) return;
+          await this.changes.observe();
+          const finished =
+            session &&
+            (adapter instanceof CodexAdapter ||
+              Number(object(session.time).idle) >=
+                Date.parse(this.changes.running()?.view.startedAt ?? ''));
+          if (finished) {
+            const outcome = string(session.outcome);
+            await this.changes.finish(
+              outcome === 'succeeded'
+                ? 'succeeded'
+                : outcome === 'interrupted'
+                  ? 'cancelled'
+                  : outcome === 'failed'
+                    ? 'failed'
+                    : 'interrupted',
+            );
+            s.running = false;
+          }
+        });
+      }
+      s.turns = this.changes.views();
+    } catch {
+      if (generation === this.generation) {
+        s.connection = 'interrupted';
+        s.error =
+          'The agent connection was interrupted. Reconnect before continuing. Partial work is retained.';
+        s.permissions = [];
+        s.questions = [];
+      }
+    } finally {
+      this.refreshBusy = false;
+    }
+  }
+  async close() {
+    clearInterval(this.timer);
+    await this.disconnect();
+  }
+}
