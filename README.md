@@ -2,7 +2,7 @@
 
 Electron workspace for scientific LaTeX writing. Phases 1–2 are complete for the exercised Linux desktop target. Phase 2 adds ordinary folder/ZIP projects, editable CodeMirror/Yjs source, durable recovery, safe local saves and external-change review.
 
-Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. PDF compilation, OpenCode, research and Git/export UI remain later-phase work. A read-only example remains available for layout comparison.
+Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. PDF compilation, OpenCode, research and Git/export UI remain later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
 
 ## Run it
 
@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-`npm run dev` launches the **real Electron app**, with main/preload/utility services and renderer hot reload. Stop it with Ctrl C. To view the same UI in a browser:
+`npm run dev` launches the **real Electron app**, with main/preload/utility services and renderer hot reload. Stop it with Ctrl C. If the shell sets `ELECTRON_RUN_AS_NODE`, use `env -u ELECTRON_RUN_AS_NODE npm run dev`. To view the same UI in a browser:
 
 ```bash
 npm run dev:ui

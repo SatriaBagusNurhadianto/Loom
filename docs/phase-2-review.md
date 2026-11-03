@@ -25,3 +25,5 @@ Round 1 independently ran 31 deterministic tests, typecheck, build and the then-
 Parent verification covers the final complete suite, package smoke, screenshots and audit outputs recorded in the status document. Picker results are stubbed to select synthetic folders; actual preload, utility process, SQLite, IndexedDB, CodeMirror and filesystem I/O run normally. The preference error case is a simulated boundary failure, not physical disk exhaustion. No live TeX, OpenCode or product Git integration is claimed.
 
 Task request IDs: `loom-phase2-luna-review-1`, `loom-phase2-luna-review-2`, `loom-phase2-luna-review-3`, `loom-phase2-luna-review-4`.
+
+The subsequent navigation/native-file UX correction has its own [GPT-6.1 Terra review and current regression evidence](phase-2-ux-review.md). The counts above describe the original Phase 2 completion.
