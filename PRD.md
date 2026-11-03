@@ -202,11 +202,11 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 ### FR-05 — External harness connection
 
 - The initial selectable harnesses are OpenCode through its native structured local server/SDK and Codex through its app-server protocol. The user expanded Phase 4 to both on 4 November 2026, using T3 Code provider settings as inspiration. Further harnesses use explicit protocol adapters; model execution stays harness-owned.
-- Discover installation and configuration state, show setup guidance, and provide connect/disconnect/reconnect actions.
+- Discover installation and configuration state, show setup guidance, and provide connect/disconnect/reconnect actions. Provider settings separate connection status, the native model catalog and optional runtime configuration.
 - Run the local agent in the intended project context; show that project identity in the conversation.
 - Reuse the harness's supported authentication and configured models. An API key grants model access through the harness; it does not create a new Loom-owned agent runtime.
 - Display model-dependent capabilities, including image support, instead of assuming every configuration supports the same features.
-- Support session creation, continuation, streamed output, cancellation, questions, permission responses, and recovery after interruption.
+- Support session creation, continuation, streamed output, cancellation, questions, permission responses, and recovery after interruption. Put native reasoning and permission choices beside the composer, show only supported distinctions, and retain them per chat. Changing chats must not silently escalate the active chat’s permissions.
 - Use a common adapter contract so later harnesses can map their native protocols to the same product concepts. ACP is an option where supported, not a requirement that every harness must implement it.
 - Bind Loom-owned agent services to a private local endpoint with suitable authentication. Stop processes Loom owns when appropriate; do not terminate unrelated user-owned instances.
 - Establish a supported harness version range and report incompatible versions clearly.

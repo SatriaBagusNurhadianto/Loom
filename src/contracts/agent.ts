@@ -111,7 +111,16 @@ export const agentStateSchema = z
     ownership: z.enum(['loom', 'external']).nullable(),
     models: z.array(agentModelSchema).max(3000),
     sessions: z
-      .array(z.object({ id, harness: harnessSchema, title: z.string().max(300) }).strict())
+      .array(
+        z
+          .object({
+            id,
+            harness: harnessSchema,
+            title: z.string().max(300),
+            settings: agentSettingsSchema.optional(),
+          })
+          .strict(),
+      )
       .max(100),
     sessionId: id.nullable(),
     settings: agentSettingsSchema,

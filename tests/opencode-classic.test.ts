@@ -344,9 +344,92 @@ it.skipIf(!process.env.LOOM_CLASSIC_PROBE)(
       });
       expect(state.connection).toBe('connected');
       expect(state.version).toMatch(/^1\.19\./);
+      const session = await agents.command({ type: 'session', projectId });
+      expect(session.sessionId).toBeTruthy();
+      await agents.command({ type: 'disconnect', projectId });
+      const reconnected = await agents.command({
+        type: 'connect',
+        projectId,
+        harness: 'opencode',
+        executable: process.env.LOOM_CLASSIC_PROBE,
+      });
+      expect(reconnected.connection).toBe('connected');
+      expect(reconnected.sessionId).toBe(session.sessionId);
     } finally {
       await agents.close();
       store.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+  30000,
+);
+
+it.skipIf(!process.env.LOOM_CLASSIC_PROBE)(
+  'keeps the classic runtime MCP bearer out of project and isolated OpenCode files',
+  async () => {
+    const { AgentService } = await import('../src/services/agents/service');
+    const { MetadataStore } = await import('../src/services/project/store');
+    const { ProjectService } = await import('../src/services/project/projects');
+    const { BuildService } = await import('../src/services/latex/builds');
+    const { mkdir, readdir } = await import('node:fs/promises');
+    const dir = await mkdtemp(join(tmpdir(), 'loom-classic-mcp-'));
+    const root = join(dir, 'paper');
+    await mkdir(root);
+    await writeFile(
+      join(root, 'main.tex'),
+      '\\documentclass{article}\n\\begin{document}\nSynthetic.\n\\end{document}\n',
+    );
+    const names = ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME'] as const;
+    const original = names.map((name) => process.env[name]);
+    names.forEach((name, i) => {
+      process.env[name] = join(dir, `xdg-${i}`);
+    });
+    const store = new MetadataStore(join(dir, 'loom-data'));
+    const projects = new ProjectService(store);
+    await projects.open(root);
+    const agents = new AgentService(
+      projects,
+      new BuildService(projects, join(dir, 'builds')),
+      join(dir, 'loom-data'),
+    );
+    const projectId = projects.snapshot().id;
+    try {
+      const state = await agents.command({
+        type: 'connect',
+        projectId,
+        harness: 'opencode',
+        executable: process.env.LOOM_CLASSIC_PROBE,
+      });
+      expect(state.toolsAvailable).toBe(true);
+      const token = (agents as unknown as { tools: { token: string } }).tools.token;
+      expect(token.length).toBeGreaterThan(10);
+      await agents.command({ type: 'disconnect', projectId });
+      async function scan(path: string): Promise<string[]> {
+        const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+        const found: string[] = [];
+        for (const entry of entries) {
+          const child = join(path, entry.name);
+          if (entry.isDirectory()) found.push(...(await scan(child)));
+          else if (entry.isFile() && (await readFile(child)).includes(Buffer.from(token)))
+            found.push(child);
+        }
+        return found;
+      }
+      expect(await scan(root)).toEqual([]);
+      expect(await readdir(root)).toEqual(['main.tex']);
+      for (let i = 0; i < names.length; i++) expect(await scan(join(dir, `xdg-${i}`))).toEqual([]);
+      const configFiles = await readdir(join(dir, 'xdg-0', 'opencode')).catch(() => []);
+      for (const name of configFiles.filter((name) => /^opencode\.jsonc?$/.test(name))) {
+        const config = await readFile(join(dir, 'xdg-0', 'opencode', name), 'utf8');
+        expect(config).not.toContain('loom');
+      }
+    } finally {
+      await agents.close();
+      store.close();
+      names.forEach((name, i) => {
+        if (original[i] === undefined) delete process.env[name];
+        else process.env[name] = original[i];
+      });
       await rm(dir, { recursive: true, force: true });
     }
   },

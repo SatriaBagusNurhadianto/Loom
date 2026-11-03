@@ -118,14 +118,19 @@ export class OpenCodeAdapter implements HarnessAdapter {
     }
   }
   static async detect(override?: string) {
-    const executable = await harnessExecutable('opencode', override);
-    if (!executable) return { installed: false, version: 'Not installed', executable: null };
+    let executable: string | null = null;
     try {
+      executable = await harnessExecutable('opencode', override);
+      if (!executable) return { installed: false, version: 'Not installed', executable: null };
       const r = await runTool(executable, ['--version'], { timeoutMs: 5000 });
       const version = r.output.match(/(?:v)?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/)?.[1] ?? 'Unknown';
       return { installed: r.code === 0, version, executable };
     } catch {
-      return { installed: false, version: 'Version check failed', executable };
+      return {
+        installed: false,
+        version: executable ? 'Version check failed' : 'Binary path unavailable',
+        executable,
+      };
     }
   }
   static async owned(directory: string, executable?: string) {
@@ -185,7 +190,12 @@ export class OpenCodeAdapter implements HarnessAdapter {
         throw new Error('OpenCode did not protect its local endpoint. Connection closed.');
       return adapter;
     } catch (error) {
+      const stopped =
+        child.exitCode !== null || child.signalCode !== null
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => child.once('close', () => resolve()));
       child.stdin.end();
+      await stopped;
       throw error;
     }
   }

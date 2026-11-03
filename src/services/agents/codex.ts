@@ -100,9 +100,10 @@ export class CodexAdapter implements HarnessAdapter {
     this.child.on('exit', () => this.fail());
   }
   static async detect(override?: string) {
-    const executable = await harnessExecutable('codex', override);
-    if (!executable) return { installed: false, version: 'Not installed', executable: null };
+    let executable: string | null = null;
     try {
+      executable = await harnessExecutable('codex', override);
+      if (!executable) return { installed: false, version: 'Not installed', executable: null };
       const r = await runTool(executable, ['--version'], { timeoutMs: 5000 });
       return {
         installed: r.code === 0,
@@ -110,7 +111,11 @@ export class CodexAdapter implements HarnessAdapter {
         executable,
       };
     } catch {
-      return { installed: false, version: 'Version check failed', executable };
+      return {
+        installed: false,
+        version: executable ? 'Version check failed' : 'Binary path unavailable',
+        executable,
+      };
     }
   }
   static async owned(

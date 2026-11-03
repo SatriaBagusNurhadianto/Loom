@@ -66,14 +66,39 @@ export class OpenCodeClassicAdapter implements HarnessAdapter {
         responseStyle: 'data',
         throwOnError: true,
       });
-    } catch {
+    } catch (error) {
+      const detail =
+        error instanceof Error &&
+        error.cause &&
+        typeof error.cause === 'object' &&
+        'code' in error.cause
+          ? String(error.cause.code)
+              .replace(/[^A-Z_0-9]/g, '')
+              .slice(0, 40)
+          : '';
+      const cause =
+        error instanceof Error ? error.name + (detail ? ': ' + detail : '') : 'HTTP response';
       throw new Error(
-        'OpenCode did not accept the request. Check the connection, provider sign-in and supported version, then reconnect.',
+        `OpenCode ${method} ${path.split('?')[0]} failed (${cause}). Check the connection, provider sign-in and supported version, then reconnect.`,
+        { cause: error },
       );
     }
   }
   async verify() {
-    const health = object(await this.request('GET', '/global/health'));
+    let health: Record<string, unknown> | undefined;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        health = object(await this.request('GET', '/global/health'));
+        break;
+      } catch (error) {
+        // A restarted classic server can reuse port 4096 while fetch retains an old socket.
+        // Retry this read-only health probe, never prompts, writes or permission decisions.
+        if (!(error instanceof Error && error.cause instanceof TypeError) || attempt === 2)
+          throw error;
+        await new Promise((resolve) => setTimeout(resolve, 75));
+      }
+    }
+    if (!health) throw new Error('OpenCode did not report a healthy server.');
     this.version = string(health.version);
     if (health.healthy !== true || !supportedClassicVersion(this.version))
       throw new Error(

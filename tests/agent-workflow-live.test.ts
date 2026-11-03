@@ -14,6 +14,11 @@ for (const runtime of ['codex', 'classic', 'next']) {
   it.skipIf(!selected.includes(runtime))(
     `actual ${runtime} answers paper questions and creates/edits LaTeX files with native tools`,
     async () => {
+      if (runtime === 'classic')
+        expect(
+          process.env.LOOM_CLASSIC_EXECUTABLE,
+          'Set LOOM_CLASSIC_EXECUTABLE to the installed 1.19.x binary',
+        ).toBeTruthy();
       const dir = await mkdtemp(join(tmpdir(), 'loom-native-workflow-')),
         root = join(dir, 'paper');
       await mkdir(root);
@@ -37,9 +42,7 @@ for (const runtime of ['codex', 'classic', 'next']) {
           harness,
           ...(runtime === 'classic'
             ? {
-                executable:
-                  process.env.LOOM_CLASSIC_EXECUTABLE ??
-                  '/home/manav4477/.local/share/mise/installs/opencode/latest/opencode',
+                executable: process.env.LOOM_CLASSIC_EXECUTABLE,
               }
             : {}),
         });
@@ -139,7 +142,9 @@ for (const runtime of ['codex', 'classic', 'next']) {
         ]);
         const turnId = state.turns[0].id;
         await agents.command({ type: 'disconnect', projectId });
-        state = await agents.command({ type: 'connect', projectId, harness });
+        state = await agents.command({ type: 'connect', projectId, harness }).catch((error) => {
+          throw new Error('Native history reconnect failed', { cause: error });
+        });
         expect(state.sessionId).toBe(sessionId);
         expect(state.settings.permissionMode).toBe('auto-accept-edits');
         for (const path of ['main.tex', 'sections/notes.tex']) {

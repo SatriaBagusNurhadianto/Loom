@@ -193,7 +193,7 @@ export class AgentService {
     }
     return false;
   }
-  private async disconnect() {
+  private async disconnect(outcome: 'interrupted' | 'cancelled' = 'interrupted') {
     ++this.generation;
     const adapter = this.adapter,
       s = this.state;
@@ -216,7 +216,7 @@ export class AgentService {
       }
       await adapter.close();
       // Close/confirmed-idle precedes the final observation so late partial writes are included.
-      if (s?.running) await this.projects.run(() => this.changes.finish('interrupted'));
+      if (s?.running) await this.projects.run(() => this.changes.finish(outcome));
     }
     this.adapter = null;
     await this.tools?.close();
@@ -364,10 +364,11 @@ export class AgentService {
         if (command.sessionId) {
           if (!this.sessions.some((r) => r.id === command.sessionId && r.harness === s.harness))
             throw new Error('This conversation belongs to another agent. Connect its agent first.');
+          await this.resume(command.sessionId);
           s.settings =
             this.sessions.find((ref) => ref.id === command.sessionId)?.settings ??
             defaultAgentSettings();
-          await this.resume(command.sessionId);
+          this.persist();
         } else {
           if (this.sessions.length >= 100)
             throw new Error('This pilot supports up to 100 chats per paper.');
@@ -449,6 +450,13 @@ export class AgentService {
         if (s.sessionId && s.running) {
           await adapter.interrupt(s.sessionId);
           await this.refresh();
+          if (
+            s.running &&
+            adapter instanceof OpenCodeClassicAdapter &&
+            adapter.ownership === 'loom'
+          ) {
+            await this.disconnect('cancelled');
+          }
           if (!s.running) await this.projects.run(() => this.changes.finish('cancelled'));
         }
       } else if (command.type === 'permission' || command.type === 'answer') {
@@ -488,8 +496,9 @@ export class AgentService {
     }
     if (unresolved?.view.sessionId === id)
       await this.projects.run(() => this.changes.settleExternal());
+    const messages = authorMessages(await adapter.messages(id));
     s.sessionId = id;
-    s.messages = authorMessages(await adapter.messages(id));
+    s.messages = messages;
     this.persist();
   }
   private async refresh() {
