@@ -417,10 +417,11 @@ export class ProjectService {
     }
     await this.refresh();
     if (command.type === 'search') {
+      const hits = this.store.hits(this.root, command.query);
       return {
         ...this.snapshot(),
-        matches: this.store.search(this.root, command.query),
-        hits: this.store.hits(this.root, command.query),
+        matches: [...new Set(hits.map((hit) => hit.fileId))],
+        hits,
       };
     }
     if (command.type === 'preferences') {

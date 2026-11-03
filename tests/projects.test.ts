@@ -199,6 +199,53 @@ it('uses an acknowledged baseline when disk was observed before a stale replica 
     disk: 'external\nbeta\ngamma\n',
   });
 });
+it('ranks fuzzy filenames and source locations with bounded, correctly cropped highlight ranges', async () => {
+  await writeFile(
+    join(root, 'z-introduction.tex'),
+    '🧪 İ 章节\n' + 'x'.repeat(300) + ' Introduction\nIntroduction again.',
+  );
+  await writeFile(join(root, 'a-approximate.tex'), 'Introductoin');
+  const result = await service.command({ type: 'search', query: 'Introduction' });
+  expect(
+    result?.hits?.filter((hit) => hit.kind === 'content').map((hit) => hit.approximate),
+  ).toEqual([false, false, true]);
+  const longLine = result?.hits?.find((hit) => hit.kind === 'content' && hit.line === 2)!;
+  expect(longLine.snippet.startsWith('…')).toBe(true);
+  expect(longLine.ranges.map((range) => longLine.snippet.slice(range.from, range.to))).toEqual([
+    'Introduction',
+  ]);
+  expect(longLine.offset).toBeGreaterThan(300);
+  expect(longLine.length).toBe('Introduction'.length);
+  const file = await service.command({ type: 'search', query: 'mtex' });
+  expect(file?.hits?.[0]).toMatchObject({
+    path: 'main.tex',
+    kind: 'path',
+    offset: 0,
+    length: 0,
+    approximate: true,
+  });
+  expect(
+    file?.hits?.[0].pathRanges.map((range) => 'main.tex'.slice(range.from, range.to)).join(''),
+  ).toBe('mtex');
+  const empty = await service.command({ type: 'search', query: '  ' });
+  expect(empty?.hits).toEqual([]);
+});
+
+it('bounds ranked search globally and per file while retaining late exact matches', async () => {
+  store.index(
+    root,
+    Array.from({ length: 220 }, (_, i) => ({
+      id: `file-${i}`,
+      path: `${i === 219 ? 'z-exact' : String(i).padStart(3, '0')}.tex`,
+      content: (i === 219 ? 'Introduction ' : 'Introductoin ').repeat(30),
+    })),
+  );
+  const hits = store.hits(root, 'Introduction');
+  expect(hits).toHaveLength(200);
+  expect(hits[0].path).toBe('z-exact.tex');
+  expect(hits.filter((hit) => hit.fileId === 'file-219')).toHaveLength(20);
+});
+
 it('loads only requested document payloads and rebuilds derived search indexes', async () => {
   await writeFile(join(root, 'second.tex'), 'searchable phrase');
   await service.command({ type: 'refresh' });

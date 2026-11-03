@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathMatch, textMatches } from '../../domain/search';
+import type { SearchHit } from '../../contracts/project';
 export class MetadataStore {
   readonly db: DatabaseSync;
   constructor(directory: string) {
@@ -35,54 +37,64 @@ export class MetadataStore {
     }
   }
   search(project: string, query: string): string[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT id FROM file_index WHERE project=? AND (instr(lower(path),lower(?))>0 OR instr(lower(content),lower(?))>0) ORDER BY path LIMIT 2000',
-        )
-        .all(project, query, query) as { id: string }[]
-    ).map((r) => r.id);
+    return [...new Set(this.hits(project, query).map((hit) => hit.fileId))];
   }
-  hits(
-    project: string,
-    query: string,
-  ): Array<{ fileId: string; path: string; line: number; offset: number; snippet: string }> {
-    const ids = this.search(project, query);
-    const result: Array<{
-      fileId: string;
-      path: string;
-      line: number;
-      offset: number;
-      snippet: string;
-    }> = [];
-    for (const id of ids) {
-      const row = this.db
-        .prepare('SELECT path,content FROM file_index WHERE project=? AND id=?')
-        .get(project, id) as { path: string; content: string };
-      let start = 0,
-        count = 0;
-      const lower = row.content.toLowerCase(),
-        needle = query.toLowerCase();
-      let offset = lower.indexOf(needle, start);
-      if (offset < 0)
-        result.push({ fileId: id, path: row.path, line: 1, offset: 0, snippet: row.path });
-      while (offset >= 0 && count++ < 20 && result.length < 200) {
-        const line = row.content.slice(0, offset).split('\n').length;
-        const from = row.content.lastIndexOf('\n', offset - 1) + 1,
-          to = row.content.indexOf('\n', offset);
+  hits(project: string, query: string): SearchHit[] {
+    if (!query.trim() || query.length > 500) return [];
+    let result: Array<SearchHit & { score: number }> = [];
+    const rows = this.db
+      .prepare('SELECT id,path,content FROM file_index WHERE project=? ORDER BY path LIMIT 2000')
+      .iterate(project);
+    for (const entry of rows) {
+      const row = entry as { id: string; path: string; content: string };
+      const filename = pathMatch(row.path, query);
+      if (filename)
         result.push({
-          fileId: id,
+          fileId: row.id,
           path: row.path,
-          line,
-          offset,
-          snippet: row.content.slice(from, to < 0 ? undefined : to).slice(0, 200),
+          kind: 'path',
+          line: 1,
+          offset: 0,
+          length: 0,
+          snippet: 'Filename match',
+          ranges: [],
+          pathRanges: filename.ranges,
+          approximate: filename.approximate,
+          score: filename.score,
         });
-        start = offset + Math.max(1, needle.length);
-        offset = lower.indexOf(needle, start);
+      for (const match of textMatches(row.content, query)) {
+        const lineStart = row.content.lastIndexOf('\n', match.from - 1) + 1;
+        const from = Math.max(lineStart, match.from - 60);
+        const newline = row.content.indexOf('\n', match.from);
+        const to = Math.min(from + 200, newline < 0 ? row.content.length : newline);
+        const prefix = from > lineStart ? '…' : '';
+        const suffix = to < (newline < 0 ? row.content.length : newline) ? '…' : '';
+        result.push({
+          fileId: row.id,
+          path: row.path,
+          kind: 'content',
+          line: row.content.slice(0, match.from).split('\n').length,
+          offset: match.from,
+          length: match.to - match.from,
+          snippet: prefix + row.content.slice(from, to) + suffix,
+          ranges: match.ranges
+            .filter((range) => range.from < to && range.to > from)
+            .map((range) => ({
+              from: Math.max(range.from, from) - from + prefix.length,
+              to: Math.min(range.to, to) - from + prefix.length,
+            })),
+          pathRanges: [],
+          approximate: match.approximate,
+          score: match.score,
+        });
       }
-      if (result.length >= 200) break;
+      // Retain globally best results, so a late exact match beats early approximate matches.
+      result.sort(
+        (a, b) => a.score - b.score || a.path.localeCompare(b.path) || a.offset - b.offset,
+      );
+      if (result.length > 200) result.length = 200;
     }
-    return result;
+    return result.map(({ score: _score, ...hit }) => hit);
   }
   get(key: string): string | null {
     return (

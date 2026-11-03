@@ -1,6 +1,6 @@
 # Loom project status
 
-**Updated:** 3 November 2026
+**Updated:** 4 November 2026
 
 **Overall:** Phases 0–2 complete for the exercised Linux x86_64 desktop target. Phase 2 projects, source editing and reliable local persistence are implemented and verified. The Prism UX corrections are complete and independently reviewed by GPT-6.1 Terra. Phase 3 has not started.
 
@@ -86,5 +86,7 @@ Generated artifacts are ignored local evidence. Fixtures are synthetic. No live 
 - Final visual inspection found stock light-theme CodeMirror colors as low as 1.56:1 on the dark editor. Highlighting now uses the canonical dark syntax tokens; a rendered LaTeX contrast regression checks the 4.5:1 minimum.
 
 ## Next concrete task
+
+In progress: user-requested fuzzy project search and match highlighting. The search service now ranks exact matches, word/phrase typos and filename abbreviations and returns bounded original-text highlight ranges. Focused verification passed: 7 matcher and 19 filesystem/project tests, including existing recovery boundaries, Unicode offsets, cropping and globally ranked limits. Renderer highlighting and real Electron acceptance are the next unit; the prior 41/16 evidence above remains historical until that unit is verified.
 
 Phase 3: detect installed TeX engines/latexmk/BibTeX/Biber, establish portable build settings and revision-associated build snapshots, then connect TexLab, compilation and PDF.js according to [phases.md](phases.md). No Phase 3 implementation was started by this task.

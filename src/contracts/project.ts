@@ -61,6 +61,27 @@ export const projectFileSchema = z
   })
   .strict();
 export type ProjectFile = z.infer<typeof projectFileSchema>;
+const matchRangeSchema = z
+  .object({
+    from: z.number().int().nonnegative(),
+    to: z.number().int().positive(),
+  })
+  .strict();
+export const searchHitSchema = z
+  .object({
+    fileId: id,
+    path: relativePath,
+    kind: z.enum(['path', 'content']),
+    line: z.number().int().positive(),
+    offset: z.number().int().nonnegative(),
+    length: z.number().int().nonnegative(),
+    snippet: z.string().max(202),
+    ranges: z.array(matchRangeSchema).max(500),
+    pathRanges: z.array(matchRangeSchema).max(500),
+    approximate: z.boolean(),
+  })
+  .strict();
+export type SearchHit = z.infer<typeof searchHitSchema>;
 export const projectSnapshotSchema = z
   .object({
     id,
@@ -69,17 +90,7 @@ export const projectSnapshotSchema = z
     files: z.array(projectFileSchema),
     preferences: z.string().nullable(),
     matches: z.array(id).optional(),
-    hits: z
-      .array(
-        z.object({
-          fileId: id,
-          path: relativePath,
-          line: z.number().int().positive(),
-          offset: z.number().int().nonnegative(),
-          snippet: z.string(),
-        }),
-      )
-      .optional(),
+    hits: z.array(searchHitSchema).max(200).optional(),
   })
   .strict();
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>;

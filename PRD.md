@@ -163,6 +163,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 ### FR-02 — Source editor and manuscript structure
 
 - Provide syntax highlighting, line numbers, undo/redo, find/replace, indentation, wrapping, keyboard shortcuts, file tabs, and navigation.
+- Project search supports ranked filename abbreviations and small word/phrase typos, with exact matches first and visible match highlighting in results and source. Numbers, very short words and punctuation-heavy expressions retain literal content matching. Find/replace remains precise rather than applying fuzzy replacements.
 - Provide an outline of sections and supported structural elements; clicking an item locates its source.
 - Connect labels, citations, and figures to their definitions or project resources where the structure is resolvable.
 - Use TexLab for supported completion, navigation, and diagnostics rather than recreating its language intelligence.
