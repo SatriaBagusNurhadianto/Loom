@@ -1320,7 +1320,6 @@ kbd {
 }
 .search-hit.is-selected {
   background: var(--surface-raised);
-  box-shadow: inset 2px 0 var(--focus);
 }
 .search-match,
 .live-editor .cm-projectSearchMatch,
