@@ -8,10 +8,32 @@ import {
   search,
   openSearchPanel,
 } from '@codemirror/search';
-import { StreamLanguage, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { StreamLanguage, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import type { ProjectWorkspace } from './documents';
+// Stock CodeMirror colors target light surfaces. Resolve every colored role through Loom's dark tokens.
+const sourceHighlight = HighlightStyle.define([
+  {
+    tag: [
+      tags.keyword,
+      tags.tagName,
+      tags.meta,
+      tags.processingInstruction,
+      tags.standard(tags.variableName),
+    ],
+    color: 'var(--syntax-command)',
+  },
+  { tag: tags.bracket, color: 'var(--syntax-brace)' },
+  {
+    tag: [tags.atom, tags.number, tags.string, tags.special(tags.variableName)],
+    color: 'var(--syntax-option)',
+  },
+  { tag: tags.comment, color: 'var(--syntax-comment)' },
+  { tag: tags.link, color: 'var(--accent-text)' },
+  { tag: tags.invalid, color: 'var(--error)' },
+]);
 export function SourceEditor(props: { workspace: ProjectWorkspace }) {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
@@ -54,7 +76,7 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
             highlightActiveLine(),
             highlightSelectionMatches(),
             StreamLanguage.define(stex),
-            syntaxHighlighting(defaultHighlightStyle),
+            syntaxHighlighting(sourceHighlight),
             EditorView.domEventHandlers({
               keydown(event) {
                 if (

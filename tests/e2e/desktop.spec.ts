@@ -342,6 +342,35 @@ test('Prism navigation, native folder creation, assets and narrow dialog stay us
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'A reproducible manuscript',
   );
+  const syntaxContrast = await page.locator('.cm-content').evaluate((editor) => {
+    const luminance = (color: string) => {
+      const channels = color
+        .match(/[\d.]+/g)!
+        .slice(0, 3)
+        .map(Number)
+        .map((n) => {
+          const c = n / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const background = luminance(
+      getComputedStyle(document.querySelector('.source-column')!).backgroundColor,
+    );
+    const colors = new Set(
+      [...editor.querySelectorAll('.cm-line span')]
+        .filter((span) => span.textContent?.trim())
+        .map((span) => getComputedStyle(span).color),
+    );
+    return {
+      colors: colors.size,
+      minimum: Math.min(
+        ...[...colors].map((color) => (luminance(color) + 0.05) / (background + 0.05)),
+      ),
+    };
+  });
+  expect(syntaxContrast.colors).toBeGreaterThanOrEqual(2);
+  expect(syntaxContrast.minimum).toBeGreaterThanOrEqual(4.5);
   await desktop.evaluate(
     ({ dialog }, path) => {
       dialog.showSaveDialog = async (...args: unknown[]) => {
