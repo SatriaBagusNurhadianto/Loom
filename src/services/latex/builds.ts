@@ -267,6 +267,10 @@ export class BuildService {
         throw new Error(
           'This project uses traditional BibTeX. Select BibTeX or configure biblatex with Biber in the source.',
         );
+      if (record.settings.bibliography === 'biber' && /backend\s*=\s*bibtex/.test(text))
+        throw new Error(
+          'This project configures backend=bibtex. Select BibTeX or change the source backend to Biber.',
+        );
       if (biber) required.push('biber');
       else if (bibtex) required.push('bibtex');
       const missing = required.filter(

@@ -1,3 +1,4 @@
+import type { LatexWorkspace } from '../latex/workspace';
 import { createEffect, createMemo, createSignal, createUniqueId, For, Show } from 'solid-js';
 import { relativePath, type ProjectFile } from '../../contracts/project';
 import type { ProjectWorkspace } from './documents';
@@ -17,6 +18,7 @@ function fileIcon(path: string): IconName {
 type FileOperation = { type: 'rename' | 'delete'; id: string; path: string };
 export function ProjectPanel(props: {
   workspace: ProjectWorkspace;
+  latex?: LatexWorkspace;
   onNavigate?: () => void;
   onSettings?: () => void;
   tab?: 'files' | 'chats';
@@ -489,6 +491,29 @@ export function ProjectPanel(props: {
                   </button>
                 )}
               </For>
+              <Show when={props.latex?.items().length}>
+                <details class="project-structure">
+                  <summary>Project structure</summary>
+                  <For each={props.latex?.items()}>
+                    {(item) => (
+                      <button
+                        class="outline-item"
+                        title={`${item.path}:${item.line}`}
+                        onClick={() => {
+                          props.onNavigate?.();
+                          void props.latex?.locate(item);
+                        }}
+                      >
+                        <small>{item.kind} · </small>
+                        {item.title}
+                        <span class="structure-path">
+                          {item.path}:{item.line}
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </details>
+              </Show>
             </div>
           </Show>
         </section>

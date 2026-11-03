@@ -1,7 +1,19 @@
+import { createLatexWorkspace } from '../latex/workspace';
+import { BuildDialog } from '../latex/BuildDialog';
+import { PdfViewer } from '../latex/PdfViewer';
 import { createProjectWorkspace } from '../editor/documents';
 import { SourceEditor } from '../editor/SourceEditor';
 import { ProjectPanel } from '../editor/ProjectPanel';
-import { untrack, createEffect, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import {
+  untrack,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js';
 import type { LoomDesktop, ServiceStatus } from '../../contracts/desktop';
 import { Icon } from '../ui/Icon';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
@@ -13,7 +25,8 @@ declare global {
     loom?: LoomDesktop;
   }
 }
-type Dialog = 'files' | 'projects' | 'tools' | 'settings' | 'availability' | 'service' | null;
+type Dialog =
+  'files' | 'projects' | 'tools' | 'settings' | 'availability' | 'service' | 'build' | null;
 export function Workspace() {
   const layoutStorage = {
     getItem: (key: string) => window.localStorage.getItem(key),
@@ -29,6 +42,13 @@ export function Workspace() {
     onCleanup(() => clearTimeout(timer));
   });
   const projects = createProjectWorkspace(setNotice);
+  const latex = createLatexWorkspace(projects, setNotice);
+  const [pdfPosition, setPdfPosition] = createSignal({ page: 1, zoom: 1, scroll: 0 });
+  const pdfProjectIdentity = createMemo(() => projects.project()?.id);
+  createEffect(() => {
+    pdfProjectIdentity();
+    setPdfPosition({ page: 1, zoom: 1, scroll: 0 });
+  });
   const [example, setExample] = createSignal(false);
   const [dialog, setDialog] = createSignal<Dialog>(null);
   const [availability, setAvailability] = createSignal({ title: '', detail: '' });
@@ -407,6 +427,7 @@ export function Workspace() {
             </Show>
             <Show when={projects.project()}>
               <ProjectPanel
+                latex={latex}
                 workspace={projects}
                 tab={layout().tab}
                 onTabChange={(tab) => update({ tab })}
@@ -541,6 +562,15 @@ export function Workspace() {
                 <Icon name="preview" />
                 <span>Preview</span>
               </button>
+              <Show when={projects.project()}>
+                <button
+                  class="secondary-button compile-source"
+                  disabled={latex.busy()}
+                  onClick={() => void latex.compile()}
+                >
+                  {latex.running() ? 'Queue build' : 'Compile'}
+                </button>
+              </Show>
               <button class="tools-button" onClick={() => setDialog('tools')}>
                 Tools <Icon name="tools" />
               </button>
@@ -589,6 +619,12 @@ export function Workspace() {
                   Use disk version
                 </button>
               </section>
+            </Show>
+            <Show when={latex.error()}>
+              <div class="project-error" role="alert">
+                {latex.error()}
+                <button onClick={() => setDialog('build')}>Build details</button>
+              </div>
             </Show>
             <div class="source-content">
               <Show
@@ -658,7 +694,7 @@ export function Workspace() {
                     <Show when={projects.loading()}>
                       <p role="status">Loading source and recovery state…</p>
                     </Show>
-                    <SourceEditor workspace={projects} />
+                    <SourceEditor workspace={projects} latex={latex} />
                   </Show>
                 </Show>
               </Show>
@@ -761,15 +797,27 @@ export function Workspace() {
             <div class="pdf-toolbar">
               <button
                 class="build-status"
-                onClick={() =>
-                  showUnavailable(
-                    'LaTeX compilation',
-                    'Local TeX tool detection, build status, and a real PDF viewer arrive in Phase 3. The example paper is a static layout reference and has never been compiled.',
-                  )
-                }
+                onClick={() => (projects.project() ? setDialog('build') : setDialog('projects'))}
               >
-                <Icon name="info" size={17} />
-                <span>{example() ? 'Example preview' : 'Not compiled'}</span>
+                <Icon
+                  name={latex.running() ? 'refresh' : latex.state()?.successful ? 'check' : 'info'}
+                  size={17}
+                />
+                <span>
+                  {example()
+                    ? 'Example preview'
+                    : latex.running()
+                      ? 'Compiling…'
+                      : latex.state()?.current?.status === 'failed'
+                        ? 'Build failed'
+                        : latex.state()?.current?.status === 'cancelled'
+                          ? 'Cancelled'
+                          : latex.state()?.successful
+                            ? latex.stale()
+                              ? 'PDF out of date'
+                              : 'Compiled'
+                            : 'Compile setup'}
+                </span>
                 <Icon name="down" size={14} />
               </button>
               <div class="pdf-actions">
@@ -779,41 +827,70 @@ export function Workspace() {
                   onClick={() => focusMode(effectiveMode() === 'pdf' ? 'split' : 'pdf')}
                 />
                 <IconButton
-                  label="Download PDF — availability"
+                  label="Export compiled PDF"
+                  disabled={!latex.state()?.successful}
                   icon="download"
-                  onClick={() =>
-                    showUnavailable(
-                      'PDF export',
-                      'A compiled PDF can be downloaded after the Phase 3 build and viewer integration. There is no PDF file in this example.',
-                    )
-                  }
+                  onClick={() => void latex.exportPdf()}
                 />
                 <IconButton label="Hide PDF panel" icon="close" onClick={togglePreview} />
               </div>
             </div>
-            <div class="pdf-scroll">
-              <Show
-                when={example()}
-                fallback={
-                  <EmptyState icon="file" title="Your paper, in view">
-                    <p>Compiled pages will appear here.</p>
-                    <p>Local LaTeX compilation arrives in Phase 3.</p>
-                  </EmptyState>
-                }
-              >
-                <div class="paper" aria-label="Static example paper, not a compiled PDF">
-                  <div class="paper-title">Untitled</div>
-                  <div class="paper-author">Loom Example</div>
-                  <div class="paper-date">Reference manuscript</div>
-                  <div class="paper-section">1 &nbsp; Introduction</div>
-                  <div class="paper-page">1</div>
-                </div>
-                <p class="paper-disclaimer">Static layout reference · not compiled</p>
-              </Show>
-            </div>
-            <div class="pdf-bottom">
-              <span>{example() ? 'Example page 1 of 1' : 'No PDF loaded'}</span>
-            </div>
+            <Show
+              when={projects.project() && latex.state()?.successful}
+              fallback={
+                <>
+                  <div class="pdf-scroll">
+                    <Show
+                      when={example()}
+                      fallback={
+                        <EmptyState icon="file" title="Your paper, in view">
+                          <p>Compile your project with a local TeX installation.</p>
+                          <button
+                            class="secondary-button"
+                            onClick={() =>
+                              projects.project() ? setDialog('build') : setDialog('projects')
+                            }
+                          >
+                            {projects.project() ? 'Build and LaTeX' : 'Open a project'}
+                          </button>
+                        </EmptyState>
+                      }
+                    >
+                      <div class="paper" aria-label="Static example paper, not a compiled PDF">
+                        <div class="paper-title">Untitled</div>
+                        <div class="paper-author">Loom Example</div>
+                        <div class="paper-date">Reference manuscript</div>
+                        <div class="paper-section">1 &nbsp; Introduction</div>
+                        <div class="paper-page">1</div>
+                      </div>
+                      <p class="paper-disclaimer">Static layout reference · not compiled</p>
+                    </Show>
+                  </div>
+                  <div class="pdf-bottom">
+                    <span>{example() ? 'Example page 1 of 1' : 'No PDF loaded'}</span>
+                  </div>
+                </>
+              }
+            >
+              <div class="pdf-build-freshness" role="status">
+                {latex.stale()
+                  ? 'Older PDF · source or settings have changed'
+                  : `Source ${latex.state()?.successful?.revision.slice(0, 12)}`}
+                <Show when={latex.stale()}>
+                  <button disabled={latex.busy()} onClick={() => void latex.compile()}>
+                    Recompile
+                  </button>
+                </Show>
+              </div>
+              <PdfViewer
+                latex={latex}
+                position={pdfPosition()}
+                savePosition={setPdfPosition}
+                onSource={() => {
+                  if (narrow()) focusMode('source');
+                }}
+              />
+            </Show>
           </section>
         </Show>
       </div>
@@ -833,6 +910,12 @@ export function Workspace() {
           <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
         </div>
       </Show>
+      <BuildDialog
+        open={dialog() === 'build'}
+        onClose={() => setDialog(null)}
+        workspace={projects}
+        latex={latex}
+      />
       <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
@@ -938,6 +1021,7 @@ export function Workspace() {
         <Show when={dialog() === 'files' && projects.project()}>
           <div class="file-navigation">
             <ProjectPanel
+              latex={latex}
               workspace={projects}
               onNavigate={() => setDialog(null)}
               onSettings={() => setDialog('projects')}
@@ -955,7 +1039,12 @@ export function Workspace() {
                 ? 'Desktop service'
                 : availability().title
         }
-        open={dialog() !== null && dialog() !== 'projects' && dialog() !== 'files'}
+        open={
+          dialog() !== null &&
+          dialog() !== 'projects' &&
+          dialog() !== 'files' &&
+          dialog() !== 'build'
+        }
         onClose={() => setDialog(null)}
       >
         <Show when={dialog() === 'availability'}>
@@ -963,6 +1052,54 @@ export function Workspace() {
           <button class="primary-button" onClick={() => setDialog(null)}>
             Back to workspace
           </button>
+        </Show>
+        <Show when={dialog() === 'tools' && projects.project()}>
+          <div class="settings-section">
+            <h3>LaTeX</h3>
+            <div class="button-row">
+              <button class="secondary-button" onClick={() => setDialog('build')}>
+                Build and LaTeX
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() => {
+                  setDialog(null);
+                  void latex.forward();
+                  if (narrow()) focusMode('pdf');
+                  else update({ pdfOpen: true });
+                }}
+              >
+                Show in PDF
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() => {
+                  setDialog(null);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('.cm-editor')
+                      ?.dispatchEvent(new CustomEvent('loom:definition')),
+                  );
+                }}
+              >
+                Go to definition · F12
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() => {
+                  setDialog(null);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('.cm-editor')
+                      ?.dispatchEvent(new CustomEvent('loom:complete')),
+                  );
+                }}
+              >
+                Complete at cursor · Ctrl Space
+              </button>
+            </div>
+            <p class="muted">{latex.languageStatus()}</p>
+          </div>
         </Show>
         <Show when={dialog() === 'tools' || dialog() === 'settings'}>
           <p class="muted">Phase 2 · local projects</p>

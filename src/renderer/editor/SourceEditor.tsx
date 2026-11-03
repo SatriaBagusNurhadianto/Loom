@@ -1,6 +1,8 @@
+import { languageExtensions } from '../latex/editor';
+import type { LatexWorkspace } from '../latex/workspace';
 import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
-import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
+import { EditorState, EditorSelection, Compartment, Prec } from '@codemirror/state';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import {
   searchKeymap,
@@ -35,7 +37,7 @@ const sourceHighlight = HighlightStyle.define([
   { tag: tags.link, color: 'var(--accent-text)' },
   { tag: tags.invalid, color: 'var(--error)' },
 ]);
-export function SourceEditor(props: { workspace: ProjectWorkspace }) {
+export function SourceEditor(props: { workspace: ProjectWorkspace; latex: LatexWorkspace }) {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   const [editor, setEditor] = createSignal<EditorView>();
@@ -64,6 +66,7 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
             Math.min(caret?.head ?? 0, d.doc.getText('source').length),
           ),
           extensions: [
+            languageExtensions(w, props.latex, id),
             search({ top: true }),
             projectSearch.of(projectSearchHighlights(w.search.highlightQuery())),
             EditorView.updateListener.of((update) => {
@@ -81,22 +84,24 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
             highlightSelectionMatches(),
             StreamLanguage.define(stex),
             syntaxHighlighting(sourceHighlight),
-            EditorView.domEventHandlers({
-              keydown(event) {
-                if (
-                  !event.isComposing &&
-                  (event.ctrlKey || event.metaKey) &&
-                  !event.altKey &&
-                  event.shiftKey &&
-                  event.key.toLowerCase() === 'z'
-                ) {
-                  event.preventDefault();
-                  d.undo.redo();
-                  return true;
-                }
-                return false;
-              },
-            }),
+            Prec.highest(
+              EditorView.domEventHandlers({
+                keydown(event) {
+                  if (
+                    !event.isComposing &&
+                    (event.ctrlKey || event.metaKey) &&
+                    !event.altKey &&
+                    event.shiftKey &&
+                    event.key.toLowerCase() === 'z'
+                  ) {
+                    event.preventDefault();
+                    d.undo.redo();
+                    return true;
+                  }
+                  return false;
+                },
+              }),
+            ),
             keymap.of([
               ...yUndoManagerKeymap,
               ...searchKeymap,

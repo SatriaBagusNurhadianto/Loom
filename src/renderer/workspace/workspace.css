@@ -1857,3 +1857,236 @@ kbd {
   background: var(--surface-raised);
   color: var(--error);
 }
+
+/* Phase 3: contextual compilation and a single mounted PDF page. */
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+.build-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.build-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.build-settings .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+}
+.build-settings :is(select, input[type='number']) {
+  width: 100%;
+  min-height: 34px;
+}
+.build-tool-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+.tool-list,
+.build-diagnostics {
+  list-style: none;
+  padding: 0;
+}
+.tool-list li {
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.tool-list details {
+  flex-basis: 100%;
+}
+.tool-list pre,
+.build-log pre,
+.tool-version {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 var(--font-source);
+}
+.build-log pre {
+  max-height: 260px;
+  overflow: auto;
+  background: var(--surface-editor);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+}
+.build-diagnostics {
+  max-height: 220px;
+  overflow: auto;
+}
+.build-diagnostics button {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.project-structure summary {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-muted);
+}
+.structure-path {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdf-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.pdf-reading-controls {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--pdf-border);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.pdf-reading-controls label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.pdf-reading-controls :is(button, input, select) {
+  min-height: 28px;
+  border: 1px solid var(--pdf-border);
+  border-radius: var(--radius-control);
+  color: var(--pdf-text);
+  background: var(--pdf-paper);
+  padding: 4px 6px;
+  font: inherit;
+}
+.pdf-reading-controls input {
+  width: 46px;
+}
+.pdf-reading-controls > button:first-child,
+.pdf-reading-controls > button:nth-of-type(2) {
+  font-size: 18px;
+  min-width: 28px;
+}
+.pdf-load-status {
+  min-height: 30px;
+  padding: 7px var(--space-3);
+  font-size: 10px;
+  color: var(--pdf-muted);
+  flex-shrink: 0;
+}
+.pdf-build-freshness {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  font-size: 11px;
+  border-bottom: 1px solid var(--pdf-border);
+  flex-shrink: 0;
+}
+.pdf-build-freshness button,
+.pdf-inline-error button {
+  text-decoration: underline;
+  padding: var(--space-1);
+}
+.pdf-inline-error {
+  padding: var(--space-3);
+  font-size: 12px;
+}
+.compiled-scroll {
+  padding: var(--space-3) 20px 40px;
+  scroll-behavior: auto;
+}
+.pdf-sheet {
+  position: relative;
+  margin: 0 auto;
+  background: var(--pdf-paper);
+  box-shadow: var(--shadow-paper);
+}
+.pdf-sheet canvas {
+  display: block;
+}
+.pdf-source-marker {
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background: var(--focus);
+  pointer-events: none;
+}
+/* PDF.js TextLayer geometry (Apache-2.0); intentionally scoped to our page. */
+.pdf-sheet .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdf-sheet .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.pdf-sheet .textLayer > :not(.markedContent),
+.pdf-sheet .textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdf-sheet .textLayer .markedContent {
+  display: contents;
+}
+.pdf-sheet .textLayer ::selection {
+  background: var(--pdf-selection);
+}
+.cm-tooltip-autocomplete {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+@media (max-width: 760px) {
+  .build-settings {
+    grid-template-columns: 1fr;
+  }
+  .compile-source {
+    display: none;
+  }
+}
+@media (forced-colors: active) {
+  .pdf-sheet .textLayer ::selection {
+    background: Highlight;
+  }
+  .pdf-source-marker {
+    background: Highlight;
+  }
+}

@@ -441,6 +441,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     flush,
     choose,
     newFile,
+    flushPending,
     search,
   };
 }
