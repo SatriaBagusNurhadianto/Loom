@@ -63,12 +63,15 @@ button:disabled:hover {
 a {
   color: var(--accent-text);
 }
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
+:focus:not(:focus-visible) {
+  outline: none;
 }
-[data-focus-region]:focus {
-  outline: 2px solid var(--focus);
+:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 2px;
+}
+[data-focus-region]:focus-visible {
+  outline: 1px solid var(--focus);
   outline-offset: -3px;
 }
 input[type='checkbox'],
@@ -283,6 +286,7 @@ h3 {
   color: inherit;
   border: 0;
   padding: 5px 0;
+  outline: none;
 }
 .sidebar-empty {
   color: var(--text-muted);
@@ -1701,12 +1705,126 @@ kbd {
     scroll-behavior: auto !important;
   }
 }
-.live-editor .cm-panels {
+.live-editor .cm-editor div.cm-panels {
   background: var(--surface-sidebar);
   color: var(--text-primary);
+  border-color: var(--border);
+  flex-shrink: 0;
+  max-height: min(220px, 50vh);
+  overflow-y: auto;
 }
-.live-editor .cm-textfield {
+.live-editor .cm-editor .cm-panel.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 48px var(--space-3) var(--space-3);
+  font: 12px/1.5 var(--font-ui);
+}
+.live-editor .cm-editor .cm-panel.cm-search input,
+.live-editor .cm-editor .cm-panel.cm-search button,
+.live-editor .cm-editor .cm-panel.cm-search label {
+  margin: 0;
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-textfield {
+  flex: 1 1 160px;
+  min-width: 100px;
+  width: 0;
+  height: 34px;
+  padding: 6px 10px;
   background: var(--surface-editor);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font: inherit;
+  outline-offset: 2px;
+  transition: border-color var(--duration-normal) var(--ease-standard);
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-textfield::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-textfield:focus {
+  border-color: var(--focus);
+  outline: none;
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-button {
+  min-height: 34px;
+  padding: 6px 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: none;
+  font: inherit;
+  text-transform: capitalize;
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-button:hover {
+  background: var(--surface-hover);
+}
+.live-editor .cm-editor .cm-panel.cm-search .cm-button:active {
+  transform: scale(0.99);
+}
+/* Preserve CodeMirror's keyboard order; separate Find from options and replacement. */
+.live-editor .cm-editor .cm-panel.cm-search::before {
+  content: '';
+  flex-basis: 100%;
+  order: 1;
+}
+.live-editor .cm-editor .cm-panel.cm-search label {
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 8px;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    color var(--duration-normal) ease,
+    border-color var(--duration-normal) ease;
+}
+.live-editor .cm-editor .cm-panel.cm-search label:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.live-editor .cm-editor .cm-panel.cm-search label:has(input:checked) {
+  border-color: var(--focus);
+  color: var(--accent-text);
+}
+.live-editor .cm-editor .cm-panel.cm-search input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+.live-editor .cm-editor .cm-panel.cm-search br {
+  display: none;
+}
+.live-editor .cm-editor .cm-panel.cm-search input[name='replace'],
+.live-editor .cm-editor .cm-panel.cm-search button[name='replace'],
+.live-editor .cm-editor .cm-panel.cm-search button[name='replaceAll'] {
+  order: 4;
+}
+.live-editor .cm-editor .cm-panel.cm-search button[name='close'] {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-2);
+  width: 30px;
+  height: 34px;
+  padding: 0;
+  color: var(--text-muted);
+  border-radius: var(--radius-control);
+  font: 20px/1 var(--font-ui);
+}
+.live-editor .cm-editor .cm-panel.cm-search button[name='close']:hover {
+  background: var(--surface-hover);
   color: var(--text-primary);
 }
 

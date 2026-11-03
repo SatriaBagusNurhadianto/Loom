@@ -9,7 +9,7 @@ colors:
   text: '#e8e8e8'
   muted: '#a0a0a0'
   primary: '#173a8a'
-  focus: '#9acaff'
+  focus: '#8f8f8f'
   paper: '#fafafa'
 typography:
   ui:
@@ -161,4 +161,10 @@ CodeMirror highlighting uses the canonical `--syntax-*` dark tokens through `Hig
 
 Project search uses one transient session shared by the sidebar, compact navigator and source editor (`editor/projectSearch.ts`). It ranks literal results before word/phrase typos and ordered filename abbreviations, labels approximate results, and shows original text rather than correcting the manuscript. A shared `ui/HighlightedText.tsx` renders safe inline marks for path/snippet ranges. Source marks are viewport decorations (`editor/searchHighlights.ts`) over the live CodeMirror document; they never rewrite text or enter undo history. Clicking a text hit selects and focuses its actual range. Search survives compact navigation, refreshes after file revisions and clears on project change; clearing/hiding the field removes decorations immediately. Ctrl F/replace remains precise and takes visual precedence while its panel is open.
 
-Canonical search tokens are `--search-match-bg: #4b3e16`, `--search-match-text: #fff1bd` and `--search-current-bg: #6b4e12` in `ui/tokens.css`. The shared result marks, source decorations and CodeMirror Find/selection matches consume them through `workspace.css`. A focused current passage has the stronger fill and focus outline, while the active result has an inset focus-colored edge. Native text selection remains visible; forced colors use system Highlight/HighlightText. Runtime contrast is checked at the 4.5:1 minimum. These quiet amber highlights distinguish search from the existing blue action/focus roles without changing the Prism layout.
+Canonical search tokens are `--search-match-bg: #4b3e16`, `--search-match-text: #fff1bd` and `--search-current-bg: #6b4e12` in `ui/tokens.css`. The shared result marks, source decorations and CodeMirror Find/selection matches consume them through `workspace.css`. A focused current passage has the stronger fill and focus outline, while the active result has an inset focus-colored edge. Native text selection remains visible; forced colors use system Highlight/HighlightText. Runtime contrast is checked at the 4.5:1 minimum. These quiet amber highlights distinguish search from action and focus roles without changing the Prism layout.
+
+## Find/replace and focus treatment
+
+The CodeMirror Find/replace panel retains its upstream commands, labels, input behavior and keyboard order. Its presentation is adapted in `workspace.css` using the shared charcoal surfaces, UI font, 8px control radius, 34px fields/buttons, neutral borders and motion tokens. Find/navigation occupy the first row; options and replacement controls wrap below. The close control stays at the upper right, and the panel has bounded vertical scrolling only when needed. No editor text or search/replace semantics change.
+
+Per the user's request, focus uses the neutral `--focus: #8f8f8f` rather than bright blue. Clicking buttons/tabs or a workspace region shows no extra outline. Keyboard navigation retains a quiet 1px neutral indicator; F6 region focus is inset. Grouped search fields use the enclosing border instead of a second box around the inner input. Selection, hover, pressed state and active tabs keep their existing surface treatments. Blue remains reserved for intentional Tools/action styling and links, rather than generic focus boxes.

@@ -216,6 +216,21 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.getByRole('main', { name: 'Source workspace' }).focus();
   await page.keyboard.press('F6');
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeFocused();
+  const keyboardFocus = await page
+    .getByRole('region', { name: 'PDF preview', exact: true })
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        color: style.outlineColor,
+        width: parseFloat(style.outlineWidth),
+        style: style.outlineStyle,
+      };
+    });
+  expect(keyboardFocus.color).toBe('rgb(143, 143, 143)');
+  expect(keyboardFocus.style).toBe('solid');
+  // Chromium rounds thin borders to device pixels at the desktop's fractional scale.
+  expect(keyboardFocus.width).toBeGreaterThan(0);
+  expect(keyboardFocus.width).toBeLessThanOrEqual(1.01);
   await page.keyboard.press('Shift+F6');
   await expect(page.getByRole('main', { name: 'Source workspace' })).toBeFocused();
   await page.keyboard.press('Control+Alt+2');
@@ -564,6 +579,12 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.getByRole('button', { name: 'references.bib', exact: true }).click();
   await expect(editor).toContainText('@article');
   await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
+  expect(
+    await page
+      .locator('.source-tab')
+      .last()
+      .evaluate((node) => getComputedStyle(node).outlineStyle),
+  ).toBe('none');
   await expect(editor).toContainText('% Human addition');
   const text = await readFile(join(folder, 'main.tex'), 'utf8');
   await writeFile(join(folder, 'main.tex'), text.replace('Original text.', 'External text.'));
@@ -637,6 +658,61 @@ test('file operations, root choice, search locations, find/replace and caret res
   await page.getByRole('button', { name: 'main.tex', exact: true }).last().click();
   await editor.focus();
   expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(3);
+  await page.getByRole('button', { name: 'Find / replace', exact: true }).click();
+  const findPanel = page.locator('.cm-search');
+  const findField = page.getByRole('textbox', { name: 'Find', exact: true });
+  await expect(findField).toBeFocused();
+  await findField.fill('original');
+  await findField.press('ArrowRight');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: 'match case', exact: true }).check();
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'match case', exact: true }).uncheck();
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+  await findField.fill('[Oo]riginal');
+  await findField.press('ArrowRight');
+  await page.getByRole('checkbox', { name: 'regexp', exact: true }).check();
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+  await page.getByRole('checkbox', { name: 'regexp', exact: true }).uncheck();
+  await findField.fill('Orig');
+  await findField.press('ArrowRight');
+  await page.getByRole('checkbox', { name: 'by word', exact: true }).check();
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'by word', exact: true }).uncheck();
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+  await findField.fill('Original');
+  await findField.press('ArrowRight');
+  expect(
+    await findPanel
+      .locator('.cm-button')
+      .first()
+      .evaluate((node) => getComputedStyle(node).backgroundImage),
+  ).toBe('none');
+  expect(await findField.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('8px');
+  await page.screenshot({ path: 'artifacts/phase-2-find-panel.png', animations: 'disabled' });
+  await dimensions(720, 540);
+  await page.screenshot({ path: 'artifacts/phase-2-find-panel-small.png', animations: 'disabled' });
+  expect(
+    await findPanel.evaluate((panel) => {
+      const bounds = panel.parentElement!.getBoundingClientRect();
+      return [...panel.querySelectorAll('input,button,label')].every((node) => {
+        const rect = node.getBoundingClientRect();
+        return (
+          rect.left >= bounds.left &&
+          rect.right <= bounds.right &&
+          rect.top >= bounds.top &&
+          rect.bottom <= bounds.bottom &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      });
+    }),
+  ).toBe(true);
+  await findField.focus();
+  await findField.press('Escape');
+  await expect(findPanel).toHaveCount(0);
+  await expect(editor).toBeFocused();
+  await dimensions(1440, 960);
   await page.getByRole('button', { name: 'Find / replace', exact: true }).click();
   await page.getByRole('textbox', { name: 'Find', exact: true }).fill('Original');
   await page.getByRole('textbox', { name: 'Replace', exact: true }).fill('Updated');
