@@ -295,7 +295,10 @@ test('sidebar footer, folder navigation and row focus remain stable with many fi
   await folderButton.click();
   const row = sidebar.getByRole('button', { name: 'sections/part-0.tex', exact: true });
   await row.focus();
-  await page.evaluate(() => window.loom!.project({ type: 'refresh' }));
+  await writeFile(join(folder, 'focus-marker.tex'), 'external addition');
+  await expect(
+    sidebar.getByRole('button', { name: 'focus-marker.tex', exact: true }),
+  ).toBeVisible();
   await expect(row).toBeFocused();
   const footerGap = await sidebar.evaluate(
     (element) =>
@@ -406,11 +409,16 @@ test('Prism navigation, native folder creation, assets and narrow dialog stay us
 });
 
 test('file action menus support keyboard, inline errors, search and reduced motion', async () => {
-  await openSyntheticProject();
+  const folder = await openSyntheticProject();
   await page.keyboard.press('Control+Alt+3');
   const trigger = page.getByRole('button', { name: 'Actions for main.tex', exact: true });
   await trigger.focus();
   await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Rename / move', exact: true })).toBeFocused();
+  await writeFile(join(folder, 'added-during-menu.tex'), 'external addition');
+  await expect(
+    page.getByRole('button', { name: 'added-during-menu.tex', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Rename / move', exact: true })).toBeFocused();
   await page.keyboard.press('End');
   await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeFocused();

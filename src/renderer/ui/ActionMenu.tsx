@@ -1,4 +1,4 @@
-import { createSignal, createUniqueId, For, onCleanup } from 'solid-js';
+import { createSignal, createUniqueId, Index, onCleanup } from 'solid-js';
 import { Icon, type IconName } from './Icon';
 
 export type MenuAction = {
@@ -80,22 +80,22 @@ export function ActionMenu(props: { label: string; actions: MenuAction[]; disabl
           } else if (event.key === 'Tab') close(true);
         }}
       >
-        <For each={props.actions}>
+        <Index each={props.actions}>
           {(action) => (
             <button
               role="menuitem"
-              disabled={action.disabled}
-              classList={{ 'danger-action': action.danger }}
+              disabled={action().disabled}
+              classList={{ 'danger-action': action().danger }}
               onClick={() => {
                 close(true);
-                action.run();
+                action().run();
               }}
             >
-              <Icon name={action.icon} size={16} />
-              <span>{action.label}</span>
+              <Icon name={action().icon} size={16} />
+              <span>{action().label}</span>
             </button>
           )}
-        </For>
+        </Index>
       </div>
     </>
   );
