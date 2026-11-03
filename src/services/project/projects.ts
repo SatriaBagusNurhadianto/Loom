@@ -35,6 +35,7 @@ type Project = {
 const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
 export class ProjectService {
+  onHumanWrite?: (path: string) => void;
   private root = '';
   private loadedId = '';
   private project: Project | null = null;
@@ -395,6 +396,7 @@ export class ProjectService {
       this.persist();
       return;
     }
+    this.onHumanWrite?.(file.path);
     this.persist();
     const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
     try {
@@ -627,6 +629,110 @@ export class ProjectService {
           text: f.binary ? null : this.doc(f).getText('source').toString(),
         })),
     };
+  }
+  /** Internal agent recovery boundary. Call only within run(), after renderer flush. */
+  async agentFiles(projectId: string): Promise<Map<string, Buffer>> {
+    await this.refresh();
+    const context = this.buildContext(projectId);
+    const result = new Map<string, Buffer>();
+    let total = 0;
+    for (const file of context.files) {
+      if (file.diskKind === 'missing') continue;
+      const target = await this.safe(file.path);
+      const stat = await fs.stat(target);
+      total += stat.size;
+      if (total > 128 * 1024 * 1024)
+        throw new Error('Agent recovery supports papers up to 128 MiB.');
+      result.set(file.path, await fs.readFile(target));
+    }
+    return result;
+  }
+  async agentRestore(
+    projectId: string,
+    path: string,
+    expected: Buffer | null,
+    desired: Buffer | null,
+  ): Promise<void> {
+    this.buildContext(projectId);
+    const target = await this.safe(path);
+    let current: Buffer | null = null;
+    try {
+      current = await fs.readFile(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (
+      (current === null) !== (expected === null) ||
+      (current && expected && !current.equals(expected))
+    )
+      throw new Error('This file changed again. Review its latest version before reverting.');
+    const file = this.project!.files.find((f) => f.path === path && !f.deleted);
+    if (
+      file &&
+      ((file.conflict &&
+        !(
+          expected === null &&
+          file.diskKind === 'missing' &&
+          this.doc(file).getText('source').toString() === file.baseline
+        )) ||
+        (!file.binary && this.doc(file).getText('source').toString() !== file.baseline))
+    )
+      throw new Error('Review or save your newer writing before reverting this file.');
+    if (desired === null) {
+      if (file) {
+        file.recovery = Array.from(current!);
+        this.persist();
+      }
+      await fs.unlink(target);
+      if (file) {
+        file.deleted = true;
+        file.conflict = false;
+        this.persist();
+      }
+    } else {
+      await fs.mkdir(dirname(target), { recursive: true });
+      if (!current) await fs.writeFile(target, desired, { flag: 'wx' });
+      else {
+        const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
+        try {
+          const handle = await fs.open(temp, 'wx', 0o600);
+          try {
+            await handle.writeFile(desired);
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          const latest = await fs.readFile(target);
+          if (!latest.equals(current))
+            throw new Error('This file changed again. Review before reverting.');
+          await fs.rename(temp, target);
+          const directory = await fs.open(dirname(target), 'r');
+          try {
+            await directory.sync();
+          } finally {
+            await directory.close();
+          }
+        } finally {
+          await fs.rm(temp, { force: true });
+        }
+      }
+      if (file) {
+        let text: string | null = null;
+        try {
+          const decoded = new TextDecoder('utf-8', { fatal: true }).decode(desired);
+          if (!decoded.includes('\0')) text = decoded;
+        } catch {
+          /* Binary recovery. */
+        }
+        file.binary = text === null;
+        file.baseline = text;
+        file.conflict = false;
+        file.deleted = false;
+        if (text !== null) this.setText(file, text);
+        this.persist();
+      }
+    }
+    await this.refresh();
   }
   snapshot(): ProjectSnapshot {
     const p = this.project!;
