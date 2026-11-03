@@ -273,6 +273,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
       setError('File dialogs require the Electron desktop app.');
       return;
     }
+    setError('');
     setPending(true);
     try {
       if (!(await flushPending())) return;
@@ -293,6 +294,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
       if (created) {
         await select(created.id);
         report(`Created ${created.path}.`);
+        return created.id;
       }
     } finally {
       setPending(false);

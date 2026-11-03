@@ -1672,3 +1672,13 @@ kbd {
   background: var(--surface-editor);
   color: var(--text-primary);
 }
+
+.panel-error {
+  flex-shrink: 0;
+  margin: 8px 0;
+  padding: 10px;
+  font-size: 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--error);
+}

@@ -143,6 +143,13 @@ export function ProjectPanel(props: {
     setPath(file.path);
     setFormError('');
   }
+  async function createFile(directory?: string) {
+    const id = await w.newFile(directory);
+    if (id) {
+      props.onNavigate?.();
+      await w.locate(id, 0);
+    }
+  }
   async function submit() {
     const op = operation();
     if (busy() || !op) return;
@@ -272,7 +279,7 @@ export function ProjectPanel(props: {
                         label={`New file in ${directory}`}
                         icon="plus"
                         disabled={w.pending()}
-                        onClick={() => void w.newFile(directory)}
+                        onClick={() => void createFile(directory)}
                       />
                     </div>
                     <Show when={!collapsed().has(directory)}>
@@ -289,6 +296,11 @@ export function ProjectPanel(props: {
   }
   return (
     <div class="project-panel">
+      <Show when={props.onNavigate && w.error()}>
+        <p class="panel-error" role="alert">
+          {w.error()}
+        </p>
+      </Show>
       <div class="file-toolbar">
         <div class="tab-buttons" role="group" aria-label="Sidebar content">
           <button
@@ -325,7 +337,7 @@ export function ProjectPanel(props: {
             label="New file"
             icon="plus"
             disabled={w.pending()}
-            onClick={() => void w.newFile()}
+            onClick={() => void createFile()}
           />
           <ActionMenu
             label="Project file options"

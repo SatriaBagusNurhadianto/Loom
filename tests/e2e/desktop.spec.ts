@@ -405,6 +405,31 @@ test('Prism navigation, native folder creation, assets and narrow dialog stay us
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Reproducible methods',
   );
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await desktop.evaluate(
+    ({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+    },
+    join(userData, 'outside-compact.tex'),
+  );
+  await navigation.getByRole('button', { name: 'New file', exact: true }).click();
+  await expect(navigation.getByRole('alert')).toContainText('inside the open project folder');
+  await desktop.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = async () => ({ canceled: true, filePath: '' });
+  });
+  await navigation.getByRole('button', { name: 'New file', exact: true }).click();
+  await expect(navigation).toBeVisible();
+  const compactFile = join(folder, 'sections', 'compact.tex');
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+  }, compactFile);
+  await navigation.getByRole('button', { name: 'New file', exact: true }).click();
+  await expect(navigation).not.toBeVisible();
+  const compactEditor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await expect(compactEditor).toBeFocused();
+  await page.keyboard.type('% ready to edit');
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => readFile(compactFile, 'utf8')).toBe('% ready to edit');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
