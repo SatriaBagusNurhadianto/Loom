@@ -1,6 +1,12 @@
-import { findExecutable, runTool, spawnOwnedTool } from '../latex/tools';
+import { runTool, spawnOwnedTool } from '../latex/tools';
 import { object, list, string, type HarnessAdapter } from './opencode';
-import type { AgentMessage, AgentModel } from '../../contracts/agent';
+import {
+  defaultAgentSettings,
+  type AgentSettings,
+  type AgentMessage,
+  type AgentModel,
+} from '../../contracts/agent';
+import { harnessExecutable } from './runtime';
 import { StringDecoder } from 'node:string_decoder';
 
 type Session = {
@@ -93,8 +99,8 @@ export class CodexAdapter implements HarnessAdapter {
     this.child.on('error', () => this.fail());
     this.child.on('exit', () => this.fail());
   }
-  static async detect() {
-    const executable = await findExecutable('codex');
+  static async detect(override?: string) {
+    const executable = await harnessExecutable('codex', override);
     if (!executable) return { installed: false, version: 'Not installed', executable: null };
     try {
       const r = await runTool(executable, ['--version'], { timeoutMs: 5000 });
@@ -107,8 +113,12 @@ export class CodexAdapter implements HarnessAdapter {
       return { installed: false, version: 'Version check failed', executable };
     }
   }
-  static async owned(directory: string, tool?: { url: string; token: string }) {
-    const found = await this.detect();
+  static async owned(
+    directory: string,
+    tool?: { url: string; token: string },
+    executable?: string,
+  ) {
+    const found = await this.detect(executable);
     if (!found.installed || !found.executable)
       throw new Error('Install Codex and sign in with “codex login”, then connect again.');
     if (!/^0\.159\./.test(found.version))
@@ -333,6 +343,12 @@ export class CodexAdapter implements HarnessAdapter {
           name: string(m.displayName),
           images: Array.isArray(m.inputModalities) && m.inputModalities.includes('image'),
           tools: true,
+          reasoningEfforts: Array.isArray(m.supportedReasoningEfforts)
+            ? m.supportedReasoningEfforts
+                .map((raw) => string(object(raw).reasoningEffort))
+                .filter(Boolean)
+            : [],
+          defaultReasoning: string(m.defaultReasoningEffort),
         });
       }
       cursor = typeof response.nextCursor === 'string' ? response.nextCursor : undefined;
@@ -344,7 +360,9 @@ export class CodexAdapter implements HarnessAdapter {
     return {
       cwd: directory,
       sandbox: 'workspace-write',
-      approvalPolicy: 'untrusted',
+      approvalPolicy: 'on-request',
+      developerInstructions:
+        'You are the native agent for Loom, a scientific writing workspace. The current working directory is the author’s paper. Use native filesystem, file editing and shell tools to read, create and revise manuscript files. Use Loom MCP tools for paper structure and PDF status/builds. Browser/editor UI automation is not needed for local paper files. Answer discussion questions without editing unless asked to make changes. Preserve unrelated writing and never commit or push without an explicit author request.',
       approvalsReviewer: 'user',
     };
   }
@@ -429,7 +447,13 @@ export class CodexAdapter implements HarnessAdapter {
     if (!s) throw new Error('Reconnect this Codex conversation.');
     return { location: { directory: s.directory }, outcome: s.outcome };
   }
-  async submit(sessionId: string, prompt: string, model: AgentModel, files: string[]) {
+  async submit(
+    sessionId: string,
+    prompt: string,
+    model: AgentModel,
+    files: string[],
+    settings: AgentSettings = defaultAgentSettings(),
+  ) {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error('Reconnect this conversation.');
     const text =
@@ -445,6 +469,9 @@ export class CodexAdapter implements HarnessAdapter {
           threadId: sessionId,
           input: [{ type: 'text', text, text_elements: [] }],
           model: model.id,
+          cwd: s.directory,
+          ...codexTurnPolicy(settings),
+          ...(settings.reasoning ? { effort: settings.reasoning } : {}),
         }),
       );
       const turnId = string(object(response.turn).id);
@@ -610,4 +637,25 @@ export class CodexAdapter implements HarnessAdapter {
     this.fail();
     await stopped;
   }
+}
+
+/** Translate explicit chat choices into Codex's own runtime policy. */
+export function codexTurnPolicy(settings: AgentSettings) {
+  if (settings.permissionMode === 'full-access')
+    return {
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      sandboxPolicy: { type: 'dangerFullAccess' },
+    };
+  if (settings.permissionMode === 'supervised')
+    return {
+      approvalPolicy: 'untrusted',
+      approvalsReviewer: 'user',
+      sandboxPolicy: { type: 'readOnly' },
+    };
+  return {
+    approvalPolicy: 'on-request',
+    approvalsReviewer: settings.permissionMode === 'auto' ? 'auto_review' : 'user',
+    sandboxPolicy: { type: 'workspaceWrite', networkAccess: true },
+  };
 }

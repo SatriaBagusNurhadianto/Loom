@@ -13,7 +13,8 @@ it.skipIf(!live)(
   'connects actual owned OpenCode and Codex processes, catalogs and project-bound sessions without inference',
   async () => {
     const dir = await mkdtemp(join(tmpdir(), 'loom-harness-live-'));
-    let open: OpenCodeAdapter | undefined, codex: CodexAdapter | undefined;
+    let open: Awaited<ReturnType<typeof OpenCodeAdapter.owned>> | undefined,
+      codex: CodexAdapter | undefined;
     try {
       await writeFile(join(dir, 'main.tex'), 'Synthetic paper.');
       open = await OpenCodeAdapter.owned(dir);

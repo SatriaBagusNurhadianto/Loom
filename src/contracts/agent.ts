@@ -3,6 +3,17 @@ import { relativePath } from './project';
 export const harnessSchema = z.enum(['opencode', 'codex']);
 export type HarnessKind = z.infer<typeof harnessSchema>;
 const id = z.string().min(1).max(160);
+export const agentSettingsSchema = z
+  .object({
+    permissionMode: z.enum(['supervised', 'auto-accept-edits', 'auto', 'full-access']),
+    reasoning: z.string().max(100),
+  })
+  .strict();
+export type AgentSettings = z.infer<typeof agentSettingsSchema>;
+export const defaultAgentSettings = (): AgentSettings => ({
+  permissionMode: 'auto-accept-edits',
+  reasoning: '',
+});
 export const agentModelSchema = z
   .object({
     id,
@@ -10,6 +21,8 @@ export const agentModelSchema = z
     name: z.string().max(300),
     images: z.boolean(),
     tools: z.boolean(),
+    reasoningEfforts: z.array(z.string().max(100)).max(30).optional(),
+    defaultReasoning: z.string().max(100).optional(),
   })
   .strict();
 export type AgentModel = z.infer<typeof agentModelSchema>;
@@ -87,6 +100,7 @@ export const agentStateSchema = z
             installed: z.boolean(),
             version: z.string(),
             auth: z.enum(['available', 'required', 'unknown']),
+            executable: z.string().max(4096).optional(),
           })
           .strict(),
       )
@@ -100,6 +114,7 @@ export const agentStateSchema = z
       .array(z.object({ id, harness: harnessSchema, title: z.string().max(300) }).strict())
       .max(100),
     sessionId: id.nullable(),
+    settings: agentSettingsSchema,
     messages: z.array(agentMessageSchema).max(200),
     permissions: z.array(agentPermissionSchema).max(100),
     questions: z.array(agentQuestionSchema).max(100),
@@ -120,6 +135,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
       endpoint: z.string().max(300).optional(),
       username: z.string().max(100).optional(),
       password: z.string().max(1000).optional(),
+      executable: z.string().max(4096).optional(),
     })
     .strict(),
   z.object({ type: z.literal('disconnect'), projectId: id }).strict(),
@@ -139,6 +155,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
       revision: z.string().min(1).max(100),
     })
     .strict(),
+  z.object({ type: z.literal('settings'), projectId: id, settings: agentSettingsSchema }).strict(),
   z.object({ type: z.literal('cancel'), projectId: id }).strict(),
   z
     .object({

@@ -1,5 +1,12 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js';
-import type { AgentCommand, AgentModel, AgentState, HarnessKind } from '../../contracts/agent';
+import {
+  defaultAgentSettings,
+  type AgentSettings,
+  type AgentCommand,
+  type AgentModel,
+  type AgentState,
+  type HarnessKind,
+} from '../../contracts/agent';
 import type { ProjectWorkspace } from '../editor/documents';
 export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: string) => void) {
   const [state, setState] = createSignal<AgentState | null>(null),
@@ -17,6 +24,30 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     sequence = 0,
     accepted = 0,
     cancelAfterSend = false;
+  const [runtimePaths, setRuntimePaths] = createSignal<Record<string, string>>({});
+  function runtimePath(kind: HarnessKind) {
+    const draft = runtimePaths()[kind];
+    if (draft !== undefined) return draft;
+    try {
+      return window.localStorage.getItem('loom:agent-runtime:v1:' + kind) ?? '';
+    } catch {
+      return '';
+    }
+  }
+  function setRuntimePath(kind: HarnessKind, value: string) {
+    setRuntimePaths((old) => ({ ...old, [kind]: value }));
+    try {
+      window.localStorage.setItem('loom:agent-runtime:v1:' + kind, value);
+    } catch {
+      /* The path remains usable for this window. */
+    }
+  }
+  const settings = () => state()?.settings ?? defaultAgentSettings();
+  async function setSettings(value: AgentSettings) {
+    const projectId = projects.project()?.id;
+    if (projectId) return !!(await act({ type: 'settings', projectId, settings: value }));
+    return false;
+  }
   const key = () => `loom:agent-draft:${projects.project()?.id ?? 'none'}`;
   function setDraft(text: string) {
     setDraftValue(text);
@@ -30,6 +61,9 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
   }
   function setModelKey(value: string) {
     setModelKeyValue(value);
+    const chosen = state()?.models.find((m) => `${m.providerId}:${m.id}` === value);
+    if (settings().reasoning && !(chosen?.reasoningEfforts ?? []).includes(settings().reasoning))
+      void setSettings({ ...settings(), reasoning: '' });
     try {
       window.localStorage.setItem(
         `loom:agent-model:${projects.project()?.id}:${state()?.harness}`,
@@ -141,13 +175,22 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     endpoint?: string,
     username?: string,
     password?: string,
+    executable?: string,
   ) {
     const projectId = projects.project()?.id;
     if (!projectId) {
       setError('Open a paper folder before connecting an agent.');
       return false;
     }
-    return !!(await act({ type: 'connect', projectId, harness, endpoint, username, password }));
+    return !!(await act({
+      type: 'connect',
+      projectId,
+      harness,
+      endpoint,
+      username,
+      password,
+      executable: executable ?? runtimePath(harness),
+    }));
   }
   async function newChat() {
     const projectId = projects.project()?.id;
@@ -323,6 +366,10 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
   });
   return {
     state,
+    settings,
+    setSettings,
+    runtimePath,
+    setRuntimePath,
     error,
     setError,
     busy,

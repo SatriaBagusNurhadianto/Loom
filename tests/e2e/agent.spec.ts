@@ -259,22 +259,24 @@ test.afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 async function connect(requireModel = true) {
-  await page.locator('.agent-harness-button').click();
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
   await expect(dialog).toBeVisible();
   if (await dialog.getByText('Connected to this paper', { exact: true }).isVisible()) {
     await dialog.getByRole('button', { name: 'Close dialog' }).click();
     return;
   }
-  if (!(await dialog.locator('details').evaluate((el) => (el as HTMLDetailsElement).open)))
-    await dialog.getByText('Connection details', { exact: true }).click();
-  await dialog.getByLabel('Use an existing local OpenCode server').check();
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Use an existing server').check();
   await dialog.getByLabel('Server address').fill(endpoint);
   await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
   await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
   await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
-  if (requireModel) await expect(page.getByRole('combobox', { name: 'Agent model' })).toBeVisible();
+  if (requireModel)
+    await expect(
+      page.getByRole('button', { name: 'Choose agent model', exact: true }),
+    ).toBeVisible();
 }
 test('real Electron agent flow: context, permissions, retained questions, streaming, safe review and newer writing', async () => {
   await connect();
@@ -359,7 +361,7 @@ test('partial cancellation, retained draft and project chat continuation after r
 test('provider settings, source and composer remain usable at 720 by 540 with keyboard access', async () => {
   await connect();
   await dimensions(720, 540);
-  await page.getByRole('button', { name: 'OpenCode', exact: true }).click();
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: /Codex/ }).click();
@@ -370,12 +372,12 @@ test('provider settings, source and composer remain usable at 720 by 540 with ke
   });
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
-  const models = page.getByRole('combobox', { name: 'Agent model' });
-  await models.focus();
-  await models.press('Alt+ArrowDown');
-  await models.press('ArrowDown');
-  await models.press('Enter');
-  await expect(models).toHaveValue('synthetic:fixture');
+  await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
+  await expect(picker.getByRole('textbox', { name: 'Search models' })).toBeFocused();
+  await picker.getByRole('textbox', { name: 'Search models' }).press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(picker).not.toBeVisible();
   await page.getByRole('textbox', { name: 'Ask about your paper' }).focus();
   await page.keyboard.type('A question at a smaller window.');
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
@@ -469,23 +471,17 @@ test('authorized live Big Pickle revision compiles and is reviewable in the actu
     'Requires authorized OpenCode and local TeX.',
   );
   test.setTimeout(180_000);
-  await page.locator('.agent-harness-button').click();
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
   await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
   await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible({
     timeout: 20_000,
   });
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
-  const models = page.getByRole('combobox', { name: 'Agent model' });
-  const model = await models
-    .locator('option')
-    .evaluateAll((options) =>
-      options
-        .find((option) => /big[ -]?pickle/i.test(option.textContent ?? ''))
-        ?.getAttribute('value'),
-    );
-  expect(model).toBeTruthy();
-  await models.selectOption(model!);
+  await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
+  const models = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
+  await models.getByRole('textbox', { name: 'Search models' }).fill('Big Pickle');
+  await models.locator('[data-choice]').filter({ hasText: 'Big Pickle' }).first().click();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
     .fill(

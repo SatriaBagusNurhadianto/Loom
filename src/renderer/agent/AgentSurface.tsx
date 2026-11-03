@@ -1,8 +1,9 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
-import type { HarnessKind } from '../../contracts/agent';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
-import { type AgentWorkspace, modelIdentity } from './workspace';
+import { type AgentWorkspace } from './workspace';
+import { AgentChatMenus } from './AgentMenus';
+export { AgentConnections } from './AgentConnections';
 
 export function AgentChats(props: {
   agent: AgentWorkspace;
@@ -62,246 +63,6 @@ export function AgentChats(props: {
         </button>
       </Show>
     </div>
-  );
-}
-export function AgentConnections(props: {
-  agent: AgentWorkspace;
-  open: boolean;
-  onClose: () => void;
-  onOpenProject: () => void;
-}) {
-  const a = props.agent;
-  const [selected, setSelected] = createSignal<HarnessKind>('opencode'),
-    [external, setExternal] = createSignal(false),
-    [endpoint, setEndpoint] = createSignal('http://127.0.0.1:4096'),
-    [username, setUsername] = createSignal('opencode'),
-    [password, setPassword] = createSignal(''),
-    [showPassword, setShowPassword] = createSignal(false);
-  let wasOpen = false;
-  createEffect(() => {
-    if (props.open && !wasOpen) {
-      setSelected(a.state()?.harness ?? 'opencode');
-      void a.refresh(true);
-    }
-    if (!props.open) {
-      setPassword('');
-      setShowPassword(false);
-    }
-    wasOpen = props.open;
-  });
-  const provider = () => a.state()?.providers.find((p) => p.id === selected());
-  const connected = () =>
-    a.state()?.harness === selected() && a.state()?.connection === 'connected';
-  const name = () => (selected() === 'codex' ? 'Codex' : 'OpenCode');
-  return (
-    <Modal open={props.open} title="Agent connections" onClose={props.onClose}>
-      <p class="dialog-description">
-        Use your existing agent account and its available models. The agent can read relevant paper
-        files. Your request, attachments and the file contents it reads are sent to its configured
-        model.
-      </p>
-      <Show
-        when={a.projects.project()}
-        fallback={
-          <div class="dialog-section">
-            <p>Open a paper folder to connect its agent.</p>
-            <button class="primary-button" onClick={props.onOpenProject}>
-              Open or create project
-            </button>
-          </div>
-        }
-      >
-        <div class="agent-provider-picker" role="group" aria-label="Agent providers">
-          <For each={['opencode', 'codex'] as HarnessKind[]}>
-            {(id) => (
-              <button
-                aria-pressed={selected() === id}
-                classList={{ selected: selected() === id }}
-                onClick={() => setSelected(id)}
-              >
-                <span>{id === 'codex' ? 'Codex' : 'OpenCode'}</span>
-                <small>
-                  {a.state()?.providers.find((p) => p.id === id)?.version ?? 'Checking…'}
-                </small>
-              </button>
-            )}
-          </For>
-        </div>
-        <section class="dialog-section agent-provider-details">
-          <h3>{name()}</h3>
-          <p class="agent-connection-state">
-            {connected()
-              ? 'Connected to this paper'
-              : a.state()?.harness === selected() && a.state()?.connection === 'interrupted'
-                ? 'Connection interrupted'
-                : provider()?.installed
-                  ? 'Installed · ready to connect'
-                  : provider()?.version === 'Not checked'
-                    ? 'Checking installation…'
-                    : 'Not installed'}
-          </p>
-          <Show when={connected()}>
-            <p>
-              {!a.state()?.models.length
-                ? 'No models available. Use the setup guide to configure a model in this agent, then reconnect.'
-                : provider()?.auth === 'required'
-                  ? 'Sign-in required. Open the selected agent and sign in, then reconnect.'
-                  : provider()?.auth === 'available'
-                    ? 'An account is configured through this agent. Model access is checked when you send.'
-                    : `${a.state()?.models.length ?? 0} configured models available. Access is checked when you send a request.`}
-            </p>
-            <p>
-              {a.state()?.ownership === 'external'
-                ? 'Disconnect detaches from your server; Loom does not stop it.'
-                : 'Loom manages this agent process and closes it on disconnect.'}
-            </p>
-          </Show>
-          <p class="agent-direct-copy">
-            Agent requests can change your files directly using the permissions configured in your
-            agent. Review changes afterward to keep or revert them. These permissions may also allow
-            access outside the paper folder.
-          </p>
-          <div class="button-row">
-            <Show
-              when={connected()}
-              fallback={
-                <button
-                  class="primary-button"
-                  disabled={
-                    a.busy() || (a.state()?.running && a.state()?.connection === 'connected')
-                  }
-                  onClick={() => {
-                    if (
-                      provider()?.version !== 'Not checked' &&
-                      !provider()?.installed &&
-                      !(selected() === 'opencode' && external())
-                    ) {
-                      void window.loom?.openSetup(selected());
-                      return;
-                    }
-                    void a
-                      .connect(
-                        selected(),
-                        selected() === 'opencode' && external() ? endpoint() : undefined,
-                        username(),
-                        password(),
-                      )
-                      .then((ok) => {
-                        if (ok) setPassword('');
-                      });
-                  }}
-                >
-                  {a.busy()
-                    ? 'Connecting…'
-                    : a.state()?.connection === 'interrupted' && a.state()?.harness === selected()
-                      ? 'Reconnect'
-                      : provider()?.version !== 'Not checked' &&
-                          !provider()?.installed &&
-                          !(selected() === 'opencode' && external())
-                        ? `Set up ${name()}`
-                        : `Connect ${name()}`}
-                </button>
-              }
-            >
-              <button
-                class="secondary-button"
-                disabled={a.busy()}
-                onClick={() => {
-                  const projectId = a.projects.project()?.id;
-                  if (projectId) void a.act({ type: 'disconnect', projectId });
-                }}
-              >
-                Disconnect
-              </button>
-            </Show>
-            <button
-              class="secondary-button"
-              onClick={() => void window.loom?.openSetup(selected())}
-            >
-              Setup guide
-            </button>
-          </div>
-          <Show when={!connected()}>
-            <p>
-              {provider()?.installed
-                ? 'If you need to sign in, use'
-                : 'Install ' + name() + ', then sign in using'}{' '}
-              <code>{selected() === 'codex' ? 'codex login' : 'opencode auth login'}</code>. Loom
-              reuses that setup and does not store your provider keys.
-            </p>
-          </Show>
-          <details>
-            <summary>Connection details</summary>
-            <p>
-              Supported versions: OpenCode 2.2.x from 2.2.1; Codex 0.159.x. Detected version:{' '}
-              {provider()?.version ?? 'Checking…'}.
-            </p>
-            <p>
-              {a.state()?.toolsAvailable && connected()
-                ? 'Loom paper structure, PDF status and build tools are connected.'
-                : selected() === 'opencode'
-                  ? 'Loom tools connect with managed agent instances. Existing OpenCode servers keep their own tools and permissions.'
-                  : 'Loom paper and PDF tools connect when you start a managed Codex instance.'}
-            </p>
-            <Show when={selected() === 'opencode'}>
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={external()}
-                  disabled={connected()}
-                  onChange={(e) => setExternal(e.currentTarget.checked)}
-                />
-                Use an existing local OpenCode server
-              </label>
-              <Show when={external()}>
-                <label class="field-label">
-                  Server address
-                  <input
-                    value={endpoint()}
-                    onInput={(e) => setEndpoint(e.currentTarget.value)}
-                    disabled={connected()}
-                  />
-                </label>
-                <label class="field-label">
-                  Server username
-                  <input
-                    value={username()}
-                    onInput={(e) => setUsername(e.currentTarget.value)}
-                    disabled={connected()}
-                  />
-                </label>
-                <label class="field-label">
-                  Server password
-                  <input
-                    type={showPassword() ? 'text' : 'password'}
-                    autocomplete="off"
-                    value={password()}
-                    onInput={(e) => setPassword(e.currentTarget.value)}
-                    disabled={connected()}
-                  />
-                </label>
-                <button
-                  class="text-button"
-                  aria-pressed={showPassword()}
-                  onClick={() => setShowPassword(!showPassword())}
-                >
-                  {showPassword() ? 'Hide password' : 'Show password'}
-                </button>
-                <p>
-                  Use a private address such as 127.0.0.1. The password stays in memory for this
-                  connection.
-                </p>
-              </Show>
-            </Show>
-          </details>
-        </section>
-        <Show when={a.error() || a.state()?.error}>
-          <p class="inline-error" role="alert">
-            {a.error() || a.state()?.error}
-          </p>
-        </Show>
-      </Show>
-    </Modal>
   );
 }
 export function AgentConversation(props: { agent: AgentWorkspace; onReview: () => void }) {
@@ -722,31 +483,8 @@ export function AgentComposer(props: {
             disabled={!a.projects.project() || running()}
             onClick={() => setAttachOpen(true)}
           />
-          <button
-            class="model-button agent-harness-button"
-            onClick={props.onConnect}
-            title="Agent connections"
-          >
-            {ready() ? (a.state()?.harness === 'codex' ? 'Codex' : 'OpenCode') : 'Connect agent'}
-            <Icon name="down" size={13} />
-          </button>
-          <Show when={ready() && a.state()?.models.length}>
-            <select
-              class="agent-model-select"
-              aria-label="Agent model"
-              value={a.model() ? modelIdentity(a.model()!) : ''}
-              disabled={running()}
-              onChange={(e) => a.setModelKey(e.currentTarget.value)}
-            >
-              <For each={a.state()?.models}>
-                {(model) => (
-                  <option value={modelIdentity(model)}>
-                    {model.name} · {model.providerId}
-                  </option>
-                )}
-              </For>
-            </select>
-          </Show>
+          <AgentChatMenus agent={a} onConnect={props.onConnect} />
+          <IconButton label="Agent connections" icon="settings" onClick={props.onConnect} />
           <button
             class="send-button"
             disabled={
@@ -772,13 +510,7 @@ export function AgentComposer(props: {
           </button>
         </div>
       </Show>
-      <Show when={ready() && a.model()}>
-        <div class="agent-capabilities">
-          {a.model()?.tools
-            ? 'Can inspect files and use project tools'
-            : 'Discussion model · cannot inspect or edit project files with tools'}
-        </div>
-      </Show>
+
       <div class="agent-composer-status">
         <button class="text-button" onClick={() => a.setOpen(!a.open())}>
           {a.open()

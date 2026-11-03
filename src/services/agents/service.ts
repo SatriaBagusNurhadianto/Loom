@@ -1,15 +1,21 @@
 import { join } from 'node:path';
 import { z } from 'zod';
-import { harnessSchema } from '../../contracts/agent';
+import {
+  agentSettingsSchema,
+  defaultAgentSettings,
+  type AgentSettings,
+  harnessSchema,
+} from '../../contracts/agent';
 import type { AgentCommand, AgentState, HarnessKind } from '../../contracts/agent';
 import { ProjectService } from '../project/projects';
 import { BuildService } from '../latex/builds';
 import { AgentChanges } from './changes';
 import { OpenCodeAdapter, object, string, list, type HarnessAdapter } from './opencode';
+import { OpenCodeClassicAdapter } from './opencode-classic';
 import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
 
-type SessionRef = { id: string; harness: HarnessKind; title: string };
+type SessionRef = { id: string; harness: HarnessKind; title: string; settings?: AgentSettings };
 function authorMessages(messages: AgentState['messages']) {
   return messages.map((message) => {
     if (message.role !== 'user') return message;
@@ -100,6 +106,7 @@ export class AgentService {
                 id: z.string().min(1).max(160),
                 harness: harnessSchema,
                 title: z.string().max(300),
+                settings: agentSettingsSchema.optional(),
               })
               .strict(),
           )
@@ -131,6 +138,9 @@ export class AgentService {
       models: [],
       sessions: this.sessions,
       sessionId: stored.sessionId ?? null,
+      settings:
+        stored.sessions.find((ref) => ref.id === stored.sessionId)?.settings ??
+        defaultAgentSettings(),
       messages: [],
       permissions: [],
       questions: [],
@@ -145,12 +155,23 @@ export class AgentService {
         'A previous agent process has not stopped. Wait for it to exit, then refresh to recover the paper.';
   }
   private async detect() {
-    const [opencode, codex] = await Promise.all([OpenCodeAdapter.detect(), CodexAdapter.detect()]);
+    const [opencode, codex] = await Promise.all([
+      OpenCodeAdapter.detect(this.projects.store.get('agent-runtime:opencode') ?? undefined),
+      CodexAdapter.detect(this.projects.store.get('agent-runtime:codex') ?? undefined),
+    ]);
     this.state!.providers = this.state!.providers.map((p) => ({
       ...p,
       ...(p.id === 'opencode'
-        ? { installed: opencode.installed, version: opencode.version }
-        : { installed: codex.installed, version: codex.version }),
+        ? {
+            installed: opencode.installed,
+            version: opencode.version,
+            executable: opencode.executable ?? '',
+          }
+        : {
+            installed: codex.installed,
+            version: codex.version,
+            executable: codex.executable ?? '',
+          }),
     }));
     const current = this.state!.providers.find((p) => p.id === this.state!.harness)!;
     this.state!.installed = current.installed;
@@ -224,6 +245,17 @@ export class AgentService {
         s.turns = this.changes.views();
         return structuredClone(s);
       }
+      if (command.type === 'settings') {
+        if (s.running || this.changes.unsettled())
+          throw new Error(
+            'Stop or recover the current request before changing its permissions or reasoning.',
+          );
+        s.settings = command.settings;
+        const ref = this.sessions.find((ref) => ref.id === s.sessionId);
+        if (ref) ref.settings = { ...s.settings };
+        this.persist();
+        return structuredClone(s);
+      }
       if (command.type === 'disconnect') {
         await this.disconnect();
         return structuredClone(s);
@@ -232,6 +264,7 @@ export class AgentService {
         if (s.running && s.connection === 'connected')
           throw new Error('Stop the current request before changing agent connections.');
         await this.disconnect();
+        if (s.harness !== command.harness) s.settings = defaultAgentSettings();
         s.harness = command.harness;
         s.error = '';
         const context = await this.projects.run(async () =>
@@ -242,36 +275,34 @@ export class AgentService {
           this.tools = await new AgentTools(this.projects, this.builds, command.projectId).start();
           const adapter =
             command.harness === 'codex'
-              ? await CodexAdapter.owned(context.root, {
-                  url: this.tools.url,
-                  token: this.tools.token,
-                })
+              ? await CodexAdapter.owned(
+                  context.root,
+                  {
+                    url: this.tools.url,
+                    token: this.tools.token,
+                  },
+                  command.executable ?? this.projects.store.get('agent-runtime:codex') ?? undefined,
+                )
               : command.endpoint
-                ? new OpenCodeAdapter(
+                ? await OpenCodeAdapter.attach(
                     command.endpoint,
                     command.password ?? '',
                     command.username ?? 'opencode',
                   )
-                : await OpenCodeAdapter.owned(context.root);
+                : await OpenCodeAdapter.owned(
+                    context.root,
+                    command.executable ??
+                      this.projects.store.get('agent-runtime:opencode') ??
+                      undefined,
+                  );
           this.adapter = adapter;
-          if (adapter instanceof OpenCodeAdapter) {
+          s.models = await adapter.models(context.root);
+          if (adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter) {
             await adapter.verify();
             if (adapter.ownership === 'loom')
-              await adapter.request(
-                'PUT',
-                '/api/experimental/mcp/loom-paper?location[directory]=' +
-                  encodeURIComponent(context.root),
-                {
-                  config: {
-                    type: 'remote',
-                    url: this.tools.url,
-                    headers: { Authorization: 'Bearer ' + this.tools.token },
-                  },
-                },
-              );
+              await adapter.configureTools(context.root, this.tools.url, this.tools.token);
             await adapter.stream();
           }
-          s.models = await adapter.models(context.root);
           s.version = adapter.version;
           s.installed = true;
           s.ownership = adapter.ownership;
@@ -280,7 +311,7 @@ export class AgentService {
           const authentication =
             adapter instanceof CodexAdapter
               ? adapter.auth
-              : adapter instanceof OpenCodeAdapter
+              : adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter
                 ? await adapter.authentication(context.root)
                 : 'unknown';
           s.providers = s.providers.map((p) =>
@@ -315,6 +346,8 @@ export class AgentService {
               s.sessionId = null;
             }
           } else s.sessionId = null;
+          if (command.executable !== undefined)
+            this.projects.store.set('agent-runtime:' + command.harness, command.executable);
           this.persist();
           return structuredClone(s);
         } catch (error) {
@@ -331,6 +364,9 @@ export class AgentService {
         if (command.sessionId) {
           if (!this.sessions.some((r) => r.id === command.sessionId && r.harness === s.harness))
             throw new Error('This conversation belongs to another agent. Connect its agent first.');
+          s.settings =
+            this.sessions.find((ref) => ref.id === command.sessionId)?.settings ??
+            defaultAgentSettings();
           await this.resume(command.sessionId);
         } else {
           if (this.sessions.length >= 100)
@@ -341,7 +377,12 @@ export class AgentService {
           );
           if (!id) throw new Error('The harness did not return a session identity.');
           s.sessionId = id;
-          this.sessions.unshift({ id, harness: s.harness, title: 'New conversation' });
+          this.sessions.unshift({
+            id,
+            harness: s.harness,
+            title: 'New conversation',
+            settings: { ...s.settings },
+          });
           s.messages = [];
           this.persist();
         }
@@ -355,6 +396,9 @@ export class AgentService {
         );
         if (!model)
           throw new Error('This model is no longer available. Choose an available model.');
+        const reasoning = s.settings.reasoning || model.defaultReasoning || '';
+        if (reasoning && !(model.reasoningEfforts ?? []).includes(reasoning))
+          throw new Error('Choose a reasoning level supported by this model.');
         const context = await this.projects.run(async () => {
           const context = this.projects.buildContext(command.projectId);
           for (const path of command.attachments) {
@@ -381,7 +425,7 @@ export class AgentService {
           return context;
         });
         const selection = command.selection;
-        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
         s.running = true;
         s.error = '';
         try {
@@ -390,6 +434,7 @@ export class AgentService {
             prompt,
             model,
             command.attachments.map((path) => join(context.root, path)),
+            { ...s.settings, reasoning },
           );
           const ref = this.sessions.find((r) => r.id === command.sessionId)!;
           if (ref.title === 'New conversation') ref.title = command.prompt.slice(0, 80);

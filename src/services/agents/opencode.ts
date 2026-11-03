@@ -2,8 +2,12 @@ import { createClient } from '@opencode-ai/sdk/v2/gen/client';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { findExecutable, runTool, spawnOwnedTool } from '../latex/tools';
-import type { AgentMessage, AgentModel } from '../../contracts/agent';
+import { runTool, spawnOwnedTool } from '../latex/tools';
+import type { AgentMessage, AgentModel, AgentSettings } from '../../contracts/agent';
+
+import { harnessExecutable } from './runtime';
+import { openCodeServerEndpoint } from './startup';
+import { OpenCodeClassicAdapter, supportedClassicVersion } from './opencode-classic';
 
 const nativeObject = z.record(z.string(), z.unknown());
 export const object = (value: unknown): Record<string, unknown> => nativeObject.parse(value);
@@ -51,7 +55,13 @@ export interface HarnessAdapter {
   readonly capabilities: HarnessCapabilities;
   models(directory: string): Promise<AgentModel[]>;
   create(directory: string): Promise<string>;
-  submit(sessionId: string, prompt: string, model: AgentModel, files: string[]): Promise<void>;
+  submit(
+    sessionId: string,
+    prompt: string,
+    model: AgentModel,
+    files: string[],
+    settings?: AgentSettings,
+  ): Promise<void>;
   interrupt(sessionId: string): Promise<void>;
   messages(sessionId: string): Promise<AgentMessage[]>;
   close(): Promise<void>;
@@ -87,7 +97,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     });
   }
   async request(
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
     body?: unknown,
     signal?: AbortSignal,
@@ -107,8 +117,8 @@ export class OpenCodeAdapter implements HarnessAdapter {
       );
     }
   }
-  static async detect() {
-    const executable = await findExecutable('opencode');
+  static async detect(override?: string) {
+    const executable = await harnessExecutable('opencode', override);
     if (!executable) return { installed: false, version: 'Not installed', executable: null };
     try {
       const r = await runTool(executable, ['--version'], { timeoutMs: 5000 });
@@ -118,15 +128,15 @@ export class OpenCodeAdapter implements HarnessAdapter {
       return { installed: false, version: 'Version check failed', executable };
     }
   }
-  static async owned(directory: string) {
-    const found = await this.detect();
+  static async owned(directory: string, executable?: string) {
+    const found = await this.detect(executable);
     if (!found.installed || !found.executable)
       throw new Error(
         'Install OpenCode and sign in with “opencode auth login”, then connect again.',
       );
-    if (!supportedVersion(found.version))
+    if (!supportedVersion(found.version) && !supportedClassicVersion(found.version))
       throw new Error(
-        `OpenCode ${found.version} is not supported. This Loom build supports OpenCode 2.2.x from 2.2.1.`,
+        `OpenCode ${found.version} is not supported. This Loom build supports OpenCode 1.19.x and 2.2.x from 2.2.1.`,
       );
     const password = randomBytes(32).toString('hex');
     const child = spawnOwnedTool(
@@ -150,26 +160,27 @@ export class OpenCodeAdapter implements HarnessAdapter {
         };
         const append = (bytes: Buffer) => {
           output = (output + bytes.toString('utf8')).slice(-4096);
-          const match = output.match(/http:\/\/127\.0\.0\.1:\d+/);
-          if (match) finish(undefined, match[0]);
+          const endpoint = openCodeServerEndpoint(output);
+          if (endpoint) finish(undefined, endpoint);
         };
         child.stdout.on('data', append);
         child.stderr.on('data', append);
         child.once('error', () => finish(new Error('OpenCode could not start.')));
         child.once('exit', () => finish(new Error('OpenCode stopped before connecting.')));
       });
-      const adapter = new OpenCodeAdapter(endpoint, password);
-      adapter.process = child;
-      adapter.ownership = 'loom';
-      child.stdout.resume();
-      child.stderr.resume();
-      child.once('exit', () => adapter.onLost?.());
+      const adapter = supportedClassicVersion(found.version)
+        ? new OpenCodeClassicAdapter(endpoint, password)
+        : new OpenCodeAdapter(endpoint, password);
+      adapter.adoptProcess(child);
       await adapter.verify();
       // Verify authentication is actually enforced by this server implementation.
-      const response = await fetch(endpoint + '/api/info', {
-        signal: AbortSignal.timeout(3000),
-        redirect: 'error',
-      });
+      const response = await fetch(
+        endpoint + (adapter instanceof OpenCodeClassicAdapter ? '/global/health' : '/api/info'),
+        {
+          signal: AbortSignal.timeout(3000),
+          redirect: 'error',
+        },
+      );
       if (response.status !== 401)
         throw new Error('OpenCode did not protect its local endpoint. Connection closed.');
       return adapter;
@@ -177,6 +188,34 @@ export class OpenCodeAdapter implements HarnessAdapter {
       child.stdin.end();
       throw error;
     }
+  }
+  adoptProcess(child: ReturnType<typeof spawnOwnedTool>) {
+    this.process = child;
+    this.ownership = 'loom';
+    child.stdout.resume();
+    child.stderr.resume();
+    child.once('exit', () => this.onLost?.());
+  }
+  static async attach(endpoint: string, password: string, username = 'opencode') {
+    const next = new OpenCodeAdapter(endpoint, password, username);
+    try {
+      await next.verify();
+      return next;
+    } catch {
+      await next.close();
+    }
+    const classic = new OpenCodeClassicAdapter(endpoint, password, username);
+    await classic.verify();
+    return classic;
+  }
+  async configureTools(directory: string, url: string, token: string) {
+    if (this.ownership !== 'loom')
+      throw new Error('Loom cannot configure tools on an attached server.');
+    await this.request(
+      'PUT',
+      '/api/experimental/mcp/loom-paper?location[directory]=' + encodeURIComponent(directory),
+      { config: { type: 'remote', url, headers: { Authorization: 'Bearer ' + token } } },
+    );
   }
   async verify() {
     const info = object(await this.request('GET', '/api/info'));
@@ -202,6 +241,9 @@ export class OpenCodeAdapter implements HarnessAdapter {
           name: string(m.name),
           images: Array.isArray(c.input) && c.input.includes('image'),
           tools: c.tools === true,
+          reasoningEfforts: Array.isArray(m.variants)
+            ? m.variants.map((v) => string(object(v).id)).filter(Boolean)
+            : [],
         };
       })
       .filter((m) => m.id && m.providerId)
@@ -260,10 +302,38 @@ export class OpenCodeAdapter implements HarnessAdapter {
       object(await this.request('GET', '/api/session/' + encodeURIComponent(sessionId))).data,
     );
   }
-  async submit(sessionId: string, prompt: string, model: AgentModel, files: string[]) {
+  async submit(
+    sessionId: string,
+    prompt: string,
+    model: AgentModel,
+    files: string[],
+    settings?: AgentSettings,
+  ) {
     const path = '/api/session/' + encodeURIComponent(sessionId);
+    await this.request('POST', path + '/agent', { agent: 'build' });
+    if (settings) {
+      const permissions =
+        settings.permissionMode === 'full-access'
+          ? [{ action: '*', resource: '*', effect: 'allow' }]
+          : [
+              { action: '*', resource: '*', effect: 'ask' },
+              ...[
+                'read',
+                'glob',
+                'grep',
+                'list',
+                'question',
+                ...(settings.permissionMode === 'supervised' ? [] : ['edit', 'write']),
+              ].map((action) => ({ action, resource: '*', effect: 'allow' })),
+            ];
+      await this.request('PATCH', path, { permissions });
+    }
     await this.request('POST', path + '/model', {
-      model: { id: model.id, providerID: model.providerId },
+      model: {
+        id: model.id,
+        providerID: model.providerId,
+        ...(settings?.reasoning ? { variant: settings.reasoning } : {}),
+      },
     });
     await this.request('POST', path + '/prompt', {
       text: prompt,
