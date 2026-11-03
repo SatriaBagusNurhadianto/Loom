@@ -5,6 +5,9 @@ import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
 export { AgentConnections } from './AgentConnections';
 
+const questionFieldId = (questionId: string, fieldKey: string) =>
+  `agent-question-${encodeURIComponent(questionId)}-${encodeURIComponent(fieldKey)}`;
+
 export function AgentChats(props: {
   agent: AgentWorkspace;
   onConnect: () => void;
@@ -69,10 +72,32 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
   const a = props.agent;
   let scroller!: HTMLDivElement;
   const [follow, setFollow] = createSignal(true),
-    [questionError, setQuestionError] = createSignal(''),
+    [questionErrors, setQuestionErrors] = createSignal<
+      Record<string, { message: string; fieldId: string }>
+    >({}),
     [answers, setAnswers] = createSignal<
-      Record<string, Record<string, string | string[] | boolean | number>>
+      Record<string, Record<string, string | string[] | boolean>>
     >({});
+  const clearQuestionError = (questionId: string, fieldId: string) => {
+    setQuestionErrors((old) => {
+      if (old[questionId]?.fieldId !== fieldId) return old;
+      const next = { ...old };
+      delete next[questionId];
+      return next;
+    });
+  };
+  const updateQuestionAnswer = (
+    questionId: string,
+    fieldId: string,
+    fieldKey: string,
+    value: string | string[] | boolean,
+  ) => {
+    setAnswers((old) => ({
+      ...old,
+      [questionId]: { ...old[questionId], [fieldKey]: value },
+    }));
+    clearQuestionError(questionId, fieldId);
+  };
   const content = createMemo(
     () =>
       a
@@ -226,30 +251,69 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                 class="agent-request"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const values = {
+                  const rawValues: Record<string, string | string[] | boolean | undefined> = {
                     ...Object.fromEntries(
                       question.fields
                         .filter((f) => f.type === 'boolean')
                         .map((f) => [f.key, false]),
                     ),
-                    ...answers()[question.id],
+                    ...(answers()[question.id] ?? {}),
                   };
-                  const missing = question.fields.find(
-                    (field) =>
-                      field.required &&
-                      (values[field.key] === undefined ||
-                        values[field.key] === '' ||
-                        (Array.isArray(values[field.key]) &&
-                          !(values[field.key] as string[]).length)),
-                  );
-                  if (missing) {
-                    setQuestionError(
-                      'Answer ' + (missing.title || missing.key) + ' before sending.',
-                    );
-                    e.currentTarget.querySelector<HTMLElement>('input,select')?.focus();
+                  const isEmpty = (value: string | string[] | boolean | undefined) =>
+                    value === undefined ||
+                    (typeof value === 'string' && value.trim() === '') ||
+                    (Array.isArray(value) && value.length === 0);
+                  const invalid = question.fields.find((field) => {
+                    if (field.type === 'external') return true;
+                    if (field.type === 'boolean') return false;
+                    const value = rawValues[field.key];
+                    const empty = isEmpty(value);
+                    if (field.required && empty) return true;
+                    if ((field.type === 'number' || field.type === 'integer') && !empty) {
+                      const number = Number(value);
+                      return (
+                        !Number.isFinite(number) ||
+                        (field.type === 'integer' && !Number.isInteger(number))
+                      );
+                    }
+                    return false;
+                  });
+                  if (invalid) {
+                    const value = rawValues[invalid.key];
+                    const empty = isEmpty(value);
+                    const label = invalid.title || invalid.key;
+                    const message =
+                      invalid.type === 'external'
+                        ? `${label} needs an answer in the harness because Loom cannot display this control.`
+                        : !empty && (invalid.type === 'number' || invalid.type === 'integer')
+                          ? !Number.isFinite(Number(value))
+                            ? `Enter a finite number for ${label}.`
+                            : `Enter a whole number for ${label}.`
+                          : `Answer ${label} before sending.`;
+                    const fieldId = questionFieldId(question.id, invalid.key);
+                    setQuestionErrors((old) => ({
+                      ...old,
+                      [question.id]: { message, fieldId },
+                    }));
+                    requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
                     return;
                   }
-                  setQuestionError('');
+                  const values: Record<string, string | string[] | boolean | number> = {};
+                  for (const field of question.fields) {
+                    const value = rawValues[field.key];
+                    if (field.type === 'boolean') {
+                      values[field.key] = value === true;
+                    } else if (field.type === 'number' || field.type === 'integer') {
+                      if (!isEmpty(value)) values[field.key] = Number(value);
+                    } else if (value !== undefined) {
+                      values[field.key] = value;
+                    }
+                  }
+                  setQuestionErrors((old) => {
+                    const next = { ...old };
+                    delete next[question.id];
+                    return next;
+                  });
                   const projectId = a.projects.project()?.id;
                   if (projectId)
                     void a.act({
@@ -261,107 +325,103 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                 }}
               >
                 <h4>{question.title}</h4>
-                <Show when={questionError()}>
+                <Show when={questionErrors()[question.id]?.message}>
                   <p class="inline-error" role="alert">
-                    {questionError()}
+                    {questionErrors()[question.id]?.message}
                   </p>
                 </Show>
                 <For each={question.fields}>
-                  {(field) => (
-                    <label class="field-label">
-                      {field.title || field.key}
-                      <Show when={field.description}>
-                        <span>{field.description}</span>
-                      </Show>
-                      <Show
-                        when={field.type !== 'external'}
-                        fallback={
-                          <p>
-                            This question needs a control that Loom cannot display. Answer in the
-                            harness or stop this request.
-                          </p>
-                        }
-                      >
+                  {(field) => {
+                    const fieldId = questionFieldId(question.id, field.key);
+                    const descriptionId = `${fieldId}-description`;
+                    const invalid = () => questionErrors()[question.id]?.fieldId === fieldId;
+                    return (
+                      <label class="field-label">
+                        {field.title || field.key}
+                        <Show when={field.description}>
+                          <span id={descriptionId}>{field.description}</span>
+                        </Show>
                         <Show
-                          when={field.options.length}
+                          when={field.type !== 'external'}
                           fallback={
-                            <input
-                              type={
-                                field.type === 'boolean'
-                                  ? 'checkbox'
-                                  : field.type === 'number' || field.type === 'integer'
-                                    ? 'number'
-                                    : 'text'
-                              }
-                              value={
-                                field.type === 'boolean'
-                                  ? undefined
-                                  : String(answers()[question.id]?.[field.key] ?? '')
-                              }
-                              checked={
-                                field.type === 'boolean'
-                                  ? answers()[question.id]?.[field.key] === true
-                                  : undefined
-                              }
-                              required={field.required}
-                              aria-invalid={
-                                !!questionError() &&
-                                field.required &&
-                                !answers()[question.id]?.[field.key]
-                              }
-                              onInput={(e) =>
-                                setAnswers((old) => ({
-                                  ...old,
-                                  [question.id]: {
-                                    ...old[question.id],
-                                    [field.key]:
-                                      field.type === 'boolean'
-                                        ? e.currentTarget.checked
-                                        : field.type === 'number' || field.type === 'integer'
-                                          ? Number(e.currentTarget.value)
-                                          : e.currentTarget.value,
-                                  },
-                                }))
-                              }
-                            />
+                            <p id={fieldId} tabIndex={-1}>
+                              This question needs a control that Loom cannot display. Answer in the
+                              harness or stop this request.
+                            </p>
                           }
                         >
-                          <select
-                            multiple={field.type === 'multiselect'}
-                            value={answers()[question.id]?.[field.key] as string | undefined}
-                            required={field.required}
-                            aria-invalid={
-                              !!questionError() &&
-                              field.required &&
-                              !answers()[question.id]?.[field.key]
-                            }
-                            aria-label={field.title || field.key}
-                            onChange={(e) =>
-                              setAnswers((old) => ({
-                                ...old,
-                                [question.id]: {
-                                  ...old[question.id],
-                                  [field.key]:
-                                    field.type === 'multiselect'
-                                      ? Array.from(e.currentTarget.selectedOptions).map(
-                                          (o) => o.value,
-                                        )
+                          <Show
+                            when={field.options.length}
+                            fallback={
+                              <input
+                                id={fieldId}
+                                type={field.type === 'boolean' ? 'checkbox' : 'text'}
+                                inputmode={
+                                  field.type === 'number' || field.type === 'integer'
+                                    ? 'decimal'
+                                    : undefined
+                                }
+                                value={
+                                  field.type === 'boolean'
+                                    ? undefined
+                                    : String(answers()[question.id]?.[field.key] ?? '')
+                                }
+                                checked={
+                                  field.type === 'boolean'
+                                    ? answers()[question.id]?.[field.key] === true
+                                    : undefined
+                                }
+                                required={field.required && field.type !== 'boolean'}
+                                aria-invalid={
+                                  field.type !== 'boolean' && invalid() ? 'true' : undefined
+                                }
+                                aria-describedby={field.description ? descriptionId : undefined}
+                                onInput={(e) =>
+                                  updateQuestionAnswer(
+                                    question.id,
+                                    fieldId,
+                                    field.key,
+                                    field.type === 'boolean'
+                                      ? e.currentTarget.checked
                                       : e.currentTarget.value,
-                                },
-                              }))
+                                  )
+                                }
+                              />
                             }
                           >
-                            <Show when={field.type !== 'multiselect'}>
-                              <option value="">Choose an answer</option>
-                            </Show>
-                            <For each={field.options}>
-                              {(option) => <option value={option.value}>{option.label}</option>}
-                            </For>
-                          </select>
+                            <select
+                              id={fieldId}
+                              multiple={field.type === 'multiselect'}
+                              value={answers()[question.id]?.[field.key] as string | undefined}
+                              required={field.required && field.type !== 'boolean'}
+                              aria-invalid={invalid() ? 'true' : undefined}
+                              aria-describedby={field.description ? descriptionId : undefined}
+                              aria-label={field.title || field.key}
+                              onChange={(e) =>
+                                updateQuestionAnswer(
+                                  question.id,
+                                  fieldId,
+                                  field.key,
+                                  field.type === 'multiselect'
+                                    ? Array.from(e.currentTarget.selectedOptions).map(
+                                        (o) => o.value,
+                                      )
+                                    : e.currentTarget.value,
+                                )
+                              }
+                            >
+                              <Show when={field.type !== 'multiselect'}>
+                                <option value="">Choose an answer</option>
+                              </Show>
+                              <For each={field.options}>
+                                {(option) => <option value={option.value}>{option.label}</option>}
+                              </For>
+                            </select>
+                          </Show>
                         </Show>
-                      </Show>
-                    </label>
-                  )}
+                      </label>
+                    );
+                  }}
                 </For>
                 <div class="button-row">
                   <Show when={question.rejectable}>

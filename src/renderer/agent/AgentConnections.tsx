@@ -98,7 +98,7 @@ export function AgentConnections(props: {
     const value = provider()?.version;
     if (!value || value === 'Not checked') return 'Version checking';
     if (value === 'Not installed') return value;
-    return value.startsWith('v') ? value : `v${value}`;
+    return /^\d/.test(value) ? `v${value}` : value;
   };
   const availableModels = createMemo(() => {
     const query = modelQuery().trim().toLocaleLowerCase();
@@ -115,6 +115,8 @@ export function AgentConnections(props: {
       !!entry &&
       entry.version !== 'Not checked' &&
       !entry.installed &&
+      tab() !== 'runtime' &&
+      !a.runtimePath(selected()).trim() &&
       !(selected() === 'opencode' && external())
     );
   };
@@ -156,6 +158,7 @@ export function AgentConnections(props: {
       .then((ok) => {
         if (ok) {
           setPassword('');
+          setTab('overview');
           if (selected() === 'opencode' && external()) setExternalDetailsKnown(true);
         }
       });
@@ -487,6 +490,7 @@ export function AgentConnections(props: {
                   </small>
                   <input
                     type="text"
+                    aria-label="Binary path"
                     value={a.runtimePath(selected())}
                     placeholder={selected() === 'codex' ? 'codex' : 'opencode'}
                     spellcheck={false}
@@ -553,6 +557,7 @@ export function AgentConnections(props: {
                           <span>Server password</span>
                           <span class="agent-password-control">
                             <input
+                              aria-label="Server password"
                               type={showPassword() ? 'text' : 'password'}
                               value={password()}
                               autocomplete="current-password"

@@ -69,6 +69,10 @@ function ChoicePopover(props: {
         aria-label={props.label}
         popover="auto"
         onToggle={() => setOpen(popup.matches(':popover-open'))}
+        onFocusOut={(event) => {
+          const next = event.relatedTarget;
+          if (next instanceof Node && !popup.contains(next) && next !== trigger) close(false);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault();
@@ -120,13 +124,13 @@ const modes = [
   {
     id: 'auto-accept-edits',
     name: 'Auto-accept edits',
-    description: 'Allow paper edits; ask before other actions.',
+    description: 'Allow file edits; ask before commands and other actions.',
     icon: 'edit',
   },
   {
     id: 'auto',
     name: 'Auto',
-    description: 'Let Codex review routine actions. OpenCode still asks about commands.',
+    description: 'Let Codex review routine actions using its native approval reviewer.',
     icon: 'tools',
   },
   {
@@ -170,7 +174,9 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
   );
   const disabled = () => a.busy() || a.state()?.running || a.submitting();
   const ready = () => a.state()?.connection === 'connected';
-  const mode = () => modes.find((m) => m.id === a.settings().permissionMode) ?? modes[1];
+  const availableModes = () =>
+    modes.filter((entry) => entry.id !== 'auto' || a.state()?.harness === 'codex');
+  const mode = () => availableModes().find((m) => m.id === a.settings().permissionMode) ?? modes[1];
   const reasoning = () => a.settings().reasoning || a.model()?.defaultReasoning || '';
   return (
     <div class="agent-chat-options" aria-label="Agent chat settings">
@@ -353,7 +359,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
           {(close) => (
             <div class="agent-option-list">
               <p class="agent-menu-heading">Permissions · this chat</p>
-              <For each={modes}>
+              <For each={availableModes()}>
                 {(entry) => (
                   <button
                     data-choice

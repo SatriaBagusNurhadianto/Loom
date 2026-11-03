@@ -106,7 +106,7 @@
 
 **Exit:** An author completes a project-aware agent revision, sees the changes without copy/paste, compiles, reviews, and recovers safely. No custom model/tool execution loop has been introduced.
 
-**Recorded evidence:** [Phase 4 final acceptance](project_status.md#phase-4-final-acceptance--4-november-2026), [setup/testing](docs/phase-4-testing.md), and [review/research](docs/phase-4-review.md).
+**Recorded evidence:** the later [native execution/settings corrections](project_status.md#phase-4-native-execution-and-settings-correction--4-november-2026) supersede affected connection/testing details in [Phase 4 final acceptance](project_status.md#phase-4-final-acceptance--4-november-2026), [setup/testing](docs/phase-4-testing.md), and [review/research](docs/phase-4-review.md).
 
 ## Phase 5 — Literature, bibliography, and Zotero
 

@@ -23,6 +23,7 @@ let sessions: Record<
   }
 >;
 let modelsAvailable = true;
+let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
 let requests: string[], streams: ServerResponse[], pendingTimers: ReturnType<typeof setTimeout>[];
 async function dimensions(width: number, height: number) {
   await app.evaluate(
@@ -53,6 +54,7 @@ test.beforeEach(async () => {
   sessions = {};
   modelsAvailable = true;
   requests = [];
+  requestBodies = [];
   streams = [];
   pendingTimers = [];
   server = createServer(async (req, res) => {
@@ -77,6 +79,7 @@ test.beforeEach(async () => {
       for await (const bytes of req) text += bytes.toString();
       body = text ? JSON.parse(text) : {};
     }
+    requestBodies.push({ path, method: req.method!, body });
     let value: unknown = {};
     const ids = path.split('/'),
       id = ids[3],
@@ -93,6 +96,7 @@ test.beforeEach(async () => {
                 enabled: true,
                 type: 'chat',
                 capabilities: { tools: true, input: ['text'] },
+                variants: [{ id: 'low' }, { id: 'high' }],
               },
             ]
           : [],
@@ -149,6 +153,18 @@ test.beforeEach(async () => {
             type: 'assistant',
             content: [{ type: 'text', text: 'First file updated; continuing…' }],
           });
+        } else if (String(body.text).includes('numeric question')) {
+          s.forms = [
+            {
+              id: 'question-1',
+              title: 'Synthetic numeric question',
+              fields: [
+                { key: 'confirmed', title: 'Confirmed', type: 'boolean', required: true },
+                { key: 'amount', title: 'Amount', type: 'number', required: true },
+                { key: 'count', title: 'Count', type: 'integer', required: true },
+              ],
+            },
+          ];
         } else {
           s.permissions = [{ id: 'permission-1', action: 'edit', resources: ['main.tex'] }];
         }
@@ -266,6 +282,10 @@ async function connect(requireModel = true) {
     await dialog.getByRole('button', { name: 'Close dialog' }).click();
     return;
   }
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-connections-redesign.png'),
+    animations: 'disabled',
+  });
   await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
   await dialog.getByLabel('Use an existing server').check();
   await dialog.getByLabel('Server address').fill(endpoint);
@@ -306,6 +326,8 @@ test('real Electron agent flow: context, permissions, retained questions, stream
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toContain('Agent revision');
+  // Wait for the filesystem bridge before authoring a compatible edit to the revised source.
+  await expect(page.locator('.cm-content')).toContainText('Agent revision for researchers.');
   // A later compatible author edit must survive revert of the observed request.
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+End');
@@ -392,6 +414,141 @@ test('provider settings, source and composer remain usable at 720 by 540 with ke
   });
 });
 
+test('native reasoning and permission controls persist with the chat and reach the harness', async () => {
+  await connect();
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const connections = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await connections.getByRole('tab', { name: 'Models', exact: true }).click();
+  await expect(connections).toContainText('Synthetic research model');
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-provider-models.png'),
+    animations: 'disabled',
+  });
+  await connections.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Reasoning', exact: true }).click();
+  const reasoning = page.getByRole('dialog', { name: 'Reasoning', exact: true });
+  await reasoning.getByRole('button', { name: 'High', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-permission-menu.png'),
+    animations: 'disabled',
+  });
+  await page
+    .getByRole('dialog', { name: 'Permissions', exact: true })
+    .getByRole('button', { name: /^Full access/ })
+    .click();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Perform a partial operation.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByText('First file updated; continuing…', { exact: true })).toBeVisible();
+  expect(
+    requestBodies.some(
+      (r) =>
+        r.method === 'PATCH' &&
+        Array.isArray(r.body.permissions) &&
+        JSON.stringify(r.body.permissions) ===
+          JSON.stringify([{ action: '*', resource: '*', effect: 'allow' }]),
+    ),
+  ).toBe(true);
+  expect(
+    requestBodies.some(
+      (r) =>
+        r.path.endsWith('/model') &&
+        (r.body.model as { variant?: string } | undefined)?.variant === 'high',
+    ),
+  ).toBe(true);
+  expect(requestBodies.some((r) => r.path.endsWith('/agent') && r.body.agent === 'build')).toBe(
+    true,
+  );
+  await expect(page.getByRole('button', { name: 'Permissions', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.cm-editor')).toBeVisible();
+  await connect();
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');
+  await expect(page.getByRole('button', { name: 'Permissions', exact: true })).toHaveText(
+    'Full access',
+  );
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Reasoning', exact: true }).click();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-reasoning-menu.png'),
+    animations: 'disabled',
+  });
+  const bounds = await page.getByRole('dialog', { name: 'Reasoning', exact: true }).boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(720);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(540);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toBeFocused();
+});
+
+test('native questions preserve decimal input, validate blank and integer answers, and accept false', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Ask a numeric question.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  const amount = page.getByRole('textbox', { name: 'Amount', exact: true });
+  const count = page.getByRole('textbox', { name: 'Count', exact: true });
+  await expect(amount).toBeVisible();
+  await amount.fill('1.');
+  await expect(amount).toHaveValue('1.');
+  await amount.fill('');
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(amount).toBeFocused();
+  await expect(amount).toHaveValue('');
+  await expect(amount).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('checkbox', { name: 'Confirmed', exact: true })).not.toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
+  await amount.fill('1.5');
+  await count.fill('2.5');
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(count).toBeFocused();
+  await expect(page.getByRole('alert').filter({ hasText: 'whole number' })).toBeVisible();
+  await count.fill('2');
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect
+    .poll(() => requestBodies.find((r) => r.path.endsWith('/form/question-1/reply'))?.body.answer)
+    .toEqual({ confirmed: false, amount: 1.5, count: 2 });
+});
+
+test('a replacement binary path remains connectable after the saved path disappears', async () => {
+  // Seed private runtime preference through the public connection boundary, using the synthetic attached server.
+  await page.evaluate(
+    async ({ endpoint }) => {
+      const project = await window.loom!.project({ type: 'current' });
+      if (!project.ok || !project.value) throw new Error('No project');
+      const projectId = project.value.id;
+      const connected = await window.loom!.agent({
+        type: 'connect',
+        projectId,
+        harness: 'opencode',
+        endpoint,
+        password: 'fixture-password',
+        executable: '/missing-loom-test-binary',
+      });
+      if (!connected.ok) throw new Error(connected.error.message);
+      await window.loom!.agent({ type: 'disconnect', projectId });
+    },
+    { endpoint },
+  );
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await expect(dialog.getByRole('button', { name: 'Set up OpenCode', exact: true })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Binary path', { exact: true }).fill('');
+  await expect(dialog.getByRole('button', { name: 'Connect OpenCode', exact: true })).toBeVisible();
+  await dialog.getByLabel('Binary path', { exact: true }).fill('/replacement-loom-test-binary');
+  await expect(dialog.getByRole('button', { name: 'Connect OpenCode', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+});
+
 test('utility interruption preserves partial external writes and reconnects before another request', async () => {
   await connect();
   await page
@@ -457,7 +614,7 @@ test('a connected agent with no models explains setup and preserves the prompt',
   ).toBeVisible();
   await page.getByRole('button', { name: 'Agent setup', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Agent connections' })).toContainText(
-    'No models available. Use the setup guide',
+    'No models were reported.',
   );
   await page.keyboard.press('Escape');
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
@@ -465,7 +622,7 @@ test('a connected agent with no models explains setup and preserves the prompt',
   );
 });
 
-test('authorized live Big Pickle revision compiles and is reviewable in the actual desktop', async () => {
+test('authorized live native agent creates LaTeX files, compiles and safely reverts in the desktop', async () => {
   test.skip(
     process.env.LOOM_AGENT_DESKTOP_LIVE !== '1',
     'Requires authorized OpenCode and local TeX.',
@@ -473,19 +630,35 @@ test('authorized live Big Pickle revision compiles and is reviewable in the actu
   test.setTimeout(180_000);
   await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
-  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
-  await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible({
+  const codex = process.env.LOOM_AGENT_DESKTOP_HARNESS === 'codex';
+  if (codex) await dialog.getByRole('button', { name: /Codex/ }).click();
+  if (!codex && process.env.LOOM_CLASSIC_EXECUTABLE) {
+    await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+    await dialog
+      .getByLabel('Binary path', { exact: true })
+      .fill(process.env.LOOM_CLASSIC_EXECUTABLE);
+  }
+  await dialog
+    .getByRole('button', { name: codex ? 'Connect Codex' : 'Connect OpenCode', exact: true })
+    .click();
+  await expect(dialog.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible({
     timeout: 20_000,
   });
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
   const models = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
-  await models.getByRole('textbox', { name: 'Search models' }).fill('Big Pickle');
-  await models.locator('[data-choice]').filter({ hasText: 'Big Pickle' }).first().click();
+  await models
+    .getByRole('textbox', { name: 'Search models' })
+    .fill(codex ? 'gpt-6.1-sol' : 'Big Pickle');
+  await models
+    .locator('[data-choice]')
+    .filter({ hasText: codex ? /gpt-6.1-sol/i : 'Big Pickle' })
+    .first()
+    .click();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
     .fill(
-      'Edit main.tex now using your file editing tool. Replace exactly "Original sentence." with "Clear writing supports reproducible research." Keep all LaTeX commands unchanged. Do not execute shell commands or compile. After editing, respond briefly.',
+      'Use your native filesystem tools to create sections/notes.tex containing the sentence "Clear writing supports reproducible research." Then edit main.tex to include that file immediately before the end of the document using a LaTeX input command. Preserve Original sentence. and every existing LaTeX command. Make both file changes now. Do not use browser tools or compile. After editing, respond briefly.',
     );
   await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
   const limit = Date.now() + 110_000;
@@ -493,14 +666,16 @@ test('authorized live Big Pickle revision compiles and is reviewable in the actu
     const permission = page.getByRole('button', { name: 'Allow once', exact: true });
     if (await permission.isVisible()) await permission.click();
     if (
-      (await readFile(join(root, 'main.tex'), 'utf8')).includes('reproducible research') &&
+      (await readFile(join(root, 'sections/notes.tex'), 'utf8').catch(() => '')).includes(
+        'reproducible research',
+      ) &&
       (await page.getByRole('button', { name: 'Send to agent', exact: true }).isVisible())
     )
       break;
     await page.waitForTimeout(500);
   }
   await expect
-    .poll(() => readFile(join(root, 'main.tex'), 'utf8'))
+    .poll(() => readFile(join(root, 'sections/notes.tex'), 'utf8'))
     .toContain('reproducible research');
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
   await page
@@ -511,16 +686,27 @@ test('authorized live Big Pickle revision compiles and is reviewable in the actu
   await expect(page.locator('.pdf-sheet')).toContainText(
     'Clear writing supports reproducible research.',
   );
-  await page.getByRole('button', { name: 'Review 1 change', exact: true }).click();
+  await page.getByRole('button', { name: 'Review 2 changes', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Review file changes' });
-  await review.locator('summary').filter({ hasText: 'main.tex' }).click();
-  await expect(review.locator('.agent-diff')).toContainText(
-    'Clear writing supports reproducible research.',
-  );
+  await review.locator('summary').filter({ hasText: 'sections/notes.tex' }).click();
+  await expect(
+    review
+      .locator('.agent-change')
+      .filter({ has: page.locator('summary').filter({ hasText: 'sections/notes.tex' }) })
+      .locator('.agent-diff'),
+  ).toContainText('Clear writing supports reproducible research.');
   await page.screenshot({
-    path: resolve('artifacts/phase-4-live-revision-pdf.png'),
+    path: resolve(
+      `artifacts/phase-4-live-${codex ? 'codex' : process.env.LOOM_CLASSIC_EXECUTABLE ? 'classic' : 'next'}-creation-pdf.png`,
+    ),
     animations: 'disabled',
   });
+  await review.getByRole('button', { name: 'Revert change…', exact: true }).click();
+  await review.getByRole('button', { name: 'Revert this file', exact: true }).click();
+  await expect
+    .poll(() => readFile(join(root, 'sections/notes.tex'), 'utf8').catch(() => 'removed'))
+    .toBe('removed');
+  await review.locator('summary').filter({ hasText: 'main.tex' }).click();
   await review.getByRole('button', { name: 'Revert change…', exact: true }).click();
   await review.getByRole('button', { name: 'Revert this file', exact: true }).click();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toBe(source);
