@@ -290,3 +290,9 @@ Native PDF export rechecks project/revision around the picker, derives older-out
 The native project chooser accepts allowlisted sample names. Main resolves a bundled sample directory and an application-data destination; the utility creates an ordinary editable copy once and reopens it thereafter, preserving prior edits. The package explicitly includes the six synthetic sample directories. No renderer-supplied absolute path or executable is accepted.
 
 An explicit **Open paper folder** recovery action uses the selected main document's parent directory. The utility validates project identity, saved/conflict state and symlink-free containment before opening it as a project. It never silently changes compilation's working directory: valid nested roots that resolve inputs from the existing project folder keep their existing behavior.
+
+### Typing across save acknowledgments
+
+Renderer sync payloads are captured when their serialized request starts, after prior acknowledgments, rather than at queue entry. A conflict-free own-write acknowledgment advances the persisted bridge baseline even when later typing remains dirty; it never replaces that newer text. When the current text still equals the submitted text, a returned compatible external merge may be applied normally. True overlapping external changes retain the existing review boundary.
+
+A separate edit counter changes on local document updates, not polling or bridge acknowledgments. Automatic PDF scheduling waits for a pause in those edits and stays quiet during routine saving. Manual PDF intent is bounded/coalesced, retains clean-rebuild intent, and is bound to project identity and service generation. Cancellation invalidates in-flight preparation as well as native builds; guards run immediately after asynchronous saves/refreshes so retired operations cannot report errors or consume intent in another project.

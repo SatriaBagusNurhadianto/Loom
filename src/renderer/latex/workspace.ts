@@ -31,6 +31,29 @@ export function createLatexWorkspace(
     statusRequest = 0,
     structureKey = '',
     requestedRevision = '';
+  let deferredBuild: ReturnType<typeof setTimeout> | undefined;
+  let cancellation = 0;
+  let manualIntent: { projectId: string; generation: number; clean: boolean } | null = null;
+  function clearManual() {
+    clearTimeout(deferredBuild);
+    deferredBuild = undefined;
+    manualIntent = null;
+  }
+  function deferManual() {
+    clearTimeout(deferredBuild);
+    const intent = manualIntent;
+    if (!intent) return;
+    deferredBuild = setTimeout(() => {
+      if (
+        intent !== manualIntent ||
+        intent.projectId !== projects.project()?.id ||
+        intent.generation !== generation
+      )
+        return;
+      if (busy()) deferManual();
+      else void compile(intent.clean);
+    }, 350);
+  }
   const dirty = () => {
     projects.version();
     return !!projects.project()?.files.some((f) => projects.live(f.id)?.dirty);
@@ -91,40 +114,78 @@ export function createLatexWorkspace(
       setTarget(null);
       structureKey = '';
       requestedRevision = '';
+      clearManual();
       polling = false;
       ++statusRequest;
       if (id) void refresh();
     });
   });
-  async function compile(clean = false) {
+  async function compile(clean = false, automatic = false) {
     if (mainChoiceRequired()) {
+      clearManual();
       setError('Choose the main document in PDF settings before creating the PDF.');
       return;
     }
-    if (busy()) return;
     const id = projects.project()?.id;
     if (!id) {
       setError('Open a paper folder to create its PDF.');
       return;
     }
+    if (!automatic)
+      manualIntent = { projectId: id, generation, clean: clean || !!manualIntent?.clean };
+    if (busy()) {
+      if (!automatic) deferManual();
+      return;
+    }
+    const compileGeneration = generation;
+    const compileCancellation = cancellation;
     setBusy(true);
     try {
-      if (!(await projects.flushPending())) {
-        setError('Your writing could not be saved yet. Resolve the save message, then try again.');
+      const saved = await projects.flushPending();
+      if (
+        disposed ||
+        projects.project()?.id !== id ||
+        generation !== compileGeneration ||
+        compileCancellation !== cancellation
+      )
+        return;
+      if (!saved) {
+        const explicit = !automatic || !!manualIntent;
+        clearManual();
+        if (explicit)
+          setError(
+            'Your writing could not be saved yet. Resolve the save message, then try again.',
+          );
         return;
       }
       await projects.command({ type: 'refresh' });
-      if (projects.project()?.id !== id) return;
+      if (
+        disposed ||
+        projects.project()?.id !== id ||
+        generation !== compileGeneration ||
+        compileCancellation !== cancellation
+      )
+        return;
       if (mainChoiceRequired()) {
+        clearManual();
         setError('Choose the main document in PDF settings before creating the PDF.');
         return;
       }
-      if (dirty() || projects.project()?.files.some((f) => !f.deleted && f.conflict)) {
-        setError(
-          'Your writing needs to finish saving. Review any external changes, then create the PDF again.',
-        );
+      if (projects.project()?.files.some((f) => !f.deleted && f.conflict)) {
+        const explicit = !automatic || !!manualIntent;
+        clearManual();
+        if (explicit) setError('Review the external changes before updating the PDF.');
         return;
       }
+      if (dirty()) {
+        // Typing during save is normal. Auto updates will follow the next pause;
+        // a manual request remains pending rather than becoming an error.
+        if (manualIntent) deferManual();
+        return;
+      }
+      if (manualIntent?.projectId === id && manualIntent.generation === generation)
+        clean ||= manualIntent.clean;
+      clearManual();
       const revision = projects.project()?.sourceRevision ?? '';
       const result = await request({ type: 'build', projectId: id, clean });
       if (result?.kind === 'state') requestedRevision = revision;
@@ -134,17 +195,18 @@ export function createLatexWorkspace(
   }
   const autoIntent = createMemo(() => {
     const revision = projects.project()?.sourceRevision,
-      settings = state()?.settings;
+      settings = state()?.settings,
+      edit = projects.editVersion?.() ?? 0;
     return revision && settings?.autoBuild && !mainChoiceRequired()
-      ? `${revision}:${settings.delayMs}`
+      ? `${revision}:${settings.delayMs}:${edit}`
       : '';
   });
   createEffect(() => {
     const intent = autoIntent();
     if (!intent) return;
     const [revision, delay] = intent.split(':');
-    if (revision === requestedRevision) return;
-    const timer = setTimeout(() => void compile(), Number(delay));
+    if (revision === requestedRevision && !untrack(dirty)) return;
+    const timer = setTimeout(() => void compile(false, true), Number(delay));
     onCleanup(() => clearTimeout(timer));
   });
   const structureRevision = createMemo(() => {
@@ -256,11 +318,13 @@ export function createLatexWorkspace(
     }, 650);
     const unsubscribe = window.loom?.onServiceEvent((event) => {
       if (event.status.state === 'ready') {
+        clearManual();
         ++generation;
         polling = false;
         ++statusRequest;
         void refresh();
       } else if (event.status.state === 'unavailable' && projects.project()) {
+        clearManual();
         ++generation;
         setError('LaTeX service interrupted. Reconnect to recover the last successful PDF.');
       }
@@ -272,6 +336,7 @@ export function createLatexWorkspace(
   });
   onCleanup(() => {
     disposed = true;
+    clearManual();
     ++generation;
   });
   return {
@@ -295,6 +360,8 @@ export function createLatexWorkspace(
     reverse,
     exportPdf,
     cancel: () => {
+      ++cancellation;
+      clearManual();
       const projectId = projects.project()?.id;
       if (projectId) return request({ type: 'cancel', projectId });
     },

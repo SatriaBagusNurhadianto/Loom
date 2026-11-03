@@ -36,6 +36,8 @@ async function launch() {
 async function openExample(name = 'multi-file') {
   root = join(directory, name + ' 论文');
   await cp(resolve(`examples/phase-3/${name}`), root, { recursive: true });
+  // Personal settings in the working sample must not change the isolated baseline.
+  if (name === 'multi-file') await rm(join(root, 'loom.build.json'), { force: true });
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
@@ -453,6 +455,49 @@ test.describe('live Phase 3 Electron workflow', () => {
     await expect(page.locator('.build-status')).toHaveText('PDF creation interrupted');
     await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
   });
+  test('continuous typing with slow save acknowledgements stays quiet and updates after a pause', async () => {
+    await dimensions(1440, 960);
+    await openExample();
+    await page.locator('.build-status').click();
+    const modal = page.getByRole('dialog', { name: 'PDF settings' });
+    await expect(modal.getByLabel('Update the PDF as I write')).toBeEnabled();
+    await modal.getByLabel('Update the PDF as I write').check();
+    await modal.getByText('Advanced settings', { exact: true }).click();
+    await modal.getByLabel('Pause before updating (seconds)').fill('0.75');
+    await modal.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await modal.getByRole('button', { name: 'Close dialog' }).click();
+    await waitPdf();
+    // Delay only the IPC acknowledgement, after the real utility/filesystem write.
+    await app.evaluate(({ ipcMain }) => {
+      const handlers = (
+        ipcMain as unknown as {
+          _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>>;
+        }
+      )._invokeHandlers;
+      const original = handlers.get('loom:project:command')!;
+      ipcMain.removeHandler('loom:project:command');
+      ipcMain.handle('loom:project:command', async (event, command) => {
+        const result = await original(event, command);
+        if (command.type === 'sync') await new Promise((resolve) => setTimeout(resolve, 250));
+        return result;
+      });
+    });
+    const editor = page.locator('.cm-content');
+    await editor.press('Control+End');
+    await editor.press('Enter');
+    for (let n = 0; n < 7; n++) {
+      await editor.pressSequentially(`% Writing observation ${n}.\n`, { delay: 45 });
+      await expect(page.locator('.conflict-panel')).not.toBeVisible();
+      await expect(page.locator('.project-error')).not.toBeVisible();
+    }
+    await waitPdf();
+    await expect
+      .poll(() => readFile(join(root, 'main.tex'), 'utf8'))
+      .toContain('% Writing observation 6.');
+    await expect(page.locator('.conflict-panel')).not.toBeVisible();
+    await expect(page.locator('.project-error')).not.toBeVisible();
+    await page.screenshot({ path: 'artifacts/phase-3-quiet-typing.png' });
+  });
   test('portable settings retain edits during polling, auto-build coalesces and narrow keyboard navigation works', async () => {
     await dimensions(1440, 960);
     await openExample();
@@ -462,6 +507,7 @@ test.describe('live Phase 3 Electron workflow', () => {
     await modal.getByLabel('LaTeX engine', { exact: true }).selectOption('xelatex');
     await page.waitForTimeout(1500);
     await expect(modal.getByLabel('LaTeX engine', { exact: true })).toHaveValue('xelatex');
+    await expect(modal.getByLabel('Update the PDF as I write')).toBeEnabled();
     await modal.getByLabel('Update the PDF as I write').check();
     await modal.getByRole('button', { name: 'Save changes', exact: true }).click();
     await expect(modal.getByText('Changes saved', { exact: true })).toBeVisible();

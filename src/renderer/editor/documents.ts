@@ -27,6 +27,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     [error, setError] = createSignal(''),
     [storageError, setStorageError] = createSignal(''),
     [version, setVersion] = createSignal(0),
+    [editVersion, setEditVersion] = createSignal(0),
     [font, setFont] = createSignal(14),
     [wrap, setWrap] = createSignal(true),
     [storedLayout, setStoredLayout] = createSignal<Layout | null>(null);
@@ -88,7 +89,15 @@ export function createProjectWorkspace(report: (message: string) => void) {
     for (const f of snapshot.files) {
       const d = docs.get(f.id);
       if (!d || !d.initialized || !f.loaded) continue;
-      if (ack?.id === f.id && d.doc.getText('source').toString() === ack.text) d.dirty = false;
+      // An acknowledged own write advances the bridge even if typing continued.
+      // Keep newer text dirty; do not apply the older document over it.
+      if (ack?.id === f.id && !f.conflict && d.doc.getText('source').toString() === ack.text)
+        d.dirty = false;
+      if (ack?.id === f.id && !f.conflict && f.baseline === ack.text) {
+        d.baseline = f.baseline;
+        d.dirty = d.doc.getText('source').toString() !== ack.text;
+        d.doc.transact(() => d.doc.getMap('bridge').set('baseline', f.baseline), 'service');
+      }
       if (!d.dirty) {
         Y.applyUpdate(d.doc, Uint8Array.from(f.update), 'service');
         d.baseline = f.baseline;
@@ -105,8 +114,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     } else if (!docs.has(active()) && !loading.has(active())) void select(active());
   }
   function request(
-    c: ProjectCommand,
-    ack?: { id: string; text: string },
+    input: ProjectCommand | (() => ProjectCommand | undefined),
   ): Promise<ProjectResult | undefined> {
     const run = async () => {
       if (disposed) return;
@@ -114,6 +122,9 @@ export function createProjectWorkspace(report: (message: string) => void) {
         setError('Open the Electron app to work with project files.');
         return;
       }
+      const c = typeof input === 'function' ? input() : input;
+      if (!c) return;
+      const ack = c.type === 'sync' ? { id: c.fileId, text: c.text } : undefined;
       const result = await window.loom.project(c);
       if (disposed) return;
       if (result.ok) {
@@ -141,17 +152,17 @@ export function createProjectWorkspace(report: (message: string) => void) {
           retryable: true,
         },
       };
-    const text = d.doc.getText('source').toString();
-    return request(
-      {
+    return request(() => {
+      if (docs.get(id) !== d) return;
+      // Capture after earlier saves are acknowledged, not when entering the queue.
+      return {
         type: 'sync',
         fileId: id,
         baseline: d.baseline,
-        text,
+        text: d.doc.getText('source').toString(),
         update: Array.from(Y.encodeStateAsUpdate(d.doc)),
-      },
-      { id, text },
-    );
+      };
+    });
   }
   async function flushPending() {
     for (const [id, d] of docs)
@@ -242,9 +253,13 @@ export function createProjectWorkspace(report: (message: string) => void) {
           }
           d.initialized = true;
           doc.on('update', (_update: Uint8Array, origin: unknown) => {
-            setVersion((v) => v + 1);
-            if (origin === 'service') return;
+            if (origin === 'service') {
+              setVersion((v) => v + 1);
+              return;
+            }
             d.dirty = true;
+            setEditVersion((v) => v + 1);
+            setVersion((v) => v + 1);
             clearTimeout(timers.get(id));
             timers.set(
               id,
@@ -412,6 +427,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     file,
     live,
     version,
+    editVersion,
     pending,
     error: () => storageError() || error(),
     loading: () => {

@@ -41,3 +41,9 @@ Generated screenshots, packaging and audit outputs are ignored local evidence un
 ## Limits
 
 Linux x86_64 only has been exercised. Text files must be UTF-8 and at most 8 MiB; scan/index input is bounded to 32 MiB and 2,000 files. ZIP import limits are 64 MiB compressed and 128 MiB expanded. Symlink paths are excluded. Conflict refresh uses content polling rather than platform-specific watcher delivery. The final compare/rename cannot lock unrelated external writers; continued external mutation is rechecked on the next observation. Full performance, IME, installed-package and Windows/macOS coverage remain Phase 8 work. PDF compilation and PDF export are now covered by Phase 3; agents, clone/source-export UI and research references remain later phases.
+
+## Typing while saves are acknowledged
+
+Type continuously for several seconds while automatic PDF updates are enabled. Ordinary typing, polling and overlapping save requests must not show **External changes need review**. After a pause, all text should reach disk and the PDF should update. `tests/document-saving.test.ts` delays an acknowledgment after a real filesystem write while additional typing/flushes overlap; it also distinguishes compatible external edits from true overlapping replacements. IndexedDB timing is simulated in that focused test; actual IndexedDB/editor/process behavior is covered by Electron tests.
+
+An already recorded conflict from an older run is not automatically dismissed: compare its preserved versions and choose the intended one. The fix prevents new false conflicts without treating genuine external replacements as safe to overwrite.
