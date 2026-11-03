@@ -1,17 +1,10 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  createUniqueId,
-  onCleanup,
-  For,
-  Show,
-} from 'solid-js';
-import { relativePath, type ProjectFile, type ProjectSnapshot } from '../../contracts/project';
+import { createEffect, createMemo, createSignal, createUniqueId, For, Show } from 'solid-js';
+import { relativePath, type ProjectFile } from '../../contracts/project';
 import type { ProjectWorkspace } from './documents';
 import { Modal, IconButton } from '../ui/primitives';
 import { ActionMenu, type MenuAction } from '../ui/ActionMenu';
 import { Icon, type IconName } from '../ui/Icon';
+import { HighlightedText } from '../ui/HighlightedText';
 
 function fileIcon(path: string): IconName {
   const ext = path.split('.').pop()?.toLowerCase() ?? '';
@@ -37,12 +30,17 @@ export function ProjectPanel(props: {
     setLocalTab(value);
     props.onTabChange?.(value);
   };
-  const [query, setQuery] = createSignal('');
-  const [searchOpen, setSearchOpen] = createSignal(false);
-  const [composing, setComposing] = createSignal(false);
-  const [searching, setSearching] = createSignal(false);
-  const [searchError, setSearchError] = createSignal('');
-  const [hits, setHits] = createSignal<NonNullable<ProjectSnapshot['hits']>>([]);
+  const {
+    query,
+    setQuery,
+    composing,
+    setComposing,
+    searching,
+    error: searchError,
+    hits,
+    run: searchNow,
+  } = w.search;
+  const [searchOpen, setSearchOpen] = createSignal(!!query());
   const [operation, setOperation] = createSignal<FileOperation | null>(null);
   const [path, setPath] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -55,8 +53,6 @@ export function ProjectPanel(props: {
   let searchInput!: HTMLInputElement;
   let renameInput!: HTMLInputElement;
   let searchToggle!: HTMLButtonElement;
-  let searchGeneration = 0;
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   const files = createMemo(() => new Map(w.project()?.files.map((file) => [file.id, file]) ?? []));
   const deleted = createMemo(() => w.project()?.files.filter((file) => file.deleted) ?? []);
   // Primitive keys preserve row focus across one-second project snapshots.
@@ -99,35 +95,8 @@ export function ProjectPanel(props: {
       (previous) => new Set([...previous].filter((folder) => !value.startsWith(`${folder}/`))),
     );
   });
-  async function searchNow(q = query(), generation = searchGeneration) {
-    clearTimeout(searchTimer);
-    if (!q || composing()) return;
-    setSearching(true);
-    setSearchError('');
-    const result = await w.command({ type: 'search', query: q });
-    if (generation !== searchGeneration) return;
-    setSearching(false);
-    if (result?.ok) setHits(result.value?.hits ?? []);
-    else
-      setSearchError(
-        result && !result.ok ? result.error.message : 'Search unavailable. Try again.',
-      );
-  }
-  createEffect(() => {
-    const q = query(),
-      generation = ++searchGeneration;
-    clearTimeout(searchTimer);
-    setHits([]);
-    setSearchError('');
-    setSearching(!!q && !composing());
-    if (q && !composing()) searchTimer = setTimeout(() => void searchNow(q, generation), 300);
-  });
-  onCleanup(() => {
-    clearTimeout(searchTimer);
-    ++searchGeneration;
-  });
   const clearSearch = () => {
-    setQuery('');
+    w.search.clear();
     searchInput?.focus();
   };
   const sections = createMemo(() => {
@@ -328,7 +297,7 @@ export function ProjectPanel(props: {
             onClick={() => {
               setSearchOpen(!searchOpen());
               if (searchOpen()) requestAnimationFrame(() => searchInput?.focus());
-              else setQuery('');
+              else w.search.clear();
             }}
           >
             <Icon name="search" />
@@ -387,6 +356,8 @@ export function ProjectPanel(props: {
               ref={searchInput}
               aria-label="Search project text"
               placeholder="Search project…"
+              maxLength={500}
+              aria-describedby={`${formId}-search-help`}
               value={query()}
               onInput={(event) => setQuery(event.currentTarget.value)}
               onCompositionStart={() => setComposing(true)}
@@ -395,7 +366,7 @@ export function ProjectPanel(props: {
                 setComposing(false);
               }}
               onKeyDown={(event) => {
-                if (event.isComposing) return;
+                if (event.isComposing || composing()) return;
                 if (event.key === 'Enter') {
                   event.preventDefault();
                   void searchNow();
@@ -415,10 +386,13 @@ export function ProjectPanel(props: {
               <IconButton label="Clear project search" icon="close" onClick={clearSearch} />
             </Show>
           </div>
+          <p class="search-help" id={`${formId}-search-help`}>
+            Fuzzy search · filenames and text
+          </p>
         </Show>
         <div class="project-browser">
           <Show
-            when={query()}
+            when={query().trim()}
             fallback={
               <Show
                 when={entries().size}
@@ -439,7 +413,9 @@ export function ProjectPanel(props: {
               aria-busy={searching()}
             >
               <p class="search-summary" role="status">
-                {searching() ? 'Searching…' : `${hits().length} matching locations`}
+                {searching()
+                  ? 'Searching…'
+                  : `${hits().length === 200 ? 'Top 200' : hits().length} results`}
               </p>
               <Show when={searchError()}>
                 <p class="inline-error" role="alert">
@@ -451,15 +427,26 @@ export function ProjectPanel(props: {
                 {(hit) => (
                   <button
                     class="search-hit"
+                    classList={{ 'is-selected': w.search.selected() === hit }}
+                    aria-current={w.search.selected() === hit ? 'location' : undefined}
+                    title={`${hit.path}${hit.kind === 'content' ? `:${hit.line}` : ''}`}
                     onClick={() => {
                       props.onNavigate?.();
-                      void w.locate(hit.fileId, hit.offset);
+                      void w.search.navigate(hit);
                     }}
                   >
                     <strong>
-                      {hit.path}:{hit.line}
+                      <HighlightedText text={hit.path} ranges={hit.pathRanges} />
+                      {hit.kind === 'content' ? `:${hit.line}` : ''}
                     </strong>
-                    <span>{hit.snippet}</span>
+                    <span>
+                      <HighlightedText text={hit.snippet} ranges={hit.ranges} />
+                    </span>
+                    <Show when={hit.approximate}>
+                      <small class="search-match-kind">
+                        Approximate {hit.kind === 'path' ? 'filename' : 'text'} match
+                      </small>
+                    </Show>
                   </button>
                 )}
               </For>

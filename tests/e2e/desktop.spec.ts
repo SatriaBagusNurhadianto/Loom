@@ -493,7 +493,7 @@ test('file action menus support keyboard, inline errors, search and reduced moti
   await search.fill('absent-word-924');
   await search.press('Enter');
   await expect(page.getByRole('region', { name: 'Project search results' })).toContainText(
-    '0 matching locations',
+    '0 results',
   );
   await page.getByRole('button', { name: 'Clear project search' }).click();
   await expect(search).toBeFocused();
@@ -689,6 +689,128 @@ test('file operations, root choice, search locations, find/replace and caret res
       }
     })
     .toBe('');
+});
+
+test('fuzzy project search highlights results and source without changing text or precise find', async () => {
+  const folder = await openSyntheticProject();
+  const source =
+    '\\documentclass{article}\n\\begin{document}\n\\section{Introduction}\n🧪 İ Introduction to scientific writing.\n\\end{document}\n';
+  await writeFile(join(folder, 'main.tex'), source);
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await expect(editor).toContainText('scientific writing');
+  await page.keyboard.press('Control+Alt+3');
+  await page.getByRole('button', { name: 'Search project', exact: true }).click();
+  const query = page.getByRole('textbox', { name: 'Search project text' });
+  const results = page.getByRole('region', { name: 'Project search results' });
+  await query.fill('intrduction');
+  await query.press('Enter');
+  await expect(results.getByRole('button')).toHaveCount(2);
+  await expect(results.locator('mark')).toHaveText(['Introduction', 'Introduction']);
+  await expect(results).toContainText('Approximate text match');
+  const hit = results.getByRole('button', { name: /main.tex:4/ });
+  await hit.focus();
+  await hit.press('Enter');
+  await expect(editor).toBeFocused();
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(2);
+  await expect(page.locator('.cm-projectSearchMatch.is-current')).toHaveText('Introduction');
+  expect(await page.evaluate(() => getSelection()?.toString())).toBe('Introduction');
+  expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe(source);
+  const contrast = await page.locator('.cm-projectSearchMatch.is-current').evaluate((node) => {
+    const style = getComputedStyle(node);
+    const luminance = (color: string) => {
+      const channels = color
+        .match(/\d+/g)!
+        .slice(0, 3)
+        .map(Number)
+        .map((value) => {
+          const s = value / 255;
+          return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    };
+    const a = luminance(style.color),
+      b = luminance(style.backgroundColor);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  await page.screenshot({ path: 'artifacts/phase-2-fuzzy-search.png', animations: 'disabled' });
+  // Highlight-only changes must not own undo or replace/remount the live editor.
+  await editor.press('ArrowRight');
+  await editor.press('End');
+  await page.keyboard.type(' Search edit.');
+  await expect(editor).toContainText('Search edit.');
+  await editor.press('Control+z');
+  await expect(editor).not.toContainText('Search edit.');
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(2);
+  await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toBe(source);
+  // CodeMirror takes precedence while Ctrl+F is open; replacement never uses approximate matches.
+  await editor.press('Control+f');
+  const find = page.getByRole('textbox', { name: 'Find', exact: true });
+  await find.fill('intrduction');
+  await find.press('ArrowRight');
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(0);
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(0);
+  await find.fill('Introduction');
+  await find.press('ArrowRight');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(2);
+  await page.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(2);
+  // Shared search survives navigating through the compact dialog.
+  await dimensions(900, 700);
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Project files', exact: true });
+  await expect(dialog.getByRole('textbox', { name: 'Search project text' })).toHaveValue(
+    'intrduction',
+  );
+  await dialog.getByRole('button', { name: /main.tex:3/ }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(editor).toBeFocused();
+  await expect(page.locator('.cm-projectSearchMatch.is-current')).toHaveText('Introduction');
+  await page.screenshot({
+    path: 'artifacts/phase-2-fuzzy-search-small.png',
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Clear project search' }).click();
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(0);
+  await expect(dialog.getByRole('textbox', { name: 'Search project text' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe(source);
+});
+
+test('fuzzy filename navigation, live search refresh, IME and clearing remain usable', async () => {
+  const folder = await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  await page.getByRole('button', { name: 'Search project', exact: true }).click();
+  const query = page.getByRole('textbox', { name: 'Search project text' });
+  const results = page.getByRole('region', { name: 'Project search results' });
+  await query.fill('mtex');
+  const file = results.getByRole('button', { name: /main.tex/ }).first();
+  await expect(file.locator('strong mark')).toHaveText(['m', 't', 'e', 'x']);
+  await file.click();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toBeFocused();
+  await query.fill('newobservtion');
+  await expect(results).toContainText('Try another word or filename.');
+  await writeFile(join(folder, 'observations.tex'), 'A newobservation from disk.');
+  await expect(results.getByRole('button', { name: /observations.tex:1/ })).toBeVisible();
+  await expect(results.locator('mark')).toHaveText(['newobservation']);
+  await query.fill('Original');
+  await query.press('Enter');
+  await query.fill('nothingmatches924');
+  await expect(results).toContainText('Try another word or filename.');
+  await expect(results.getByRole('button')).toHaveCount(0);
+  // Composition updates neither submit nor decorate an incomplete query.
+  await query.dispatchEvent('compositionstart');
+  await query.fill('Introduction');
+  await query.press('Enter');
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(0);
+  await expect(results.getByRole('button')).toHaveCount(0);
+  await query.dispatchEvent('compositionend');
+  await expect(results.locator('mark')).toHaveText(['Introduction']);
+  await page.getByRole('button', { name: 'Clear project search' }).click();
+  await expect(query).toBeFocused();
+  await expect(query).toHaveValue('');
+  await expect(page.locator('.cm-projectSearchMatch')).toHaveCount(0);
 });
 
 test('IndexedDB-only edits survive renderer crash with disk divergence', async () => {

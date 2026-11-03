@@ -1,4 +1,4 @@
-import { createEffect, createMemo, onCleanup } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
@@ -13,6 +13,7 @@ import { tags } from '@lezer/highlight';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import type { ProjectWorkspace } from './documents';
+import { projectSearchHighlights } from './searchHighlights';
 // Stock CodeMirror colors target light surfaces. Resolve every colored role through Loom's dark tokens.
 const sourceHighlight = HighlightStyle.define([
   {
@@ -37,8 +38,10 @@ const sourceHighlight = HighlightStyle.define([
 export function SourceEditor(props: { workspace: ProjectWorkspace }) {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
+  const [editor, setEditor] = createSignal<EditorView>();
   const wrap = new Compartment();
   const font = new Compartment();
+  const projectSearch = new Compartment();
   const document = createMemo(() => {
     props.workspace.version();
     return props.workspace.live(props.workspace.active());
@@ -62,6 +65,7 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
           ),
           extensions: [
             search({ top: true }),
+            projectSearch.of(projectSearchHighlights(w.search.highlightQuery())),
             EditorView.updateListener.of((update) => {
               if (update.selectionSet || update.docChanged) {
                 const selection = update.state.selection.main;
@@ -136,11 +140,19 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
           ],
         }),
       });
+      setEditor(view);
       if (caret) view.scrollDOM.scrollTop = caret.scroll;
       view.dom.addEventListener('loom:find', () => openSearchPanel(view!));
       const locate = (event: Event) => {
-        const offset = Math.min((event as CustomEvent<number>).detail, view!.state.doc.length);
-        view!.dispatch({ selection: { anchor: offset }, scrollIntoView: true });
+        const target = (event as CustomEvent<{ offset: number; length: number }>).detail;
+        const offset = Math.max(0, Math.min(target.offset, view!.state.doc.length));
+        view!.dispatch({
+          selection: {
+            anchor: offset,
+            head: Math.min(offset + target.length, view!.state.doc.length),
+          },
+          scrollIntoView: true,
+        });
         view!.focus();
       };
       view.dom.addEventListener('loom:locate', locate);
@@ -157,7 +169,13 @@ export function SourceEditor(props: { workspace: ProjectWorkspace }) {
       }
       view?.destroy();
       view = undefined;
+      setEditor(undefined);
     });
+  });
+  createEffect(() => {
+    const current = editor(),
+      query = props.workspace.search.highlightQuery();
+    current?.dispatch({ effects: projectSearch.reconfigure(projectSearchHighlights(query)) });
   });
   // Font and wrapping changes are handled by the editor's compartments.
   createEffect(() => {

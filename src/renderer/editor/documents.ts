@@ -8,6 +8,7 @@ import type {
   ProjectSnapshot,
 } from '../../contracts/project';
 import { layoutSchema, type Layout } from '../workspace/layout';
+import { createProjectSearch } from './projectSearch';
 export type Caret = { anchor: number; head: number; scroll: number };
 export type LiveDocument = {
   doc: Y.Doc;
@@ -328,6 +329,19 @@ export function createProjectWorkspace(report: (message: string) => void) {
       d = docs.get(active());
     return !!f?.saved && (!d || (!d.dirty && d.doc.getText('source').toString() === d.baseline));
   };
+  async function locate(id: string, offset: number, length = 0) {
+    const projectId = project()?.id;
+    await select(id);
+    await docs.get(id)?.ready;
+    if (project()?.id !== projectId || active() !== id) return;
+    requestAnimationFrame(() => {
+      if (project()?.id !== projectId || active() !== id) return;
+      document
+        .querySelector('.cm-editor')
+        ?.dispatchEvent(new CustomEvent('loom:locate', { detail: { offset, length } }));
+    });
+  }
+  const search = createProjectSearch({ project, command, locate });
   onMount(() => {
     void request({ type: 'current' });
     let refreshing = false;
@@ -421,20 +435,13 @@ export function createProjectWorkspace(report: (message: string) => void) {
       carets.set(id, c);
       preferences();
     },
-    locate: async (id: string, offset: number) => {
-      await select(id);
-      await docs.get(id)?.ready;
-      requestAnimationFrame(() =>
-        document
-          .querySelector('.cm-editor')
-          ?.dispatchEvent(new CustomEvent('loom:locate', { detail: offset })),
-      );
-    },
+    locate,
     select,
     command,
     flush,
     choose,
     newFile,
+    search,
   };
 }
 export type ProjectWorkspace = ReturnType<typeof createProjectWorkspace>;

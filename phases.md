@@ -62,7 +62,7 @@
 
 **Exit:** A real project can be opened, edited, saved, and reopened without data loss. Newer human work is preserved or a resolvable conflict is shown. Save indicators reflect actual persistence.
 
-**Recorded exit evidence:** 41 deterministic checks, 16 real Electron acceptance cases, unpacked Linux open/edit/save smoke, reference/smaller-window screenshots, UI/design checks, GPT-6-Luna medium review/fixes and GPT-6.1 Terra UX/Phase 2 audit with independent focused runtime checks. See [project_status.md](project_status.md), [testing](docs/phase-2-testing.md) and [review](docs/phase-2-review.md). Native picker selections and one preference failure are simulated boundaries; process/SQLite/IndexedDB/editor/disk checks are real. Git cloning remains Phase 7; installed-package/performance/IME/cross-platform acceptance remains Phase 8.
+**Recorded exit evidence:** 53 deterministic checks, 18 real Electron acceptance cases (including later fuzzy search/highlighting regressions), unpacked Linux open/edit/save smoke, reference/smaller-window screenshots, UI/design checks, GPT-6-Luna medium review/fixes and GPT-6.1 Terra UX/Phase 2 audit with independent focused runtime checks. See [project_status.md](project_status.md), [testing](docs/phase-2-testing.md) and [review](docs/phase-2-review.md). Native picker selections and one preference failure are simulated boundaries; process/SQLite/IndexedDB/editor/disk checks are real. Git cloning remains Phase 7; installed-package/performance/IME/cross-platform acceptance remains Phase 8.
 
 ## Phase 3 — Complete LaTeX and PDF workflow
 

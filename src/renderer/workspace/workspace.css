@@ -1286,6 +1286,43 @@ kbd {
   font-size: 11px;
   color: var(--text-muted);
 }
+.search-help,
+.search-match-kind {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.search-help {
+  padding: 0 8px 8px;
+}
+.search-hit.is-selected {
+  background: var(--surface-raised);
+  box-shadow: inset 2px 0 var(--focus);
+}
+.search-match,
+.live-editor .cm-projectSearchMatch,
+.live-editor .cm-searchMatch,
+.live-editor .cm-selectionMatch {
+  background: var(--search-match-bg);
+  color: var(--search-match-text);
+  border-radius: 2px;
+}
+.live-editor .cm-projectSearchMatch.is-current,
+.live-editor .cm-searchMatch-selected {
+  background: var(--search-current-bg);
+  outline: 1px solid var(--focus);
+}
+@media (forced-colors: active) {
+  .search-match,
+  .live-editor .cm-projectSearchMatch,
+  .live-editor .cm-projectSearchMatch.is-current,
+  .live-editor .cm-searchMatch,
+  .live-editor .cm-searchMatch-selected,
+  .live-editor .cm-selectionMatch {
+    background: Highlight;
+    color: HighlightText;
+    outline: 1px solid Highlight;
+  }
+}
 .action-menu {
   position: fixed;
   inset: auto;
