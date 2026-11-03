@@ -46,4 +46,8 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
+  --duration-fast: 80ms;
+  --duration-normal: 140ms;
+  --duration-modal: 160ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
 }

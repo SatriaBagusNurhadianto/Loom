@@ -74,7 +74,7 @@ Generated artifacts are ignored local evidence. Fixtures are synthetic. No live 
 
 - Native **New file** now uses the OS save picker, starts in the open project, creates exclusively inside that project and selects the result. Cancellation retains the current document. Native paths remain outside renderer snapshots.
 - Native containment/identity/symlink/overwrite coverage added at the service boundary and real Electron picker-boundary cases added. Verified: `npm run check` passed; `npm run test:e2e` passed 13 of 13 in consecutive runs (11 original + 2 native-picker cases). One new e2e strict-mode locator issue was fixed by scoping the file-row assertion to the sidebar, and service-restart synchronization in test 7 was stabilized by awaiting ready state and disk acknowledgment before post-restart keystrokes. Verified: full test suite passes 13 of 13 cleanly.
-- Sidebar/navigation/motion redesign and final review are not started.
+- Interactive animations and smoothed click interactions implemented across buttons, file rows, tabs, dialogs, notices, search inputs, and outline accordions with `--duration-fast/normal/modal` and `--ease-standard`, strictly honoring `prefers-reduced-motion`. Verified: `npm run check` passed; `npm run test:e2e` (13/13) passed cleanly.
 
 ## Next concrete task
 

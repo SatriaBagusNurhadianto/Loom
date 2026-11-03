@@ -123,6 +123,16 @@ The default state is honestly empty. A user-triggered synthetic example permits 
 
 Notifications use one stable status region with a dismiss action; errors that require recovery remain inline in diagnostics. Width sliders and divider keys provide alternatives to pointer dragging. F6 cycles visible panels. Source/PDF/Split controls and Ctrl Alt 1/2/3 provide focus modes; Ctrl Alt B toggles sidebar. Reduced motion and forced colors are handled globally. English desktop is the initial locale; Japan-market behavior is outside this brief.
 
+## Motion and interactive micro-feedback
+
+Motion design tokens live in `src/renderer/ui/tokens.css`:
+
+- `--duration-fast`: 80ms for active tactile click feedback (subtle scale: 0.97 on buttons, 0.92 on icon buttons).
+- `--duration-normal`: 140ms with easing `--ease-standard: cubic-bezier(0.16, 1, 0.3, 1)` for smooth hover backgrounds, borders, colors, and shadows.
+- `--duration-modal`: 160ms for dialog fade/scale pop-in, toast notice slide-up, and outline accordion rotation.
+
+All transitions and animations are strictly disabled under `@media (prefers-reduced-motion: reduce)`, ensuring full accessibility and immediate responsiveness for users requesting reduced motion.
+
 ## Do's and Don'ts
 
 - Preserve the user's explicit Prism reference rather than introducing a new visual direction.

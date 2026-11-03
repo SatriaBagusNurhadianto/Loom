@@ -14,6 +14,7 @@
   background: var(--scroll-thumb);
   border: 2px solid var(--scroll-track);
   border-radius: var(--radius-control);
+  transition: background-color var(--duration-normal) ease;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--scroll-hover);
@@ -37,12 +38,20 @@ button {
   background: transparent;
   border-radius: var(--radius-control);
   cursor: pointer;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    color var(--duration-normal) ease,
+    border-color var(--duration-normal) ease,
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-normal) ease,
+    opacity var(--duration-normal) ease;
 }
 button:hover {
   background: var(--surface-hover);
 }
-button:active {
+button:active:not(:disabled) {
   background: var(--surface-raised);
+  transform: scale(0.97);
 }
 button:disabled {
   opacity: 0.48;
@@ -57,6 +66,7 @@ a {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
+  transition: outline-offset var(--duration-fast) ease;
 }
 [data-focus-region]:focus {
   outline: 2px solid var(--focus);
@@ -118,6 +128,10 @@ h3 {
 .compact-bar nav button {
   padding: 5px 12px;
   color: var(--text-muted);
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    color var(--duration-normal) ease,
+    transform var(--duration-fast) ease;
 }
 .compact-bar nav button[aria-pressed='true'] {
   background: var(--surface-raised);
@@ -159,9 +173,16 @@ h3 {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
+  transition:
+    color var(--duration-normal) ease,
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
 }
 .icon-button:hover {
   color: var(--text-primary);
+}
+.icon-button:active:not(:disabled) {
+  transform: scale(0.92);
 }
 .project-selector {
   min-height: 42px;
@@ -172,6 +193,16 @@ h3 {
   border-color: var(--border);
   text-align: left;
   margin-bottom: 17px;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) ease,
+    transform var(--duration-fast) ease;
+}
+.project-selector:hover {
+  border-color: var(--text-muted);
+}
+.project-selector:active {
+  transform: scale(0.99);
 }
 .file-toolbar {
   display: flex;
@@ -188,6 +219,9 @@ h3 {
   color: var(--text-muted);
   border-radius: 0;
   padding: 5px 0 8px;
+  transition:
+    color var(--duration-normal) ease,
+    border-color var(--duration-normal) ease;
 }
 .tab-buttons .selected {
   color: var(--text-primary);
@@ -205,9 +239,18 @@ h3 {
   gap: var(--space-3);
   padding: 10px 13px;
   text-align: left;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
+}
+.file-row:hover {
+  background: var(--surface-hover);
 }
 .file-row.selected {
   background: var(--surface-raised);
+}
+.file-row:active {
+  transform: scale(0.99);
 }
 .file-badge {
   font-size: 10px;
@@ -222,6 +265,12 @@ h3 {
   border-radius: var(--radius-control);
   padding: 3px 8px;
   margin-bottom: var(--space-3);
+  transition:
+    border-color var(--duration-normal) ease,
+    box-shadow var(--duration-normal) ease;
+}
+.search-field:focus-within {
+  border-color: var(--focus);
 }
 .search-field input {
   min-width: 0;
@@ -258,7 +307,8 @@ h3 {
   padding: 3px 0;
 }
 .outline-heading > span {
-  display: flex;
+  display: inline-flex;
+  transition: transform var(--duration-modal) var(--ease-standard);
 }
 .rotated {
   transform: rotate(-90deg);
@@ -271,6 +321,18 @@ h3 {
 }
 .outline-item {
   padding: 4px 5px;
+  border-radius: var(--radius-control);
+  transition:
+    color var(--duration-normal) ease,
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
+}
+.outline-item:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+.outline-item:active {
+  transform: scale(0.98);
 }
 .sidebar-footer {
   display: flex;
@@ -302,6 +364,7 @@ h3 {
   touch-action: none;
   border-radius: 4px;
   z-index: 1;
+  transition: background-color var(--duration-normal) var(--ease-standard);
 }
 .panel-separator:hover,
 .panel-separator:focus-visible {
@@ -338,6 +401,9 @@ h3 {
   border-radius: 13px;
   background: var(--surface-raised);
   white-space: nowrap;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) ease;
 }
 .readonly-label {
   font-size: 10px;
@@ -351,10 +417,17 @@ h3 {
   background: var(--accent);
   color: var(--accent-text);
   margin-left: auto;
+  transition:
+    filter var(--duration-normal) ease,
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
 }
 .tools-button:hover {
   filter: brightness(1.2);
   background: var(--accent);
+}
+.tools-button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .source-content {
   flex: 1;
@@ -425,6 +498,16 @@ h3 {
   align-items: center;
   padding: 6px;
   font-size: 11px;
+  transition:
+    color var(--duration-normal) ease,
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
+}
+.model-button:hover {
+  color: var(--text-primary);
+}
+.model-button:active {
+  transform: scale(0.96);
 }
 .send-button {
   display: grid;
@@ -434,6 +517,13 @@ h3 {
   width: 36px;
   height: 36px;
   border-radius: 50%;
+  transition:
+    transform var(--duration-fast) ease,
+    opacity var(--duration-normal) ease,
+    background-color var(--duration-normal) var(--ease-standard);
+}
+.send-button:active:not(:disabled) {
+  transform: scale(0.92);
 }
 .composer-caption {
   display: flex;
@@ -493,6 +583,13 @@ h3 {
   border-radius: var(--radius-pill);
   font-size: 12px;
   white-space: nowrap;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) ease,
+    transform var(--duration-fast) ease;
+}
+.build-status:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .pdf-column button:hover {
   background: var(--pdf-hover);
@@ -616,6 +713,12 @@ h3 {
   padding: 8px 13px;
   min-height: 36px;
   font-size: 12px;
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    border-color var(--duration-normal) ease,
+    color var(--duration-normal) ease,
+    transform var(--duration-fast) ease,
+    box-shadow var(--duration-normal) ease;
 }
 .primary-button {
   background: var(--text-primary);
@@ -624,14 +727,29 @@ h3 {
 .primary-button:hover {
   background: var(--pdf-paper);
 }
+.primary-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
 .secondary-button {
   border-color: var(--border);
   background: var(--surface-raised);
+}
+.secondary-button:hover {
+  background: var(--surface-hover);
+}
+.secondary-button:active:not(:disabled) {
+  transform: scale(0.98);
 }
 .text-button {
   color: var(--accent-text);
   padding: 4px 0;
   font-size: 12px;
+  transition:
+    color var(--duration-normal) ease,
+    opacity var(--duration-normal) ease;
+}
+.text-button:hover {
+  opacity: 0.85;
 }
 .notice {
   position: fixed;
@@ -649,6 +767,20 @@ h3 {
   font-size: 12px;
   z-index: 3;
   box-shadow: var(--shadow-notice);
+  animation: notice-enter var(--duration-modal) var(--ease-standard);
+  transition:
+    opacity var(--duration-normal) ease,
+    transform var(--duration-normal) ease;
+}
+@keyframes notice-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 dialog {
   color: var(--text-primary);
@@ -661,8 +793,30 @@ dialog {
   padding: 0;
   box-shadow: var(--shadow-dialog);
 }
+dialog[open] {
+  animation: dialog-enter var(--duration-modal) var(--ease-standard);
+}
 dialog::backdrop {
   background: var(--backdrop);
+  animation: backdrop-enter var(--duration-modal) ease-out;
+}
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .modal-heading {
   display: flex;
@@ -989,6 +1143,17 @@ kbd {
   flex-direction: column;
   text-align: left;
   overflow-wrap: anywhere;
+  border-radius: var(--radius-control);
+  padding: var(--space-2);
+  transition:
+    background-color var(--duration-normal) var(--ease-standard),
+    transform var(--duration-fast) ease;
+}
+.search-hit:hover {
+  background: var(--surface-hover);
+}
+.search-hit:active {
+  transform: scale(0.99);
 }
 .search-hit span {
   color: var(--text-muted);
