@@ -1,3 +1,11 @@
+import { createAgentWorkspace } from '../agent/workspace';
+import {
+  AgentChats,
+  AgentComposer,
+  AgentConnections,
+  AgentConversation,
+  AgentReview,
+} from '../agent/AgentSurface';
 import { createLatexWorkspace } from '../latex/workspace';
 import { BuildDialog } from '../latex/BuildDialog';
 import { BuildFeedback } from '../latex/BuildFeedback';
@@ -46,6 +54,14 @@ export function Workspace() {
   });
   const projects = createProjectWorkspace(setNotice);
   const latex = createLatexWorkspace(projects, setNotice);
+  const agent = createAgentWorkspace(projects, setNotice);
+  const [connectionsOpen, setConnectionsOpen] = createSignal(false);
+  const [reviewOpen, setReviewOpen] = createSignal(false);
+  const agentConnect = () => setConnectionsOpen(true);
+  const newChat = () => {
+    if (agent.state()?.connection === 'connected') void agent.newChat();
+    else agentConnect();
+  };
   const [pdfPosition, setPdfPosition] = createSignal({ page: 1, zoom: 1, scroll: 0 });
   const pdfProjectIdentity = createMemo(() => projects.project()?.id);
   createEffect(() => {
@@ -403,7 +419,7 @@ export function Workspace() {
                     else
                       showUnavailable(
                         'Agent conversations',
-                        'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
+                        'Open a paper folder, then connect OpenCode or Codex to start a conversation.',
                       );
                   }}
                 />
@@ -437,7 +453,7 @@ export function Workspace() {
                     <div class="sidebar-empty">
                       <Icon name="chat" />
                       <p>No conversations yet</p>
-                      <span>Connect an agent in Phase 4.</span>
+                      <span>Open a paper folder to start a conversation.</span>
                     </div>
                   }
                 >
@@ -491,6 +507,8 @@ export function Workspace() {
               <ProjectPanel
                 latex={latex}
                 workspace={projects}
+                chats={<AgentChats agent={agent} onConnect={agentConnect} />}
+                onNewChat={newChat}
                 tab={layout().tab}
                 onTabChange={(tab) => update({ tab })}
                 onSettings={() => setDialog('projects')}
@@ -802,66 +820,13 @@ export function Workspace() {
                 </span>
               </Show>
             </div>
+            <AgentConversation agent={agent} onReview={() => setReviewOpen(true)} />
             <div class="composer-area">
-              <div class="composer">
-                <button
-                  class="composer-placeholder"
-                  onClick={() =>
-                    showUnavailable(
-                      'Agent not connected',
-                      'OpenCode connection and supported model selection arrive in Phase 4. Your local files are ready for editing. No prompt is sent.',
-                    )
-                  }
-                >
-                  Ask about your paper…
-                </button>
-                <div class="composer-actions">
-                  <IconButton
-                    label="Attachments — availability"
-                    icon="plus"
-                    onClick={() =>
-                      showUnavailable(
-                        'Attachments',
-                        'Images and scientific-content assistance arrive in Phase 6, after the agent integration.',
-                      )
-                    }
-                  />
-                  <button
-                    class="model-button"
-                    onClick={() =>
-                      showUnavailable(
-                        'Agent not connected',
-                        'OpenCode connection and supported model selection arrive in Phase 4. No prompt is sent from this foundation preview.',
-                      )
-                    }
-                  >
-                    No agent connected <Icon name="down" size={15} />
-                  </button>
-                  <button
-                    class="send-button"
-                    title="Sending requires the Phase 4 agent integration"
-                    disabled
-                    aria-label="Send unavailable — agent integration in Phase 4"
-                  >
-                    <Icon name="arrow" size={22} />
-                  </button>
-                </div>
-              </div>
-              <div class="composer-caption">
-                <span>
-                  {example()
-                    ? 'Synthetic example · no files on disk'
-                    : 'Source stays in your project folder'}
-                </span>
-                <button class="status-button" onClick={() => setDialog('service')}>
-                  <span class="status-dot" classList={{ ready: service().state === 'ready' }} />
-                  {service().state === 'ready'
-                    ? 'Service ready'
-                    : service().state === 'starting'
-                      ? 'Service starting'
-                      : 'Service unavailable'}
-                </button>
-              </div>
+              <AgentComposer
+                agent={agent}
+                onConnect={agentConnect}
+                onReview={() => setReviewOpen(true)}
+              />
             </div>
           </main>
         </Show>
@@ -1005,22 +970,57 @@ export function Workspace() {
           </section>
         </Show>
       </div>
-      <Show when={notice()}>
-        <div
-          class="notice"
-          role="status"
-          onPointerEnter={() => setNoticePaused(true)}
-          onPointerLeave={() => setNoticePaused(false)}
-          onFocusIn={() => setNoticePaused(true)}
-          onFocusOut={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-              setNoticePaused(false);
-          }}
-        >
-          <span>{notice()}</span>
-          <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
+      <footer class="workspace-statusbar">
+        <span class="workspace-origin">
+          {example()
+            ? 'Synthetic example · no files on disk'
+            : 'Source stays in your project folder'}
+        </span>
+        <div class="notice-slot">
+          <Show when={notice()}>
+            <div
+              class="notice"
+              role="status"
+              onPointerEnter={() => setNoticePaused(true)}
+              onPointerLeave={() => setNoticePaused(false)}
+              onFocusIn={() => setNoticePaused(true)}
+              onFocusOut={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                  setNoticePaused(false);
+              }}
+            >
+              <span>{notice()}</span>
+              <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
+            </div>
+          </Show>
         </div>
-      </Show>
+        <button class="status-button" onClick={() => setDialog('service')}>
+          <span class="status-dot" classList={{ ready: service().state === 'ready' }} />
+          {service().state === 'ready'
+            ? 'Local service ready'
+            : service().state === 'starting'
+              ? 'Local service starting'
+              : 'Local service unavailable'}
+        </button>
+      </footer>
+      <AgentConnections
+        agent={agent}
+        open={connectionsOpen()}
+        onClose={() => setConnectionsOpen(false)}
+        onOpenProject={() => {
+          setConnectionsOpen(false);
+          setDialog('projects');
+        }}
+      />
+      <AgentReview
+        agent={agent}
+        open={reviewOpen()}
+        onClose={() => setReviewOpen(false)}
+        onCompile={() => {
+          setReviewOpen(false);
+          void createPdf();
+        }}
+      />
       <BuildDialog
         open={dialog() === 'build'}
         onClose={() => setDialog(null)}
@@ -1187,6 +1187,20 @@ export function Workspace() {
             <ProjectPanel
               latex={latex}
               workspace={projects}
+              chats={
+                <AgentChats
+                  agent={agent}
+                  onConnect={() => {
+                    setDialog(null);
+                    agentConnect();
+                  }}
+                  onSelect={() => setDialog(null)}
+                />
+              }
+              onNewChat={() => {
+                setDialog(null);
+                newChat();
+              }}
               onNavigate={() => setDialog(null)}
               onSettings={() => setDialog('projects')}
             />
@@ -1266,6 +1280,28 @@ export function Workspace() {
           </div>
         </Show>
         <Show when={dialog() === 'tools' || dialog() === 'settings'}>
+          <section class="dialog-section">
+            <h3>Agent</h3>
+            <p>Use OpenCode or Codex with this paper.</p>
+            <button
+              class="secondary-button"
+              onClick={() => {
+                setDialog(null);
+                agentConnect();
+              }}
+            >
+              Manage connections…
+            </button>
+            <button
+              class="text-button"
+              onClick={() => {
+                setDialog(null);
+                setReviewOpen(true);
+              }}
+            >
+              Review file changes
+            </button>
+          </section>
           <p class="muted">Phase 2 · local projects</p>
           <div class="settings-section">
             <h3>View</h3>
@@ -1427,8 +1463,8 @@ export function Workspace() {
             </button>
           </div>
           <p class="help-text">
-            Restarting only restarts Loom’s foundation service. It does not open a project or run
-            external tools.
+            Restarting interrupts Loom-managed builds and agents. Your saved paper and recovery
+            records remain; reconnect an agent to continue.
           </p>
         </Show>
       </Modal>

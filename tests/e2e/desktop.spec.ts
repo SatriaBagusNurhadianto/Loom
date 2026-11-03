@@ -133,7 +133,7 @@ test('real isolated Electron boundary and a restartable utility process', async 
   });
 
   const before = await readyPid();
-  await page.getByRole('button', { name: 'Service ready', exact: true }).click();
+  await page.getByRole('button', { name: 'Local service ready', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Electron desktop');
   await expect(page.getByRole('dialog')).toContainText(String(before));
   await page.getByRole('button', { name: 'Restart service', exact: true }).click();
@@ -175,11 +175,11 @@ test('a killed utility process reports failure and recovers without losing the w
   await showLayoutReference();
   process.kill(pid, 'SIGKILL');
   await expect(
-    page.getByRole('button', { name: 'Service unavailable', exact: true }),
+    page.getByRole('button', { name: 'Local service unavailable', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Read-only LaTeX example' })).toBeVisible();
-  await page.getByRole('button', { name: 'Service unavailable', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('stopped');
+  await page.getByRole('button', { name: 'Local service unavailable', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('stopped');
   await page.getByRole('button', { name: 'Restart service', exact: true }).click();
   const recoveredPid = await readyPid();
   expect(recoveredPid).not.toBe(pid);
@@ -189,11 +189,13 @@ test('a killed utility process reports failure and recovers without losing the w
 test('an unresponsive utility process times out and can be restarted', async () => {
   test.skip(process.platform !== 'linux', 'SIGSTOP failure injection is validated on Linux.');
   stoppedPid = await readyPid();
-  await page.getByRole('button', { name: 'Service ready', exact: true }).click();
+  await page.getByRole('button', { name: 'Local service ready', exact: true }).click();
   process.kill(stoppedPid, 'SIGSTOP');
   await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Checking…', exact: true })).toBeDisabled();
-  await expect(page.getByRole('alert')).toContainText('did not respond', { timeout: 9_000 });
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('did not respond', {
+    timeout: 9_000,
+  });
   await expect(page.getByRole('dialog').locator('.service-details dd').first()).toHaveText(
     'unavailable',
   );

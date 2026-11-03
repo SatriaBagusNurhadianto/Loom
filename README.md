@@ -1,12 +1,14 @@
 # Loom
 
-Electron workspace for scientific LaTeX writing. Phases 1–3 provide ordinary folder/ZIP projects, CodeMirror/Yjs source, durable recovery, local TeX compilation, TexLab language features and a real synchronized PDF viewer on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
+Electron workspace for scientific LaTeX writing. Phases 1–4 provide ordinary folder/ZIP projects, CodeMirror/Yjs source, durable recovery, local TeX compilation, TexLab language features a real synchronized PDF viewer and selectable OpenCode/Codex agents on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
 
-Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. PDF export is available; OpenCode, research and Git/source-export UI remain later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
+Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. PDF export and native agent revision are available; literature/Zotero and Git/source-export UI remain later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
 
 Use the sidebar search icon for fuzzy filename and text search: `mtex` finds `main.tex`, and `intrduction` finds `Introduction`. Exact matches rank first. Matching text is highlighted in results and source; selecting a result focuses its passage. Clear removes the highlights. Ctrl F retains precise CodeMirror find/replace.
 
 Use **Preview** beside Tools to show or hide the PDF pane, including after closing it with **×**. In a small window, Preview opens PDF focus mode; use Source or the PDF close button to return. The PDF viewer supports selectable text, pages, zoom, source navigation and native export. A failed build keeps the last successful PDF, clearly identified when older. See [the Phase 3 guide](docs/phase-3-testing.md) for the full workflow.
+
+Use **Connect an agent** in the bottom-center composer to choose **OpenCode** or **Codex**, then choose one of its configured models. Loom reuses the installed agent's account and execution loop. Ask about the paper, attach source text if helpful, and respond to its permission requests or questions. Agents can write files directly; **Review changes** shows observed diffs and offers Keep or Revert. Reverting preserves compatible newer writing and refuses conflicting changes. Choose **Update PDF** to see the revised paper. Existing OpenCode servers are supported under **Connection details**. See [Phase 4 setup and testing](docs/phase-4-testing.md) for supported versions, privacy, recovery and live checks.
 
 ## Run it
 
@@ -52,13 +54,15 @@ This starts an isolated Electron profile. Click **Try a sample paper** (or click
 | `npm run package`          | Build unpacked Linux app at `release/linux-unpacked/loom`                       |
 | `npm run package:appimage` | Build a Linux AppImage; network/download and platform prerequisites apply       |
 
-The [Phase 3 test guide](docs/phase-3-testing.md) covers TeX/TexLab setup, builds, PDF/source navigation, export and the supplied samples. Live native/Electron checks are opt-in through `LOOM_TEST_TEX=1` with available tools. The [Phase 2 test guide](docs/phase-2-testing.md) covers projects, editing, search, persistence, conflicts and recovery. The [Phase 1 guide](docs/phase-1-testing.md) remains historical shell evidence. Generated screenshots/audits live under ignored `artifacts/`; Playwright reports live under `test-results/`.
+The [Phase 4 test guide](docs/phase-4-testing.md) covers native harness setup, agent revision, permissions, recovery and optional authorized model checks. The [Phase 3 test guide](docs/phase-3-testing.md) covers TeX/TexLab setup, builds, PDF/source navigation, export and the supplied samples. Live native/Electron checks are opt-in through `LOOM_TEST_TEX=1` with available tools. The [Phase 2 test guide](docs/phase-2-testing.md) covers projects, editing, search, persistence, conflicts and recovery. The [Phase 1 guide](docs/phase-1-testing.md) remains historical shell evidence. Generated screenshots/audits live under ignored `artifacts/`; Playwright reports live under `test-results/`.
 
 ## Ownership and local data
 
 - `src/main`: sandboxed window lifecycle, native project dialogs and validated entry points.
 - `src/preload` and `src/contracts`: named typed capabilities; renderer has no raw filesystem, shell or IPC access.
 - `src/services/project`: serialized filesystem bridge, stable manifest IDs, root selection and recoverable file operations.
+- `src/services/agents`: native OpenCode/Codex adapters, authenticated Loom MCP tools and pre-turn recovery/change review.
+- `src/renderer/agent`: provider connections, project conversations, source attachments and post-write review.
 - `src/services/latex`: snapshot build scheduling, owned TeX/TexLab processes, diagnostics and SyncTeX.
 - `src/renderer/latex`: build controls, language binding, bounded PDF.js pages and source navigation.
 - `src/services/project/store.ts`: versioned SQLite metadata/checkpoints/preferences and rebuildable search index in Electron application data.
