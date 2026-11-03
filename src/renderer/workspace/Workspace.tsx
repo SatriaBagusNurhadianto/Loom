@@ -44,6 +44,7 @@ export function Workspace() {
   const [busy, setBusy] = createSignal(false);
   let source!: HTMLElement;
   let pdf!: HTMLElement;
+  let previewToggle!: HTMLButtonElement;
   let search!: HTMLInputElement;
   let shell!: HTMLDivElement;
   let dragCleanup: (() => void) | undefined;
@@ -75,6 +76,14 @@ export function Workspace() {
   const focusMode = (mode: Layout['mode']) => {
     update({ mode });
     requestAnimationFrame(() => (mode === 'pdf' ? pdf : source)?.focus());
+  };
+  const togglePreview = () => {
+    const open = !pdfVisible();
+    update({ pdfOpen: open, mode: open && narrow() ? 'pdf' : 'split' });
+    requestAnimationFrame(() => {
+      if (!open) previewToggle?.focus();
+      else if (narrow()) pdf?.focus();
+    });
   };
   const resize = (which: 'sidebar' | 'pdf', delta: number) => {
     const value = Math.max(
@@ -520,6 +529,18 @@ export function Workspace() {
                   <IconButton label="Project" icon="folder" onClick={() => setDialog('files')} />
                 </div>
               </Show>
+              <button
+                ref={previewToggle}
+                class="secondary-button preview-toggle"
+                aria-label={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
+                title={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
+                aria-pressed={pdfVisible()}
+                aria-controls={pdfVisible() ? 'pdf-preview' : undefined}
+                onClick={togglePreview}
+              >
+                <Icon name="preview" />
+                <span>Preview</span>
+              </button>
               <button class="tools-button" onClick={() => setDialog('tools')}>
                 Tools <Icon name="tools" />
               </button>
@@ -731,6 +752,7 @@ export function Workspace() {
         <Show when={pdfVisible()}>
           <section
             class="pdf-column"
+            id="pdf-preview"
             aria-label="PDF preview"
             tabIndex={-1}
             data-focus-region
@@ -766,14 +788,7 @@ export function Workspace() {
                     )
                   }
                 />
-                <IconButton
-                  label="Hide PDF panel"
-                  icon="close"
-                  onClick={() => {
-                    update({ pdfOpen: false, mode: 'split' });
-                    source?.focus();
-                  }}
-                />
+                <IconButton label="Hide PDF panel" icon="close" onClick={togglePreview} />
               </div>
             </div>
             <div class="pdf-scroll">

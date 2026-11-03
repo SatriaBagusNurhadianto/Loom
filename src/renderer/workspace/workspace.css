@@ -440,6 +440,20 @@ h3 {
 .tools-button:active:not(:disabled) {
   transform: scale(0.97);
 }
+.source-toolbar .preview-toggle {
+  flex-shrink: 0;
+  gap: 6px;
+  color: var(--text-muted);
+  background: transparent;
+}
+.source-toolbar .preview-toggle[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--surface-raised);
+}
+.source-toolbar .preview-toggle:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
 .source-content {
   flex: 1;
   min-height: 0;
@@ -1075,6 +1089,12 @@ kbd {
 }
 
 @container (max-width: 450px) {
+  .preview-toggle span {
+    display: none;
+  }
+  .preview-toggle {
+    padding-inline: 8px;
+  }
   .readonly-label {
     display: none;
   }

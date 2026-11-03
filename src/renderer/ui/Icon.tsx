@@ -3,6 +3,7 @@ const paths = {
   more: ['M5 12h.01M12 12h.01M19 12h.01'],
   save: ['M4 3h14l3 3v15H3V3z', 'M7 3v6h10V3M7 21v-8h10v8'],
   panel: ['M4 4h16v16H4z', 'M9 4v16'],
+  preview: ['M4 4h16v16H4z', 'M15 4v16'],
   chevron: ['m8 5 7 7-7 7'],
   down: ['m5 9 7 7 7-7'],
   plus: ['M12 5v14', 'M5 12h14'],

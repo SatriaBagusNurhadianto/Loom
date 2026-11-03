@@ -11,7 +11,17 @@ let stoppedPid: number | undefined;
 async function dimensions(width: number, height: number): Promise<void> {
   await desktop.evaluate(
     ({ BrowserWindow }, size) => {
-      BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height);
+      const window = BrowserWindow.getAllWindows()[0];
+      // Keep a tiling Wayland compositor from resizing the fixture after a click/focus change.
+      // Both constraints are test-owned; the product retains its normal resizable window.
+      const [outerWidth, outerHeight] = window.getSize();
+      const [contentWidth, contentHeight] = window.getContentSize();
+      const width = size.width + outerWidth - contentWidth;
+      const height = size.height + outerHeight - contentHeight;
+      window.setMaximumSize(0, 0);
+      window.setMinimumSize(width, height);
+      window.setMaximumSize(width, height);
+      window.setContentSize(size.width, size.height);
     },
     { width, height },
   );
@@ -189,6 +199,25 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  const preview = page.getByRole('region', { name: 'PDF preview', exact: true });
+  await expect(page.getByRole('button', { name: 'Hide PDF panel', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Hide PDF panel', exact: true }).click();
+  await expect(preview).toHaveCount(0);
+  const reopenPreview = page.getByRole('button', { name: 'Show PDF preview', exact: true });
+  await expect(reopenPreview).toBeVisible();
+  await expect(reopenPreview).toBeFocused();
+  await reopenPreview.press('Enter');
+  await expect(preview).toBeVisible();
+  const hidePreview = page.getByRole('button', { name: 'Hide PDF preview', exact: true });
+  await expect(hidePreview).toHaveAttribute('aria-pressed', 'true');
+  await hidePreview.click();
+  await expect(preview).toHaveCount(0);
+  await page.reload();
+  await expect(preview).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+  await expect(preview).toBeVisible();
+  await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await mkdir(resolve('artifacts'), { recursive: true });
   await page.screenshot({
     animations: 'disabled',
@@ -246,6 +275,15 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Split', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+  await expect(preview).toBeVisible();
+  await expect(page.getByRole('main', { name: 'Source workspace' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Hide PDF panel', exact: true }).click();
+  await expect(preview).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show PDF preview', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+  await page.getByRole('button', { name: 'Return to workspace', exact: true }).click();
+  await expect(page.getByRole('main', { name: 'Source workspace' })).toBeVisible();
   await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.screenshot({
@@ -574,6 +612,16 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.keyboard.press('Control+s');
   await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('% Human addition');
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
+  await page.keyboard.press('Control+Alt+3');
+  await expect(page.getByRole('button', { name: 'Hide PDF preview', exact: true })).toBeVisible();
+  const liveEditor = await page.locator('.cm-editor').elementHandle();
+  await page.getByRole('button', { name: 'Hide PDF preview', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
+  expect(await liveEditor!.evaluate((node) => node.isConnected)).toBe(true);
+  await expect(editor).toContainText('% Human addition');
+  await page.screenshot({ path: 'artifacts/phase-2-preview-toggle.png', animations: 'disabled' });
   await dimensions(1440, 960);
   await page.keyboard.press('Control+Alt+3');
   await page.getByRole('button', { name: 'references.bib', exact: true }).click();

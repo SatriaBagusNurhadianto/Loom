@@ -6,6 +6,8 @@ Open or create a project from the workspace, edit source, and use **Save** or Ct
 
 Use the sidebar search icon for fuzzy filename and text search: `mtex` finds `main.tex`, and `intrduction` finds `Introduction`. Exact matches rank first. Matching text is highlighted in results and source; selecting a result focuses its passage. Clear removes the highlights. Ctrl F retains precise CodeMirror find/replace.
 
+Use **Preview** beside Tools to show or hide the PDF pane, including after closing it with **×**. In a small window, Preview opens PDF focus mode; use Source or the PDF close button to return. Compilation and the real PDF viewer remain Phase 3 work.
+
 ## Run it
 
 Linux x86_64 is the first validated target. Use Node.js 22.12+, 24, or 26+ (supported Vitest branches) and npm 11.19.0; this implementation was checked with Node 26.7.0 and npm 11.19.0. A graphical desktop and Electron's system libraries are required. No TeX installation, account, or provider key is needed to edit local projects.
