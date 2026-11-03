@@ -15,7 +15,11 @@ const projects = new ProjectService(new MetadataStore(process.argv[2]));
 const builds = new BuildService(projects, join(process.argv[2], 'builds'));
 const agents = new AgentService(projects, builds, process.argv[2]);
 // Restore unresolved activity before a native project switch can escape its guard.
-const agentReady = agents.initialize().catch(() => {});
+const agentReady = agents.initialize().then(
+  () => null,
+  () =>
+    'Agent recovery could not be initialized. Keep your application data and reopen with a compatible Loom version before changing papers or files.',
+);
 const agentRequest = z
   .object({ type: z.literal('agent'), id: z.string(), command: agentCommandSchema })
   .strict();
@@ -60,7 +64,10 @@ port.on('message', (event: { data: unknown }) => {
   const agent = agentRequest.safeParse(event.data);
   if (agent.success) {
     void agentReady
-      .then(() => agents.command(agent.data.command))
+      .then((recoveryError) => {
+        if (recoveryError) throw new Error(recoveryError);
+        return agents.command(agent.data.command);
+      })
       .then((value) =>
         port.postMessage({
           type: 'agent-result',
@@ -139,10 +146,17 @@ port.on('message', (event: { data: unknown }) => {
   }
   const parsed = request.safeParse(event.data);
   if (!parsed.success) return;
-  void agentReady.then(() =>
+  void agentReady.then((recoveryError) =>
     projects.run(async () => {
       try {
         const rawCommand = event.data as { command?: { type?: string } };
+        if (
+          recoveryError &&
+          !['current', 'load', 'refresh', 'search', 'sync', 'preferences'].includes(
+            rawCommand.command?.type ?? '',
+          )
+        )
+          throw new Error(recoveryError);
         if (
           agents.active() &&
           [
