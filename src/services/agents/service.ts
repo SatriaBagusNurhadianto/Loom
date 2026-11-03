@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { z } from 'zod';
+import { harnessSchema } from '../../contracts/agent';
 import type { AgentCommand, AgentState, HarnessKind } from '../../contracts/agent';
 import { ProjectService } from '../project/projects';
 import { BuildService } from '../latex/builds';
@@ -8,6 +10,23 @@ import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
 
 type SessionRef = { id: string; harness: HarnessKind; title: string };
+function authorMessages(messages: AgentState['messages']) {
+  return messages.map((message) => {
+    if (message.role !== 'user') return message;
+    const marker = /\n\nLoom author request \((\d+) characters\):\n/.exec(message.text);
+    if (
+      !message.text.startsWith('You are helping with the research paper “') ||
+      !marker ||
+      marker.index === undefined
+    )
+      return message;
+    const start = marker.index + marker[0].length;
+    const length = Number(marker[1]);
+    if (!Number.isSafeInteger(length) || length > 50000 || start + length > message.text.length)
+      return message;
+    return { ...message, text: message.text.slice(start, start + length) };
+  });
+}
 export class AgentService {
   private adapter: HarnessAdapter | null = null;
   private tools: AgentTools | null = null;
@@ -37,18 +56,23 @@ export class AgentService {
       }
     }, 650);
   }
+  async initialize() {
+    const current = await this.projects.run(() => this.projects.current());
+    if (current) await this.serialized(() => this.bind(current.id));
+  }
   private serialized<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action);
     this.queue = next.catch(() => {});
     return next;
   }
   active() {
-    return !!this.state?.running;
+    return !!this.state?.running || !!this.changes.unsettled();
   }
   private persist() {
     this.projects.store.set(
       `agent-sessions:${this.projectId}`,
       JSON.stringify({
+        version: 1,
         sessions: this.sessions,
         sessionId: this.state?.sessionId,
         harness: this.state?.harness,
@@ -63,14 +87,36 @@ export class AgentService {
     if (this.projectId === projectId) return;
     if (this.active()) throw new Error('Stop the current agent request before changing papers.');
     await this.disconnect();
-    this.projectId = projectId;
+    const raw = JSON.parse(
+      this.projects.store.get(`agent-sessions:${projectId}`) ?? '{"version":1,"sessions":[]}',
+    );
+    const parsed = z
+      .object({
+        version: z.literal(1),
+        sessions: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1).max(160),
+                harness: harnessSchema,
+                title: z.string().max(300),
+              })
+              .strict(),
+          )
+          .max(100),
+        sessionId: z.string().max(160).nullable().optional(),
+        harness: harnessSchema.optional(),
+      })
+      .strict()
+      .safeParse(raw.version === undefined ? { ...raw, version: 1 } : raw);
+    if (!parsed.success)
+      throw new Error(
+        'Agent conversation references need a compatible Loom version. Keep application data to retain recovery.',
+      );
     await this.changes.bind(projectId);
-    const stored = JSON.parse(this.projects.store.get(`agent-sessions:${projectId}`) ?? '{}') as {
-      sessions?: SessionRef[];
-      sessionId?: string;
-      harness?: HarnessKind;
-    };
-    this.sessions = stored.sessions ?? [];
+    const stored = parsed.data;
+    this.projectId = projectId;
+    this.sessions = stored.sessions;
     this.state = {
       projectId,
       harness: stored.harness ?? 'opencode',
@@ -93,7 +139,10 @@ export class AgentService {
       error: '',
       toolsAvailable: false,
     };
-    await this.projects.run(() => this.changes.recoverInterrupted());
+    const recovered = await this.projects.run(() => this.changes.recoverInterrupted());
+    if (!recovered)
+      this.state.error =
+        'A previous agent process has not stopped. Wait for it to exit, then refresh to recover the paper.';
   }
   private async detect() {
     const [opencode, codex] = await Promise.all([OpenCodeAdapter.detect(), CodexAdapter.detect()]);
@@ -166,6 +215,10 @@ export class AgentService {
       await this.bind(command.projectId);
       const s = this.state!;
       if (command.type === 'status') {
+        if (!s.running && this.changes.unsettled() && !this.changes.unsettledExternal()) {
+          const recovered = await this.projects.run(() => this.changes.recoverInterrupted());
+          if (recovered) s.error = '';
+        }
         if (command.detect || s.version === 'Not checked') await this.detect();
         if (this.adapter) await this.refresh();
         s.turns = this.changes.views();
@@ -224,13 +277,19 @@ export class AgentService {
           s.ownership = adapter.ownership;
           s.connection = 'connected';
           s.toolsAvailable = adapter.ownership === 'loom';
+          const authentication =
+            adapter instanceof CodexAdapter
+              ? adapter.auth
+              : adapter instanceof OpenCodeAdapter
+                ? await adapter.authentication(context.root)
+                : 'unknown';
           s.providers = s.providers.map((p) =>
             p.id === s.harness
               ? {
                   ...p,
                   installed: true,
                   version: adapter.version,
-                  auth: adapter instanceof CodexAdapter ? adapter.auth : 'unknown',
+                  auth: authentication,
                 }
               : p,
           );
@@ -287,7 +346,7 @@ export class AgentService {
           this.persist();
         }
       } else if (command.type === 'send') {
-        if (s.running || this.changes.unsettledExternal())
+        if (s.running || this.changes.unsettled())
           throw new Error('Reconnect and stop the previous request before sending another.');
         if (command.sessionId !== s.sessionId)
           throw new Error('The active conversation changed. Try again.');
@@ -317,11 +376,12 @@ export class AgentService {
             command.sessionId,
             command.revision,
             adapter.ownership === 'external',
+            adapter.supervisorPid,
           );
           return context;
         });
         const selection = command.selection;
-        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result. Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.\n\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
         s.running = true;
         s.error = '';
         try {
@@ -384,11 +444,17 @@ export class AgentService {
     if (unresolved?.view.sessionId === id)
       await this.projects.run(() => this.changes.settleExternal());
     s.sessionId = id;
-    s.messages = await adapter.messages(id);
+    s.messages = authorMessages(await adapter.messages(id));
     this.persist();
   }
   private async refresh() {
-    if (this.refreshBusy || !this.adapter || !this.state?.sessionId) return;
+    if (
+      this.refreshBusy ||
+      !this.adapter ||
+      !this.state?.sessionId ||
+      this.state.connection !== 'connected'
+    )
+      return;
     this.refreshBusy = true;
     const generation = this.generation,
       adapter = this.adapter,
@@ -401,7 +467,7 @@ export class AgentService {
         adapter.active(sessionId),
       ]);
       if (generation !== this.generation || s.sessionId !== sessionId) return;
-      s.messages = messages;
+      s.messages = authorMessages(messages);
       s.permissions = pending.permissions.map((p) => ({
         id: string(p.id),
         action: string(p.action),

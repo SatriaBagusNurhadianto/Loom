@@ -34,6 +34,7 @@ type Project = {
 };
 const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
+const DIFF_BUDGET = { timeout: 20, maxEditLength: 1000 };
 export class ProjectService {
   onHumanWrite?: (path: string) => void;
   private root = '';
@@ -59,15 +60,32 @@ export class ProjectService {
     }
     return doc;
   }
-  private setText(file: RecordFile, text: string): void {
+  private setText(file: RecordFile, text: string, explicit = false): boolean {
     const doc = this.doc(file);
     const live = doc.getText('source');
     const old = live.toString();
     if (old === text) {
       file.state = Array.from(Y.encodeStateAsUpdate(doc));
-      return;
+      return true;
     }
-    const changes = textChanges(old, text).sort((a, b) => b.from - a.from);
+    let changes: ReturnType<typeof textChanges>;
+    try {
+      // Empty documents need no diff. A deliberate conflict resolution is also
+      // permitted to replace its changed span if a detailed diff is too costly.
+      changes = old === '' ? [{ from: 0, to: 0, text }] : textChanges(old, text, DIFF_BUDGET);
+    } catch {
+      if (!explicit) return false;
+      let start = 0,
+        endOld = old.length,
+        endNew = text.length;
+      while (start < endOld && start < endNew && old[start] === text[start]) start++;
+      while (endOld > start && endNew > start && old[endOld - 1] === text[endNew - 1]) {
+        endOld--;
+        endNew--;
+      }
+      changes = [{ from: start, to: endOld, text: text.slice(start, endNew) }];
+    }
+    changes.sort((a, b) => b.from - a.from);
     doc.transact(() => {
       for (const change of changes) {
         live.delete(change.from, change.to - change.from);
@@ -75,6 +93,7 @@ export class ProjectService {
       }
     }, 'filesystem');
     file.state = Array.from(Y.encodeStateAsUpdate(doc));
+    return true;
   }
   private async safe(path: string): Promise<string> {
     relativePath.parse(path);
@@ -331,12 +350,15 @@ export class ProjectService {
         if (local === found.text) file.conflict = false;
         continue;
       }
-      const merged = reconcile(file.baseline ?? '', local, found.text);
+      const merged = reconcile(file.baseline ?? '', local, found.text, DIFF_BUDGET);
       if (merged === null) {
         file.conflict = true;
         continue;
       }
-      this.setText(file, merged);
+      if (!this.setText(file, merged)) {
+        file.conflict = true;
+        continue;
+      }
       file.baseline = found.text;
       file.conflict = false;
     }
@@ -455,9 +477,14 @@ export class ProjectService {
       if (!file || file.binary) throw new Error('Text file is unavailable.');
       Y.applyUpdate(this.doc(file), Uint8Array.from(command.update));
       if (command.baseline !== file.baseline && command.text !== command.baseline) {
-        const merged = reconcile(command.baseline ?? '', command.text, file.baseline ?? '');
-        this.setText(file, merged ?? command.text);
-        if (merged === null) {
+        const merged = reconcile(
+          command.baseline ?? '',
+          command.text,
+          file.baseline ?? '',
+          DIFF_BUDGET,
+        );
+        const applied = this.setText(file, merged ?? command.text);
+        if (merged === null || !applied) {
           file.conflict = true;
           file.disk = file.baseline;
         }
@@ -536,7 +563,7 @@ export class ProjectService {
           } else if (file.disk === null) {
             file.deleted = true;
           } else {
-            this.setText(file, file.disk);
+            this.setText(file, file.disk, true);
             file.baseline = file.disk;
           }
         } else {
@@ -600,7 +627,8 @@ export class ProjectService {
     if (!file || file.binary || file.conflict)
       throw new Error('Resolve external changes to loom.build.json before saving settings.');
     // Use the same checkpointed, fingerprint-checked atomic write as manuscript text.
-    this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n');
+    if (!this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n'))
+      throw new Error('Build configuration is too complex to update safely. Edit it manually.');
     this.persist();
     await this.save(file);
     if (file.conflict)
@@ -666,7 +694,9 @@ export class ProjectService {
       (current && expected && !current.equals(expected))
     )
       throw new Error('This file changed again. Review its latest version before reverting.');
-    const file = this.project!.files.find((f) => f.path === path && !f.deleted);
+    const file =
+      this.project!.files.find((f) => f.path === path && !f.deleted) ??
+      this.project!.files.find((f) => f.path === path);
     if (
       file &&
       ((file.conflict &&
@@ -687,6 +717,7 @@ export class ProjectService {
       if (file) {
         file.deleted = true;
         file.conflict = false;
+        if (this.project!.rootId === file.id) this.project!.rootId = null;
         this.persist();
       }
     } else {
@@ -728,7 +759,7 @@ export class ProjectService {
         file.baseline = text;
         file.conflict = false;
         file.deleted = false;
-        if (text !== null) this.setText(file, text);
+        if (text !== null) this.setText(file, text, true);
         this.persist();
       }
     }

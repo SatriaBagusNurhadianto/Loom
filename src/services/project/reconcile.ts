@@ -1,9 +1,15 @@
 import { diffChars } from 'diff';
 type Edit = { from: number; to: number; text: string };
-export function textChanges(base: string, next: string): Edit[] {
+export function textChanges(
+  base: string,
+  next: string,
+  budget?: { timeout: number; maxEditLength: number },
+): Edit[] {
   let offset = 0;
   const result: Edit[] = [];
-  for (const part of diffChars(base, next)) {
+  const parts = budget ? diffChars(base, next, budget) : diffChars(base, next);
+  if (!parts) throw new Error('The comparison is too large for an automatic merge.');
+  for (const part of parts) {
     if (part.added) {
       const last = result.at(-1);
       if (last && last.to === offset) last.text += part.value;
@@ -17,11 +23,22 @@ export function textChanges(base: string, next: string): Edit[] {
   }
   return result;
 }
-export function reconcile(base: string, local: string, disk: string): string | null {
+export function reconcile(
+  base: string,
+  local: string,
+  disk: string,
+  budget?: { timeout: number; maxEditLength: number },
+): string | null {
   if (local === base || local === disk) return disk;
   if (disk === base) return local;
-  const a = textChanges(base, local),
-    b = textChanges(base, disk);
+  let a: Edit[], b: Edit[];
+  try {
+    a = textChanges(base, local, budget);
+    b = textChanges(base, disk, budget);
+  } catch {
+    if (budget) return null;
+    throw new Error('The document comparison failed.');
+  }
   for (const x of a) for (const y of b) if (x.from <= y.to && y.from <= x.to) return null;
   let merged = base;
   for (const e of [...a, ...b].sort((x, y) => y.from - x.from))

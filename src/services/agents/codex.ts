@@ -16,6 +16,9 @@ type Session = {
   questions: Map<string, { nativeId: string | number; params: Record<string, unknown> }>;
 };
 export class CodexAdapter implements HarnessAdapter {
+  get supervisorPid() {
+    return this.child.pid;
+  }
   readonly capabilities = {
     streaming: true,
     permissions: true,

@@ -36,6 +36,7 @@ export type HarnessCapabilities = {
   images: boolean;
 };
 export interface HarnessAdapter {
+  readonly supervisorPid?: number;
   version: string;
   ownership: 'loom' | 'external';
   onEvent?: (event: Record<string, unknown>) => void;
@@ -57,6 +58,9 @@ export interface HarnessAdapter {
 }
 /** OpenCode owns execution. This adapter transports structured API/SSE only. */
 export class OpenCodeAdapter implements HarnessAdapter {
+  get supervisorPid() {
+    return this.process?.pid;
+  }
   readonly capabilities = {
     streaming: true,
     permissions: true,
@@ -187,7 +191,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
       'GET',
       '/api/model?location[directory]=' + encodeURIComponent(directory),
     );
-    return dataList(response)
+    const models = dataList(response)
       .map(object)
       .filter((m) => m.enabled === true && m.type === 'chat')
       .map((m) => {
@@ -202,6 +206,42 @@ export class OpenCodeAdapter implements HarnessAdapter {
       })
       .filter((m) => m.id && m.providerId)
       .slice(0, 3000);
+    try {
+      const preferred = object(
+        object(
+          await this.request(
+            'GET',
+            '/api/model/default?location[directory]=' + encodeURIComponent(directory),
+          ),
+        ).data,
+      );
+      const index = models.findIndex(
+        (m) => m.id === preferred.id && m.providerId === preferred.providerID,
+      );
+      if (index > 0) models.unshift(...models.splice(index, 1));
+    } catch {
+      /* Keep the advertised catalog order when no configured default is available. */
+    }
+    return models;
+  }
+  async authentication(directory: string): Promise<'available' | 'required' | 'unknown'> {
+    try {
+      const integrations = dataList(
+        await this.request(
+          'GET',
+          '/api/integration?location[directory]=' + encodeURIComponent(directory),
+        ),
+      ).map(object);
+      const connections = integrations.flatMap((item) =>
+        Array.isArray(item.connections) ? item.connections.map(object) : [],
+      );
+      if (connections.some((c) => !c.status)) return 'available';
+      if (connections.length && connections.every((c) => object(c.status).status === 'needs_auth'))
+        return 'required';
+    } catch {
+      /* An unavailable discovery surface never proves authentication. */
+    }
+    return 'unknown';
   }
   async create(directory: string) {
     return string(
@@ -222,7 +262,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
   }
   async submit(sessionId: string, prompt: string, model: AgentModel, files: string[]) {
     const path = '/api/session/' + encodeURIComponent(sessionId);
-    await this.request('PUT', path + '/model', {
+    await this.request('POST', path + '/model', {
       model: { id: model.id, providerID: model.providerId },
     });
     await this.request('POST', path + '/prompt', {
@@ -273,7 +313,17 @@ export class OpenCodeAdapter implements HarnessAdapter {
           result.push({
             id: id + ':error',
             role: 'status',
-            text: 'The provider could not complete this response. Check sign-in and model access in OpenCode.',
+            text: (() => {
+              const error = object(m.error);
+              const status = typeof error.status === 'number' ? error.status : 0;
+              return status === 401 || status === 403
+                ? 'Sign in to this provider in OpenCode, then reconnect.'
+                : status === 429
+                  ? 'The provider is limiting requests. Wait, or choose another model.'
+                  : status === 400
+                    ? 'The provider rejected this model request. Choose another model or check its configuration in OpenCode.'
+                    : 'The provider could not complete this response. Check model access in OpenCode.';
+            })(),
             state: 'failed',
           });
       }
@@ -341,14 +391,12 @@ export class OpenCodeAdapter implements HarnessAdapter {
     if (this.process) {
       const child = this.process;
       this.process = null;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, 1800);
-        child.once('exit', () => {
-          clearTimeout(timer);
-          resolve();
-        });
-        child.stdin.end();
-      });
+      const stopped =
+        child.exitCode !== null || child.signalCode !== null
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => child.once('close', () => resolve()));
+      child.stdin.end();
+      await stopped;
     }
   }
 }

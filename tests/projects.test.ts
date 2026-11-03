@@ -39,6 +39,54 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
+  it('bounds complex external changes, preserves the live document and supports explicit disk resolution', async () => {
+    const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
+    const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');
+    await writeFile(join(root, 'large.tex'), baseline);
+    await service.refresh();
+    const id = service.snapshot().files.find((f) => f.path === 'large.tex')!.id;
+    await service.command({ type: 'load', fileId: id });
+    await writeFile(join(root, 'large.tex'), external);
+    await service.refresh();
+    let file = service.snapshot().files.find((f) => f.id === id)!;
+    expect(file).toMatchObject({ conflict: true, text: baseline, baseline, disk: external });
+    await service.command({
+      type: 'resolve',
+      fileId: id,
+      choice: 'disk',
+      disk: file.disk,
+      diskRevision: file.diskRevision,
+    });
+    file = service.snapshot().files.find((f) => f.id === id)!;
+    expect(file).toMatchObject({ conflict: false, text: external, saved: true });
+  });
+  it('retains concurrent author text when complex external changes exceed the merge budget', async () => {
+    const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
+    const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');
+    await writeFile(join(root, 'large.tex'), baseline);
+    await service.refresh();
+    const id = service.snapshot().files.find((f) => f.path === 'large.tex')!.id;
+    await service.command({ type: 'load', fileId: id });
+    const f = service.snapshot().files.find((file) => file.id === id)!;
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, Uint8Array.from(f.update));
+    doc.getText('source').insert(0, 'author text\n');
+    await writeFile(join(root, 'large.tex'), external);
+    await service.command({
+      type: 'sync',
+      fileId: id,
+      update: Array.from(Y.encodeStateAsUpdate(doc)),
+      baseline: f.baseline,
+      text: 'author text\n' + baseline,
+    });
+    expect(service.snapshot().files.find((file) => file.id === id)).toMatchObject({
+      conflict: true,
+      text: 'author text\n' + baseline,
+      baseline,
+      disk: external,
+    });
+    expect(await readFile(join(root, 'large.tex'), 'utf8')).toBe(external);
+  });
   it('changes build freshness for unresolved disk overlaps and missing files without discarding recovery text', async () => {
     const command = await edit('local\nbeta\ngamma\n');
     await writeFile(join(root, 'main.tex'), 'external\nbeta\ngamma\n');

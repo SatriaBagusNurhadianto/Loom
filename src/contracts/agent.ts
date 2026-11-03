@@ -47,6 +47,15 @@ export const agentChangeSchema = z
     binary: z.boolean(),
     review: z.enum(['pending', 'kept', 'reverted']),
     humanTouched: z.boolean(),
+    diffLimited: z.boolean().optional(),
+    diff: z
+      .array(
+        z
+          .object({ text: z.string().max(200000), kind: z.enum(['same', 'added', 'removed']) })
+          .strict(),
+      )
+      .max(5000)
+      .optional(),
   })
   .strict();
 export type AgentChange = z.infer<typeof agentChangeSchema>;

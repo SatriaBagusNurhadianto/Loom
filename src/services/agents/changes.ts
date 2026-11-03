@@ -1,3 +1,7 @@
+import { diffLines } from 'diff';
+import { z } from 'zod';
+import { agentTurnSchema } from '../../contracts/agent';
+import { relativePath } from '../../contracts/project';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
@@ -12,6 +16,7 @@ type RecordTurn = {
   human: string[];
   unsettled?: boolean;
   external?: boolean;
+  supervisorPid?: number;
 };
 export function decodeText(bytes: Buffer | null): string | null {
   if (!bytes) return null;
@@ -40,16 +45,46 @@ export class AgentChanges {
   }
   async bind(projectId: string) {
     if (projectId === this.projectId) return;
+    const raw = JSON.parse(
+      this.projects.store.get(`agent-turns:${projectId}`) ?? '{"version":1,"turns":[]}',
+    );
+    const record = z
+      .object({
+        version: z.literal(1),
+        turns: z
+          .array(
+            z
+              .object({
+                view: agentTurnSchema,
+                before: z.record(relativePath, relativePath),
+                after: z.record(relativePath, relativePath),
+                human: z.array(relativePath),
+                unsettled: z.boolean().optional(),
+                external: z.boolean().optional(),
+                supervisorPid: z.number().int().positive().optional(),
+              })
+              .strict(),
+          )
+          .max(100),
+      })
+      .strict();
+    // One explicit migration for the initial Phase 4 development array format.
+    const parsed = record.safeParse(Array.isArray(raw) ? { version: 1, turns: raw } : raw);
+    if (!parsed.success)
+      throw new Error(
+        'Agent recovery metadata is incompatible. Keep application data and use a compatible Loom version.',
+      );
     this.projectId = projectId;
-    this.turns = JSON.parse(
-      this.projects.store.get(`agent-turns:${projectId}`) ?? '[]',
-    ) as RecordTurn[];
+    this.turns = parsed.data.turns;
     for (const turn of this.turns)
       if (turn.view.status === 'running') turn.view.status = 'interrupted';
     this.persist();
   }
   private persist() {
-    this.projects.store.set(`agent-turns:${this.projectId}`, JSON.stringify(this.turns));
+    this.projects.store.set(
+      `agent-turns:${this.projectId}`,
+      JSON.stringify({ version: 1, turns: this.turns }),
+    );
   }
   views() {
     return this.turns.map((t) => t.view);
@@ -80,8 +115,10 @@ export class AgentChanges {
     }
     return index;
   }
-  async begin(sessionId: string, revision: string, external = false) {
-    if (this.running()) throw new Error('Wait for the current request to finish.');
+  async begin(sessionId: string, revision: string, external = false, supervisorPid?: number) {
+    if (this.unsettled()) throw new Error('Recover the previous request before starting another.');
+    if (!external && (!supervisorPid || !Number.isSafeInteger(supervisorPid) || supervisorPid <= 1))
+      throw new Error('The agent process cannot be tracked safely. Reconnect before sending.');
     if (this.turns.length >= 100)
       throw new Error(
         'This pilot retains up to 100 turns per paper. Recovery copies are retained.',
@@ -117,10 +154,38 @@ export class AgentChanges {
       human: [],
       unsettled: true,
       external,
+      supervisorPid,
     };
     this.turns.unshift(turn);
     this.persist();
     return turn;
+  }
+  private comparison(
+    before: string | null,
+    after: string | null,
+    previous?: AgentChange,
+  ): Pick<AgentChange, 'diff' | 'diffLimited'> {
+    if (previous?.diff) return { diff: previous.diff, diffLimited: previous.diffLimited };
+    const a = before?.slice(0, 200000) ?? '',
+      b = after?.slice(0, 200000) ?? '';
+    const parts = diffLines(a, b, { timeout: 20, maxEditLength: 1000 });
+    return {
+      diffLimited:
+        !parts || (!!before && before.length > 200000) || (!!after && after.length > 200000),
+      diff: parts
+        ? parts.slice(0, 5000).map((part) => ({
+            text: part.value,
+            kind: part.added
+              ? ('added' as const)
+              : part.removed
+                ? ('removed' as const)
+                : ('same' as const),
+          }))
+        : [
+            { text: a, kind: 'removed' },
+            { text: b, kind: 'added' },
+          ],
+    };
   }
   async observe(turn = this.running()) {
     if (!turn) return;
@@ -155,6 +220,13 @@ export class AgentChanges {
         binary: (before !== null && a === null) || (after !== null && b === null),
         review: 'pending',
         humanTouched: turn.human.includes(path),
+        ...this.comparison(
+          a,
+          b,
+          turn.after[path] === next[path]
+            ? turn.view.changes.find((c) => c.path === path)
+            : undefined,
+        ),
       });
     }
     turn.after = next;
@@ -172,6 +244,9 @@ export class AgentChanges {
   unsettledExternal() {
     return this.turns.find((t) => t.unsettled && t.external);
   }
+  unsettled() {
+    return this.turns.find((t) => t.unsettled);
+  }
   async settleExternal() {
     const turn = this.unsettledExternal();
     if (turn) {
@@ -183,15 +258,22 @@ export class AgentChanges {
   async recoverInterrupted() {
     const turn = this.turns.find((t) => t.unsettled && !t.external);
     if (turn) {
-      // The native supervisor closes owned process groups within 500 ms after service EOF.
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      // PID reuse or an inaccessible process remains conservatively unresolved.
+      if (!turn.supervisorPid) return false;
+      try {
+        process.kill(turn.supervisorPid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return false;
+      }
       await this.observe(turn);
       turn.unsettled = false;
       this.persist();
     }
+    return true;
   }
   async review(turnId: string, path: string, action: 'keep' | 'revert', revision: string) {
-    if (this.running() || this.unsettledExternal())
+    if (this.unsettled())
       throw new Error('Reconnect and stop the request before reviewing its changes.');
     const turn = this.turns.find((t) => t.view.id === turnId),
       change = turn?.view.changes.find((c) => c.path === path);
@@ -221,7 +303,10 @@ export class AgentChanges {
       const a = decodeText(after),
         b = decodeText(current),
         c = decodeText(before);
-      const merged = a !== null && b !== null && c !== null ? reconcile(a, b, c) : null;
+      const merged =
+        a !== null && b !== null && c !== null
+          ? reconcile(a, b, c, { timeout: 20, maxEditLength: 2000 })
+          : null;
       if (merged === null)
         throw new Error(
           'Your newer writing overlaps this change. Use the comparison to restore only the passages you want. Both versions are retained.',

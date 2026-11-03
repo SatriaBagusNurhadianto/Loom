@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MetadataStore } from '../src/services/project/store';
@@ -28,7 +28,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 it('checkpoints before turn, groups partial writes and merges a later unrelated edit on revert', async () => {
-  await changes.begin('session', projects.snapshot().sourceRevision!);
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
   await writeFile(join(root, 'main.tex'), 'changed\nbeta\ngamma\n');
   await changes.finish('cancelled');
   const turn = changes.views()[0];
@@ -44,7 +44,7 @@ it('checkpoints before turn, groups partial writes and merges a later unrelated 
   );
 });
 it('refuses overlapping newer writing and preserves disk and checkpoints', async () => {
-  await changes.begin('session', projects.snapshot().sourceRevision!);
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
   await writeFile(join(root, 'main.tex'), 'changed\nbeta\ngamma\n');
   await changes.finish('succeeded');
   await writeFile(join(root, 'main.tex'), 'human\nbeta\ngamma\n');
@@ -62,7 +62,7 @@ it('refuses overlapping newer writing and preserves disk and checkpoints', async
 it('restores created, deleted and binary files without discarding unrelated files', async () => {
   await writeFile(join(root, 'asset.bin'), Buffer.from([0, 1, 2]));
   await projects.refresh();
-  await changes.begin('session', projects.snapshot().sourceRevision!);
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
   await rm(join(root, 'main.tex'));
   await writeFile(join(root, 'new.tex'), 'new');
   await writeFile(join(root, 'asset.bin'), Buffer.from([0, 3, 4]));
@@ -76,7 +76,7 @@ it('restores created, deleted and binary files without discarding unrelated file
   expect(projects.snapshot().files.find((f) => f.path === 'new.tex')?.deleted).toBe(true);
 });
 it('recovers an interrupted pre-turn baseline after service restart', async () => {
-  await changes.begin('session', projects.snapshot().sourceRevision!);
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
   await writeFile(join(root, 'main.tex'), 'partial\nbeta\ngamma\n');
   const reloaded = new AgentChanges(projects, join(dir, 'recovery'));
   await reloaded.bind(id);
@@ -87,10 +87,10 @@ it('recovers an interrupted pre-turn baseline after service restart', async () =
   });
 });
 it('refuses stale launch/revert revisions, unsafe endpoint and invalid paths', async () => {
-  await expect(changes.begin('session', 'stale')).rejects.toThrow('changed');
+  await expect(changes.begin('session', 'stale', false, 2147483647)).rejects.toThrow('changed');
 });
 it('recovers writes after an earlier observation when the service was interrupted', async () => {
-  await changes.begin('session', projects.snapshot().sourceRevision!);
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
   await writeFile(join(root, 'main.tex'), 'first change');
   await changes.observe();
   await writeFile(join(root, 'main.tex'), 'final partial change');
@@ -102,4 +102,80 @@ it('recovers writes after an earlier observation when the service was interrupte
     { path: 'main.tex', after: 'final partial change' },
     { path: 'second.tex', after: 'partial second file' },
   ]);
+});
+
+it('does not recover or allow review while a tracked supervisor is still alive', async () => {
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, process.pid);
+  await writeFile(join(root, 'main.tex'), 'partial work');
+  const reloaded = new AgentChanges(projects, join(dir, 'recovery'));
+  await reloaded.bind(id);
+  expect(await reloaded.recoverInterrupted()).toBe(false);
+  expect(reloaded.unsettled()).toBeTruthy();
+  await expect(
+    reloaded.begin('other', projects.snapshot().sourceRevision!, false, process.pid),
+  ).rejects.toThrow('previous request');
+  await expect(
+    reloaded.review(
+      reloaded.views()[0].id,
+      'main.tex',
+      'revert',
+      projects.snapshot().sourceRevision!,
+    ),
+  ).rejects.toThrow('Reconnect and stop');
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('partial work');
+});
+it('bounds expensive line diffs and reuses the before/after fallback while saving remains available', async () => {
+  const before = Array.from({ length: 7000 }, (_, i) => 'before ' + i + '\n').join('');
+  const after = Array.from({ length: 7000 }, (_, i) => 'after ' + i + '\n').join('');
+  await writeFile(join(root, 'main.tex'), before);
+  await projects.refresh();
+  await projects.command({
+    type: 'load',
+    fileId: projects.snapshot().files.find((f) => f.path === 'main.tex')!.id,
+  });
+  const baseline = projects.snapshot().files.find((f) => f.path === 'main.tex')!;
+  if (baseline.conflict)
+    await projects.command({
+      type: 'resolve',
+      fileId: baseline.id,
+      choice: 'disk',
+      disk: baseline.disk,
+      diskRevision: baseline.diskRevision,
+    });
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, process.pid);
+  await writeFile(join(root, 'main.tex'), after);
+  await changes.observe();
+  const diff = changes.views()[0].changes[0];
+  expect(diff.diffLimited).toBe(true);
+  expect(diff.diff?.[0]).toMatchObject({ kind: 'removed', text: before });
+  expect(diff.diff?.[1]).toMatchObject({ kind: 'added', text: after });
+  await changes.observe();
+  expect(changes.views()[0].changes[0].diff).toBe(diff.diff);
+  await projects.command({ type: 'preferences', value: 'still responsive' });
+  expect(projects.snapshot().preferences).toBe('still responsive');
+}, 2000);
+
+it('safe rename recovery retains a usable main document after reverting both observed paths', async () => {
+  await writeFile(join(root, 'main.tex'), '\\documentclass{article}\nText.');
+  await projects.refresh();
+  await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);
+  await rename(join(root, 'main.tex'), join(root, 'renamed.tex'));
+  await changes.finish('succeeded');
+  const t = changes.views()[0];
+  expect(t.changes).toHaveLength(2);
+  await changes.review(t.id, 'main.tex', 'revert', projects.snapshot().sourceRevision!);
+  await changes.review(t.id, 'renamed.tex', 'revert', projects.snapshot().sourceRevision!);
+  const snapshot = projects.snapshot();
+  expect(snapshot.files.find((f) => f.id === snapshot.rootId)).toMatchObject({
+    path: 'main.tex',
+    deleted: false,
+    conflict: false,
+  });
+});
+it('refuses unknown recovery metadata versions without overwriting stored checkpoints', async () => {
+  const value = JSON.stringify({ version: 9, turns: [] });
+  store.set('agent-turns:' + id, value);
+  const next = new AgentChanges(projects, join(dir, 'recovery'));
+  await expect(next.bind(id)).rejects.toThrow('incompatible');
+  expect(store.get('agent-turns:' + id)).toBe(value);
 });
