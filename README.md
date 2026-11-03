@@ -2,7 +2,7 @@
 
 Electron workspace for scientific LaTeX writing. Phases 1–3 provide ordinary folder/ZIP projects, CodeMirror/Yjs source, durable recovery, local TeX compilation, TexLab language features and a real synchronized PDF viewer on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
 
-Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Compile** for a saved-snapshot build, or **Tools → Build and LaTeX** for root/engine/bibliography settings, setup guidance and diagnostics. PDF export is available; OpenCode, research and Git/source-export UI remain later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
+Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. PDF export is available; OpenCode, research and Git/source-export UI remain later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
 
 Use the sidebar search icon for fuzzy filename and text search: `mtex` finds `main.tex`, and `intrduction` finds `Introduction`. Exact matches rank first. Matching text is highlighted in results and source; selecting a result focuses its passage. Clear removes the highlights. Ctrl F retains precise CodeMirror find/replace.
 
@@ -31,7 +31,7 @@ Open <http://127.0.0.1:5173>. Browser preview intentionally reports the desktop 
 npm run try:phase3
 ```
 
-This starts an isolated Electron profile and prepares editable copies in `.cache/phase-3-examples`. Open `multi-file`, close the Projects dialog, and choose **Compile**. The sample set also includes Biber, BibTeX, ambiguous-root, intentional-error and missing-package projects. Existing copies are preserved. The launcher can use this task's temporary verified toolchain under `/tmp/loom-phase3-tools` while it remains available; a normal installation uses your TeX/TexLab PATH. See [setup and testing](docs/phase-3-testing.md).
+This starts an isolated Electron profile. Click **Try a sample paper** (or click the current project name to open Projects first). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. The launcher can use this task's temporary verified toolchain under `/tmp/loom-phase3-tools` while it remains available; a normal installation uses your TeX/TexLab PATH. See [setup and testing](docs/phase-3-testing.md).
 
 ## Commands
 

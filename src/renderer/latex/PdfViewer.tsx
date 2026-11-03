@@ -275,7 +275,7 @@ export function PdfViewer(props: {
       <Show when={error()}>
         <div class="pdf-inline-error" role="alert">
           {error()}
-          <button onClick={() => void props.latex.compile()}>Recompile</button>
+          <button onClick={() => void props.latex.compile()}>Update PDF</button>
         </div>
       </Show>
       <div

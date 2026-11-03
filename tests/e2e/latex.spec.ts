@@ -42,13 +42,10 @@ async function openExample(name = 'multi-file') {
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder', exact: true }).click();
   await expect(page.locator('.cm-content')).toBeVisible();
-  await page
-    .getByRole('dialog', { name: 'Projects', exact: true })
-    .getByRole('button', { name: 'Close dialog' })
-    .click();
+  await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).not.toBeVisible();
 }
 async function waitPdf() {
-  await expect(page.locator('.build-status')).toHaveText('Compiled', { timeout: 25000 });
+  await expect(page.locator('.build-status')).toHaveText('PDF ready', { timeout: 25000 });
   await expect
     .poll(() =>
       page.locator('.pdf-sheet canvas').evaluate((canvas: HTMLCanvasElement) => canvas.width),
@@ -98,14 +95,14 @@ test('missing-tool build setup remains honest and source stays editable', async 
   });
   await page.evaluate(() => window.loom!.restartService());
   await openExample();
-  await page.getByRole('button', { name: 'Compile', exact: true }).click();
-  await expect(page.locator('.build-status')).toHaveText('Build failed');
-  await page.locator('.build-status').click();
-  const modal = page.getByRole('dialog', { name: 'Build and LaTeX' });
+  await page.locator('.compile-source').click();
+  const modal = page.getByRole('dialog', { name: 'PDF settings' });
   await expect(modal).toBeVisible();
-  await modal.getByText('Raw build log', { exact: true }).click();
-  await expect(modal.locator('pre').filter({ hasText: 'Missing tools:' })).toBeVisible();
-  await expect(modal.getByRole('button', { name: 'TeX installation guide' })).toBeVisible();
+  await expect(
+    modal.getByRole('heading', { name: 'Set up PDF creation on this computer' }),
+  ).toBeVisible();
+  await expect(modal.getByRole('button', { name: 'LaTeX installation guide' })).toBeVisible();
+  await expect(modal.getByLabel('LaTeX engine', { exact: true })).not.toBeVisible();
   await modal.getByRole('button', { name: 'Close dialog' }).click();
   await page.locator('.cm-content').press('Control+End');
   await page.locator('.cm-content').pressSequentially('% still editable');
@@ -117,12 +114,175 @@ test.describe('live Phase 3 Electron workflow', () => {
     process.env.LOOM_TEST_TEX !== '1',
     'Requires the explicit authorized local TeX/TexLab setup.',
   );
+  test('a researcher opens a built-in sample, edits, updates and downloads without setup forms', async () => {
+    await dimensions(1600, 1000);
+    await page.getByRole('button', { name: 'Try a sample paper', exact: true }).click();
+    await waitPdf();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await expect(page.locator('.document-tabs button[aria-pressed="true"]')).toContainText(
+      'introduction.tex',
+    );
+    await expect(page.getByText('Try a small change', { exact: true })).toBeVisible();
+    await page.locator('.cm-content').press('Control+End');
+    await page.locator('.cm-content').pressSequentially('\nA new observation from our study.\n');
+    await expect(page.locator('.build-status')).toHaveText('Changes not in PDF');
+    await page.locator('.compile-source').click();
+    await waitPdf();
+    await expect(page.locator('.textLayer')).toContainText('new observation');
+    await page.locator('.build-status').click();
+    const settings = page.getByRole('dialog', { name: 'PDF settings' });
+    await expect(settings.getByLabel('LaTeX engine', { exact: true })).not.toBeVisible();
+    await expect(settings.getByText('Full LaTeX log', { exact: true })).not.toBeVisible();
+    await settings.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    });
+    await page.screenshot({ path: 'artifacts/phase-3-ux-settings.png' });
+    await settings.getByText('Advanced settings', { exact: true }).click();
+    await settings.getByLabel('LaTeX engine', { exact: true }).focus();
+    await page.keyboard.press('Space');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Escape');
+    await settings.getByRole('button', { name: 'Close dialog' }).click();
+    await page.getByRole('button', { name: 'Got it', exact: true }).click();
+    await page.screenshot({ path: 'artifacts/phase-3-ux-workspace.png' });
+    const destination = join(directory, 'shared-paper.pdf');
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+    }, destination);
+    await page.getByRole('button', { name: 'Download PDF', exact: true }).click();
+    await expect
+      .poll(() =>
+        readFile(destination)
+          .then((bytes) => bytes.subarray(0, 5).toString())
+          .catch(() => ''),
+      )
+      .toBe('%PDF-');
+    await dimensions(900, 700);
+    await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+    await expect(page.locator('.pdf-viewer')).toBeVisible();
+    await waitPdf();
+    await page.screenshot({ path: 'artifacts/phase-3-ux-small.png' });
+  });
+  test('explains the parent-folder failure and opens the correct paper with one recovery action', async () => {
+    await dimensions(1440, 960);
+    root = join(directory, 'collection');
+    await cp(resolve('examples/phase-3/multi-file'), join(root, 'multi-file'), { recursive: true });
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+    }, root);
+    await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+    await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await page.locator('.compile-source').click();
+    // A labelled section with role=status is located by its accessible label.
+    await expect(page.locator('.pdf-column .pdf-feedback')).toContainText(
+      'Open the folder for this paper',
+    );
+    await expect(page.locator('.pdf-column .pdf-feedback')).toContainText(
+      'sections/introduction.tex',
+    );
+    await page.screenshot({ path: 'artifacts/phase-3-ux-recovery.png' });
+    await page.getByRole('button', { name: 'Open paper folder', exact: true }).click();
+    await waitPdf();
+    await expect(page.locator('.project-selector')).toContainText('multi-file');
+    await expect(page.locator('.pdf-column .pdf-feedback')).not.toBeVisible();
+    // A child folder's portable settings must not silently replace the user's chosen paper.
+    await writeFile(
+      join(root, 'multi-file', 'other.tex'),
+      '\\documentclass{article}\n\\begin{document}\\UnknownSampleCommand\\end{document}',
+    );
+    await writeFile(
+      join(root, 'multi-file', 'loom.build.json'),
+      JSON.stringify({
+        version: 1,
+        root: 'other.tex',
+        settings: {
+          engine: 'pdflatex',
+          bibliography: 'auto',
+          recipe: 'latexmk',
+          autoBuild: false,
+          delayMs: 1500,
+        },
+      }),
+    );
+    await page.evaluate(() => window.loom!.project({ type: 'refresh' }));
+    await page.locator('.compile-source').click();
+    await expect(page.locator('.build-status')).toHaveText('PDF needs attention');
+    await writeFile(
+      join(root, 'multi-file', 'main.tex'),
+      (await readFile(join(root, 'multi-file', 'main.tex'), 'utf8')) + '\n% A later revision\n',
+    );
+    await page.getByRole('button', { name: 'Project', exact: true }).click();
+    await page.getByRole('button', { name: 'Project settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+    await page.locator('.compile-source').click();
+    await page.getByRole('button', { name: 'Open paper folder', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: 'PDF settings' });
+    await expect(settings).toContainText('saved settings for a different paper');
+    await settings.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(settings.getByLabel('Main document', { exact: true })).toHaveValue('');
+    const prior = await page.evaluate(async () => {
+      const project = await window.loom!.project({ type: 'current' });
+      if (!project.ok || !project.value) throw new Error('Missing project');
+      const state = await window.loom!.latex({ type: 'status', projectId: project.value.id });
+      return state.ok && state.value.kind === 'state' ? state.value.state.current?.id : null;
+    });
+    await page.keyboard.press('Escape');
+    await page.locator('.cm-content').press('Control+Shift+b');
+    await expect(
+      page.locator('.project-error').filter({ hasText: 'Choose the main document' }),
+    ).toBeVisible();
+    await page.locator('.compile-source').click();
+    await expect(settings).toBeVisible();
+    const after = await page.evaluate(async () => {
+      const project = await window.loom!.project({ type: 'current' });
+      if (!project.ok || !project.value) throw new Error('Missing project');
+      const state = await window.loom!.latex({ type: 'status', projectId: project.value.id });
+      return state.ok && state.value.kind === 'state' ? state.value.state.current?.id : null;
+    });
+    expect(after).toBe(prior);
+    const main = settings.getByLabel('Main document', { exact: true });
+    await expect(main).toHaveValue('');
+    const value = await main
+      .locator('option')
+      .filter({ hasText: /^main.tex$/ })
+      .getAttribute('value');
+    await main.selectOption(value!);
+    await settings.getByRole('button', { name: /^(Create|Update) PDF$/, exact: true }).click();
+    await waitPdf();
+  });
+  test('sample library asks for a main document and makes package errors actionable', async () => {
+    await dimensions(1440, 960);
+    await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+    await page.getByText('More sample papers', { exact: true }).click();
+    await page.getByRole('button', { name: /Choose between two papers/ }).click();
+    const settings = page.getByRole('dialog', { name: 'PDF settings' });
+    await expect(settings.getByLabel('Main document', { exact: true })).toBeVisible();
+    await expect(settings.getByRole('button', { name: 'Create PDF', exact: true })).toBeDisabled();
+    const first = await settings
+      .getByLabel('Main document', { exact: true })
+      .locator('option')
+      .nth(1)
+      .getAttribute('value');
+    await settings.getByLabel('Main document', { exact: true }).selectOption(first!);
+    await settings.getByRole('button', { name: 'Create PDF', exact: true }).click();
+    await waitPdf();
+    await page.getByRole('button', { name: 'Project', exact: true }).click();
+    await page.getByRole('button', { name: 'Project settings', exact: true }).click();
+    await page.getByRole('button', { name: /Missing package example/ }).click();
+    await expect(page.locator('.pdf-column .pdf-feedback')).toContainText(
+      'A style or package could not be found',
+    );
+    await expect(page.locator('.pdf-column .pdf-feedback')).toContainText(
+      'loom-synthetic-package-that-does-not-exist',
+    );
+  });
   test('renders a real PDF with text, pages, zoom, snapshot mapping and native export', async () => {
     await dimensions(1600, 1000);
     await openExample();
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await page.locator('.compile-source').click();
     await waitPdf();
     expect(await page.locator('.pdf-sheet canvas').count()).toBe(1);
     await page.getByRole('button', { name: 'Next PDF page' }).click();
@@ -162,7 +322,7 @@ test.describe('live Phase 3 Electron workflow', () => {
     await app.evaluate(({ dialog }, path) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
     }, destination);
-    await page.getByRole('button', { name: 'Export compiled PDF' }).click();
+    await page.getByRole('button', { name: 'Download PDF' }).click();
     await expect
       .poll(() =>
         readFile(destination)
@@ -178,7 +338,7 @@ test.describe('live Phase 3 Electron workflow', () => {
       },
       join(root, 'main.tex'),
     );
-    await page.getByRole('button', { name: 'Export compiled PDF' }).click();
+    await page.getByRole('button', { name: 'Download PDF' }).click();
     await expect(
       page.locator('.project-error').filter({ hasText: 'Choose a .pdf filename' }),
     ).toBeVisible();
@@ -188,7 +348,7 @@ test.describe('live Phase 3 Electron workflow', () => {
   test('retains last successful PDF after failure, marks unsaved/external inputs stale and restores after restart', async () => {
     await dimensions(1440, 960);
     await openExample();
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await page.locator('.compile-source').click();
     await waitPdf();
     await page.getByRole('button', { name: 'Next PDF page' }).click();
     await expect(page.getByRole('spinbutton', { name: 'PDF page number' })).toHaveValue('2');
@@ -196,22 +356,23 @@ test.describe('live Phase 3 Electron workflow', () => {
     await content.press('Control+Home');
     await content.pressSequentially('\\LoomUndefinedCommand');
     await content.press('Enter');
-    await expect(page.locator('.build-status')).toHaveText('PDF out of date');
+    await expect(page.locator('.build-status')).toHaveText('Changes not in PDF');
     await expect(page.getByRole('button', { name: 'Show source', exact: true })).toBeDisabled();
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
-    await expect(page.locator('.build-status')).toHaveText('Build failed');
+    await page.locator('.compile-source').click();
+    await expect(page.locator('.build-status')).toHaveText('PDF needs attention');
     await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
     await expect(page.getByRole('spinbutton', { name: 'PDF page number' })).toHaveValue('2');
     await page.locator('.build-status').click();
-    const modal = page.getByRole('dialog', { name: 'Build and LaTeX' });
-    await modal.getByText('Raw build log', { exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'PDF settings' });
+    await modal.getByText('Technical details', { exact: true }).click();
+    await modal.getByText('Full LaTeX log', { exact: true }).click();
     await expect(
       modal.locator('pre').filter({ hasText: 'Undefined control sequence' }),
     ).toBeVisible();
     await modal.getByRole('button', { name: 'Close dialog' }).click();
     await page.evaluate(() => window.loom!.restartService());
     await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
-    await expect(page.locator('.build-status')).toHaveText('Build failed');
+    await expect(page.locator('.build-status')).toHaveText('PDF needs attention');
     await page.screenshot({ path: 'artifacts/phase-3-failed-build.png' });
   });
   test('TexLab completion, definition, diagnostics and project structure work through the live editor', async () => {
@@ -256,7 +417,7 @@ test.describe('live Phase 3 Electron workflow', () => {
     test.setTimeout(60000);
     await dimensions(1440, 960);
     await openExample();
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await page.locator('.compile-source').click();
     await waitPdf();
     const original = await readFile(join(root, 'main.tex'), 'utf8');
     const slow = original.replace(
@@ -264,43 +425,46 @@ test.describe('live Phase 3 Electron workflow', () => {
       '\\begin{document}\n\\newcount\\loomcounter\n\\loop\\ifnum\\loomcounter<100000000\n\\advance\\loomcounter by 1\n\\repeat\n',
     );
     await writeFile(join(root, 'main.tex'), slow);
-    await expect(page.locator('.build-status')).toHaveText('PDF out of date');
+    await expect(page.locator('.build-status')).toHaveText('Changes not in PDF');
     const processes = async () =>
       (await promisify(execFile)('ps', ['-eo', 'pid,args'])).stdout
         .split('\n')
         .filter(
           (line) => line.includes(join(directory, 'data', 'builds')) && /latexmk|pdftex/.test(line),
         );
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await page.locator('.compile-source').click();
     await expect.poll(processes).not.toEqual([]);
     await page.locator('.build-status').click();
-    const modal = page.getByRole('dialog', { name: 'Build and LaTeX' });
-    await modal.getByRole('button', { name: 'Cancel build', exact: true }).click();
-    await expect(modal.getByText('Build cancelled', { exact: true })).toBeVisible();
+    const modal = page.getByRole('dialog', { name: 'PDF settings' });
+    await modal.getByRole('button', { name: 'Stop', exact: true }).click();
+    await expect(
+      modal.getByRole('heading', { name: 'PDF creation stopped', exact: true }).first(),
+    ).toBeVisible();
     await expect.poll(processes).toEqual([]);
     await modal.getByRole('button', { name: 'Close dialog' }).click();
     await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
-    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await page.locator('.compile-source').click();
     await expect.poll(processes).not.toEqual([]);
     const status = await page.evaluate(() => window.loom!.getStatus());
     if (!status.ok || !status.value.pid) throw new Error('service unavailable');
     process.kill(status.value.pid, 'SIGKILL');
     await expect.poll(processes).toEqual([]);
     await page.evaluate(() => window.loom!.restartService());
-    await expect(page.locator('.build-status')).toHaveText('Build interrupted');
+    await expect(page.locator('.build-status')).toHaveText('PDF creation interrupted');
     await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
   });
   test('portable settings retain edits during polling, auto-build coalesces and narrow keyboard navigation works', async () => {
     await dimensions(1440, 960);
     await openExample();
     await page.locator('.build-status').click();
-    const modal = page.getByRole('dialog', { name: 'Build and LaTeX' });
-    await modal.getByLabel('TeX engine', { exact: true }).selectOption('xelatex');
+    const modal = page.getByRole('dialog', { name: 'PDF settings' });
+    await modal.getByText('Advanced settings', { exact: true }).click();
+    await modal.getByLabel('LaTeX engine', { exact: true }).selectOption('xelatex');
     await page.waitForTimeout(1500);
-    await expect(modal.getByLabel('TeX engine', { exact: true })).toHaveValue('xelatex');
-    await modal.getByLabel('Compile after editing settles').check();
-    await modal.getByRole('button', { name: 'Save build settings', exact: true }).click();
-    await expect(modal.getByText('Settings saved', { exact: true })).toBeVisible();
+    await expect(modal.getByLabel('LaTeX engine', { exact: true })).toHaveValue('xelatex');
+    await modal.getByLabel('Update the PDF as I write').check();
+    await modal.getByRole('button', { name: 'Save changes', exact: true }).click();
+    await expect(modal.getByText('Changes saved', { exact: true })).toBeVisible();
     expect(JSON.parse(await readFile(join(root, 'loom.build.json'), 'utf8')).settings.engine).toBe(
       'xelatex',
     );
@@ -308,7 +472,7 @@ test.describe('live Phase 3 Electron workflow', () => {
     await waitPdf();
     await page.locator('.cm-content').press('Control+End');
     await page.locator('.cm-content').pressSequentially('\n% automatic build boundary');
-    await expect(page.locator('.build-status')).toHaveText('PDF out of date');
+    await expect(page.locator('.build-status')).toHaveText('Changes not in PDF');
     await waitPdf();
     await dimensions(900, 700);
     await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
@@ -322,7 +486,7 @@ test.describe('live Phase 3 Electron workflow', () => {
     await page.getByRole('button', { name: 'Hide PDF panel', exact: true }).click();
     await expect(page.locator('.cm-content')).toBeVisible();
     await page.getByRole('button', { name: 'Tools', exact: true }).click();
-    await page.getByRole('button', { name: 'Build and LaTeX', exact: true }).click();
+    await page.getByRole('button', { name: 'PDF settings', exact: true }).click();
     await expect(modal).toBeVisible();
   });
 });

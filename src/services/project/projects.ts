@@ -198,7 +198,18 @@ export class ProjectService {
     const path = await this.safe(root.path);
     if (!(await fs.stat(path)).isFile())
       throw new Error('The main document is no longer available.');
-    return this.open(dirname(path));
+    await this.open(dirname(path));
+    const chosen = this.project?.files.find(
+      (file) => !file.deleted && file.path === basename(path),
+    );
+    // Preserve the explicit selection unless this folder has its own portable configuration.
+    if (
+      chosen &&
+      !this.project?.files.some((file) => !file.deleted && file.path === 'loom.build.json')
+    ) {
+      await this.command({ type: 'root', fileId: chosen.id });
+    }
+    return this.snapshot();
   }
   async openSample(source: string, destination: string): Promise<ProjectSnapshot> {
     // Both locations are fixed by main; the renderer supplies only an allowlisted sample name.

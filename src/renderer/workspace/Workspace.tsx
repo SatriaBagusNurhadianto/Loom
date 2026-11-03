@@ -1,5 +1,8 @@
 import { createLatexWorkspace } from '../latex/workspace';
 import { BuildDialog } from '../latex/BuildDialog';
+import { BuildFeedback } from '../latex/BuildFeedback';
+import { pdfIssue, pdfStatus } from '../latex/presentation';
+import type { ProjectChoice } from '../../contracts/project';
 import { PdfViewer } from '../latex/PdfViewer';
 import { createProjectWorkspace } from '../editor/documents';
 import { SourceEditor } from '../editor/SourceEditor';
@@ -50,7 +53,10 @@ export function Workspace() {
     setPdfPosition({ page: 1, zoom: 1, scroll: 0 });
   });
   const [example, setExample] = createSignal(false);
+  const [sampleHint, setSampleHint] = createSignal(false);
   const [dialog, setDialog] = createSignal<Dialog>(null);
+  const chooseMain = latex.mainChoiceRequired;
+  const setChooseMain = latex.setMainChoiceRequired;
   const [availability, setAvailability] = createSignal({ title: '', detail: '' });
   const [query, setQuery] = createSignal('');
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -110,6 +116,57 @@ export function Workspace() {
       else if (narrow()) pdf?.focus();
     });
   };
+  const issue = () => pdfIssue(projects.project(), latex.state());
+  const showPdf = () => update({ pdfOpen: true, mode: narrow() ? 'pdf' : 'split' });
+  async function createPdf(checkSetup = true) {
+    showPdf();
+    if (
+      chooseMain() ||
+      !projects.project()?.rootId ||
+      (checkSetup && issue()?.action === 'setup')
+    ) {
+      setDialog('build');
+      return;
+    }
+    setDialog(null);
+    await latex.compile();
+  }
+  async function openProject(choice: ProjectChoice, makePdf = false) {
+    const previousMain = projects
+      .project()
+      ?.files.find((file) => file.id === projects.project()?.rootId)
+      ?.path.split('/')
+      .pop();
+    const opened = await projects.choose(choice);
+    if (!opened) return;
+    const newMain = opened.files.find((file) => file.id === opened.rootId)?.path;
+    const conflictingMain = choice === 'main-folder' && newMain !== previousMain;
+    setChooseMain(conflictingMain);
+    setDialog(null);
+    setExample(false);
+    setSampleHint(choice === 'sample');
+    if (choice === 'sample') {
+      const introduction = opened.files.find((file) => file.path === 'sections/introduction.tex');
+      if (introduction) await projects.select(introduction.id);
+    }
+    if (makePdf) showPdf();
+    else update({ pdfOpen: true, mode: 'split' });
+    if (makePdf) {
+      if (!opened.rootId || conflictingMain) setDialog('build');
+      else await latex.compile();
+    }
+  }
+  function recoverPdf() {
+    const problem = issue();
+    if (!problem) return;
+    if (problem.action === 'folder') void openProject('main-folder', true);
+    else if (problem.action === 'main' || problem.action === 'setup') setDialog('build');
+    else if (problem.location) {
+      void latex.locate(problem.location);
+      if (narrow()) focusMode('source');
+    } else if (problem.action === 'source') setDialog('files');
+    else void createPdf();
+  }
   const resize = (which: 'sidebar' | 'pdf', delta: number) => {
     const value = Math.max(
       which === 'sidebar' ? 18 : 22,
@@ -571,9 +628,13 @@ export function Workspace() {
                 <button
                   class="secondary-button compile-source"
                   disabled={latex.busy()}
-                  onClick={() => void latex.compile()}
+                  onClick={() => (latex.running() ? void latex.cancel() : void createPdf())}
                 >
-                  {latex.running() ? 'Queue build' : 'Compile'}
+                  {latex.running()
+                    ? 'Stop'
+                    : latex.state()?.successful
+                      ? 'Update PDF'
+                      : 'Create PDF'}
                 </button>
               </Show>
               <button class="tools-button" onClick={() => setDialog('tools')}>
@@ -628,7 +689,18 @@ export function Workspace() {
             <Show when={latex.error()}>
               <div class="project-error" role="alert">
                 {latex.error()}
-                <button onClick={() => setDialog('build')}>Build details</button>
+                <button onClick={() => setDialog('build')}>PDF help</button>
+              </div>
+            </Show>
+            <Show when={sampleHint()}>
+              <div class="sample-writing-hint" role="status">
+                <span>
+                  <strong>Try a small change</strong> Edit a sentence below, then choose Update PDF
+                  to see it on the page.
+                </span>
+                <button class="text-button" onClick={() => setSampleHint(false)}>
+                  Got it
+                </button>
               </div>
             </Show>
             <div class="source-content">
@@ -641,12 +713,16 @@ export function Workspace() {
                       fallback={
                         <EmptyState icon="file" title="A place for your next paper">
                           <p>Your source, assistant, and PDF, together.</p>
-                          <p>Open a folder or create an ordinary LaTeX project.</p>
+                          <p>Open your paper’s folder, or try an editable sample.</p>
                           <button class="primary-button" onClick={() => setDialog('projects')}>
                             Open or create project
                           </button>
-                          <button class="text-button" onClick={showExample}>
-                            View workspace example
+                          <button
+                            class="secondary-button"
+                            disabled={projects.pending()}
+                            onClick={() => void openProject('sample', true)}
+                          >
+                            {projects.pending() ? 'Opening sample…' : 'Try a sample paper'}
                           </button>
                         </EmptyState>
                       }
@@ -809,32 +885,23 @@ export function Workspace() {
                   size={17}
                 />
                 <span>
-                  {example()
-                    ? 'Example preview'
-                    : latex.running()
-                      ? 'Compiling…'
-                      : latex.state()?.current?.status === 'failed'
-                        ? 'Build failed'
-                        : latex.state()?.current?.status === 'cancelled'
-                          ? 'Cancelled'
-                          : latex.state()?.current?.status === 'interrupted'
-                            ? 'Build interrupted'
-                            : latex.state()?.successful
-                              ? latex.stale()
-                                ? 'PDF out of date'
-                                : 'Compiled'
-                              : 'Compile setup'}
+                  {example() ? 'Example preview' : pdfStatus(latex.state(), latex.stale())}
                 </span>
                 <Icon name="down" size={14} />
               </button>
               <div class="pdf-actions">
+                <Show when={latex.running()}>
+                  <button class="pdf-stop" onClick={() => void latex.cancel()}>
+                    Stop
+                  </button>
+                </Show>
                 <IconButton
                   label={effectiveMode() === 'pdf' ? 'Return to workspace' : 'Focus PDF'}
                   icon="expand"
                   onClick={() => focusMode(effectiveMode() === 'pdf' ? 'split' : 'pdf')}
                 />
                 <IconButton
-                  label="Export compiled PDF"
+                  label="Download PDF"
                   disabled={!latex.state()?.successful}
                   icon="download"
                   onClick={() => void latex.exportPdf()}
@@ -842,6 +909,17 @@ export function Workspace() {
                 <IconButton label="Hide PDF panel" icon="close" onClick={togglePreview} />
               </div>
             </div>
+            <Show when={issue()}>
+              {(problem) => (
+                <BuildFeedback
+                  issue={problem()}
+                  busy={projects.pending() || latex.busy()}
+                  retained={!!latex.state()?.successful}
+                  onAction={recoverPdf}
+                  onDetails={() => setDialog('build')}
+                />
+              )}
+            </Show>
             <Show
               when={projects.project() && latex.state()?.successful}
               fallback={
@@ -850,17 +928,43 @@ export function Workspace() {
                     <Show
                       when={example()}
                       fallback={
-                        <EmptyState icon="file" title="Your paper, in view">
-                          <p>Compile your project with a local TeX installation.</p>
-                          <button
-                            class="secondary-button"
-                            onClick={() =>
-                              projects.project() ? setDialog('build') : setDialog('projects')
+                        <Show when={!issue()}>
+                          <EmptyState
+                            icon="file"
+                            title={
+                              latex.running() ? 'Your PDF is on its way' : 'See your paper as a PDF'
                             }
                           >
-                            {projects.project() ? 'Build and LaTeX' : 'Open a project'}
-                          </button>
-                        </EmptyState>
+                            <p>
+                              {latex.running()
+                                ? 'You can keep writing while Loom prepares your paper.'
+                                : projects.project()
+                                  ? 'Your paper is ready. Create its PDF to read, check and share it.'
+                                  : 'Open a paper to see its pages here.'}
+                            </p>
+                            <Show
+                              when={!latex.running()}
+                              fallback={
+                                <button
+                                  class="secondary-button"
+                                  onClick={() => void latex.cancel()}
+                                >
+                                  Stop
+                                </button>
+                              }
+                            >
+                              <button
+                                class="primary-button"
+                                disabled={latex.busy()}
+                                onClick={() =>
+                                  projects.project() ? void createPdf() : setDialog('projects')
+                                }
+                              >
+                                {projects.project() ? 'Create PDF' : 'Open a paper'}
+                              </button>
+                            </Show>
+                          </EmptyState>
+                        </Show>
                       }
                     >
                       <div class="paper" aria-label="Static example paper, not a compiled PDF">
@@ -881,11 +985,11 @@ export function Workspace() {
             >
               <div class="pdf-build-freshness" role="status">
                 {latex.stale()
-                  ? 'Older PDF · source or settings have changed'
-                  : `Source ${latex.state()?.successful?.revision.slice(0, 12)}`}
+                  ? 'Your latest changes are not in this PDF yet'
+                  : 'Up to date with your writing'}
                 <Show when={latex.stale()}>
-                  <button disabled={latex.busy()} onClick={() => void latex.compile()}>
-                    Recompile
+                  <button disabled={latex.busy()} onClick={() => void createPdf()}>
+                    Update PDF
                   </button>
                 </Show>
               </div>
@@ -922,17 +1026,34 @@ export function Workspace() {
         onClose={() => setDialog(null)}
         workspace={projects}
         latex={latex}
+        forceMainChoice={chooseMain()}
+        onMainChosen={() => setChooseMain(false)}
+        onCreatePdf={() => void createPdf(false)}
+        onOpenPaperFolder={() => void openProject('main-folder', true)}
+        onFiles={() => setDialog('files')}
       />
       <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
           <p>The workspace example is read-only. Open or create a project to edit files.</p>
         </Show>
+        <button
+          class="sample-paper-entry"
+          disabled={projects.pending()}
+          onClick={() => void openProject('sample', true)}
+        >
+          <Icon name="file" size={25} />
+          <span>
+            <strong>Try a sample paper</strong>
+            <small>Edit a sentence and see it in the PDF. No folder selection needed.</small>
+          </span>
+          <Icon name="chevron" size={18} />
+        </button>
         <div class="project-choices">
           <button
             aria-label="Open folder"
             disabled={projects.pending()}
-            onClick={() => void projects.choose('open')}
+            onClick={() => void openProject('open')}
           >
             <Icon name="folder" size={22} />
             <span>
@@ -942,7 +1063,7 @@ export function Workspace() {
           <button
             aria-label="Create project"
             disabled={projects.pending()}
-            onClick={() => void projects.choose('create')}
+            onClick={() => void openProject('create')}
           >
             <Icon name="plus" size={22} />
             <span>
@@ -952,7 +1073,7 @@ export function Workspace() {
           <button
             aria-label="Import folder"
             disabled={projects.pending()}
-            onClick={() => void projects.choose('import-folder')}
+            onClick={() => void openProject('import-folder')}
           >
             <Icon name="download" size={22} />
             <span>
@@ -962,7 +1083,7 @@ export function Workspace() {
           <button
             aria-label="Import ZIP"
             disabled={projects.pending()}
-            onClick={() => void projects.choose('import-zip')}
+            onClick={() => void openProject('import-zip')}
           >
             <Icon name="file" size={22} />
             <span>
@@ -970,6 +1091,42 @@ export function Workspace() {
             </span>
           </button>
         </div>
+        <details class="sample-library">
+          <summary>More sample papers</summary>
+          <div class="project-choices">
+            <For
+              each={
+                [
+                  ['sample-biber', 'Paper with references', 'A bibliography using Biber'],
+                  ['sample-bibtex', 'Another reference format', 'A bibliography using BibTeX'],
+                  [
+                    'sample-ambiguous',
+                    'Choose between two papers',
+                    'Practice choosing a main document',
+                  ],
+                  ['sample-broken', 'Practice fixing an error', 'See a source-linked explanation'],
+                  ['sample-missing-package', 'Missing package example', 'See setup guidance'],
+                ] as const
+              }
+            >
+              {([choice, title, detail]) => (
+                <button
+                  disabled={projects.pending()}
+                  onClick={() => void openProject(choice, true)}
+                >
+                  <Icon name="file" size={22} />
+                  <span>
+                    {title}
+                    <small>{detail}</small>
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
+          <p class="muted">
+            Each sample is your own editable copy. Reopening it keeps your changes.
+          </p>
+        </details>
         <div class="project-picker-status" role="status">
           {projects.pending()
             ? 'Waiting for project selection…'
@@ -986,9 +1143,9 @@ export function Workspace() {
             <div>
               <strong>{projects.project()?.name}</strong>
               <p class="project-root">
-                Root:{' '}
+                Main document:{' '}
                 {projects.project()?.files.find((file) => file.id === projects.project()?.rootId)
-                  ?.path ?? 'Choose a .tex file using its actions menu'}
+                  ?.path ?? 'Choose a main document in PDF settings'}
               </p>
             </div>
             <span>{projects.project()?.files.filter((file) => !file.deleted).length} files</span>
@@ -1065,7 +1222,7 @@ export function Workspace() {
             <h3>LaTeX</h3>
             <div class="button-row">
               <button class="secondary-button" onClick={() => setDialog('build')}>
-                Build and LaTeX
+                PDF settings
               </button>
               <button
                 class="secondary-button"

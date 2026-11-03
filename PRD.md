@@ -4,7 +4,7 @@
 
 **Date:** 3 November 2026
 
-**Status:** Product requirements baseline. Phases 1–2 are complete for the exercised Linux desktop target; implementation and verification are tracked in [project_status.md](project_status.md). Requirements below continue to describe the full first release, not completed functionality.
+**Status:** Product requirements baseline. Phases 1–3 are complete for the exercised Linux desktop target; implementation and verification are tracked in [project_status.md](project_status.md). Requirements below continue to describe the full first release, not completed functionality.
 
 **Product:** Free desktop workspace for scientific writing, powered by the researcher's chosen external agent harness.
 
@@ -49,7 +49,7 @@ These defaults make the PRD actionable without another clarification round. They
 
 Researchers move among source editors, PDFs, compilers, reference managers, Git tools, and AI conversations. Context is repeatedly reconstructed, compiler errors interrupt writing, and transferring AI edits back into the manuscript can damage newer edits or disconnect references and comments.
 
-Loom serves researchers and students who already use or need LaTeX: graduate students writing theses, researchers preparing papers, and authors working with technical coauthors. The initial workflow assumes access to a desktop computer and willingness to install an agent harness and a TeX distribution with guidance.
+Loom serves researchers and students who already use or need LaTeX: graduate students writing theses, researchers preparing papers, and authors working with technical coauthors. The audience includes researchers across disciplines with little technical experience. The initial workflow assumes access to a desktop computer; tool setup must be guided and must not require understanding compiler terminology to begin writing or previewing a paper.
 
 | User                              | Main job                                       | Success looks like                                                                                              |
 | --------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -176,6 +176,8 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 
 - Detect installed TeX tools, `latexmk`, supported engines, and BibTeX/Biber requirements.
 - Provide guided setup when dependencies are missing; manual source editing remains available.
+- Default to a plain-language Create PDF / Update PDF workflow. Keep engine, bibliography backend, timing, versions and raw logs in advanced disclosures. An editable built-in sample must be openable without finding a folder.
+- Explain failures with a concrete next action. Distinguish a wrong paper folder from a missing project file or package; opening a different folder remains an explicit user action.
 - Support pdfLaTeX, XeLaTeX, and LuaLaTeX where installed and compatible with the project.
 - Store the selected root, engine, bibliography tool, and build recipe as project configuration; keep machine-specific executable paths separate.
 - Record tool versions in build metadata. Recording versions alone must not be described as a fully reproducible environment.

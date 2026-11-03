@@ -15,6 +15,7 @@ export function createLatexWorkspace(
   const [state, setState] = createSignal<BuildState | null>(null);
   const [error, setError] = createSignal('');
   const [busy, setBusy] = createSignal(false);
+  const [mainChoiceRequired, setMainChoiceRequired] = createSignal(false);
   const [items, setItems] = createSignal<StructureItem[]>([]);
   const [languageStatus, setLanguageStatus] = createSignal('TexLab connecting…');
   const [target, setTarget] = createSignal<{
@@ -96,22 +97,32 @@ export function createLatexWorkspace(
     });
   });
   async function compile(clean = false) {
+    if (mainChoiceRequired()) {
+      setError('Choose the main document in PDF settings before creating the PDF.');
+      return;
+    }
     if (busy()) return;
     const id = projects.project()?.id;
     if (!id) {
-      setError('Open a LaTeX project before compiling.');
+      setError('Open a paper folder to create its PDF.');
       return;
     }
     setBusy(true);
     try {
       if (!(await projects.flushPending())) {
-        setError('Save source successfully before compiling.');
+        setError('Your writing could not be saved yet. Resolve the save message, then try again.');
         return;
       }
       await projects.command({ type: 'refresh' });
       if (projects.project()?.id !== id) return;
+      if (mainChoiceRequired()) {
+        setError('Choose the main document in PDF settings before creating the PDF.');
+        return;
+      }
       if (dirty() || projects.project()?.files.some((f) => !f.deleted && f.conflict)) {
-        setError('Wait for saving and resolve external changes before compiling.');
+        setError(
+          'Your writing needs to finish saving. Review any external changes, then create the PDF again.',
+        );
         return;
       }
       const revision = projects.project()?.sourceRevision ?? '';
@@ -124,7 +135,9 @@ export function createLatexWorkspace(
   const autoIntent = createMemo(() => {
     const revision = projects.project()?.sourceRevision,
       settings = state()?.settings;
-    return revision && settings?.autoBuild ? `${revision}:${settings.delayMs}` : '';
+    return revision && settings?.autoBuild && !mainChoiceRequired()
+      ? `${revision}:${settings.delayMs}`
+      : '';
   });
   createEffect(() => {
     const intent = autoIntent();
@@ -159,7 +172,7 @@ export function createLatexWorkspace(
       const result = await request({ type: 'settings', projectId, settings });
       if (result) {
         await projects.command({ type: 'refresh' });
-        report('Build settings saved to loom.build.json.');
+        report('PDF settings saved with this paper.');
         return true;
       }
       return false;
@@ -189,11 +202,13 @@ export function createLatexWorkspace(
       buildId = state()?.successful?.id,
       file = projects.file();
     if (!projectId || !buildId || !file) {
-      report('Compile a project to create a source map.');
+      report('Create the PDF first, then use Show in PDF.');
       return;
     }
     if (stale()) {
-      setError('The PDF represents older source. Recompile before navigating from current source.');
+      setError(
+        'Your latest edits are not in this PDF. Choose Update PDF, then try navigating again.',
+      );
       return;
     }
     const text = projects.live(file.id)?.doc.getText('source').toString() ?? '';
@@ -213,7 +228,9 @@ export function createLatexWorkspace(
       buildId = state()?.successful?.id;
     if (!projectId || !buildId || (displayedBuildId && displayedBuildId !== buildId)) return;
     if (stale()) {
-      setError('The PDF represents older source. Recompile before navigating to current source.');
+      setError(
+        'Your latest edits are not in this PDF. Choose Update PDF, then try navigating again.',
+      );
       return;
     }
     const value = await request({ type: 'reverse', projectId, buildId, page, x, y });
@@ -230,7 +247,7 @@ export function createLatexWorkspace(
     if (!result.ok) setError(result.error.message);
     else if (result.value.kind === 'export' && !result.value.cancelled)
       report(
-        old ? 'Older PDF exported. Recompile to include current source.' : 'Compiled PDF exported.',
+        old ? 'Older PDF saved. Choose Update PDF to include your latest writing.' : 'PDF saved.',
       );
   }
   onMount(() => {
@@ -259,6 +276,8 @@ export function createLatexWorkspace(
   });
   return {
     state,
+    mainChoiceRequired,
+    setMainChoiceRequired,
     error,
     busy,
     items,

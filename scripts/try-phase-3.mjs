@@ -46,7 +46,7 @@ try {
   console.log('Using TeX/TexLab from PATH. Missing tools have setup guidance in Build and LaTeX.');
 }
 console.log(
-  `Sample projects: ${destination}\nStart with multi-file. Copies already present are preserved.\nThis run uses a separate profile in .cache/phase-3-profile.\nStop with Ctrl C.`,
+  `In Loom, choose Try a sample paper (in Projects if a project is already open).\nEdit a sentence, choose Update PDF, then Download PDF.\nOptional developer sample folders: ${destination}. Existing copies are preserved.\nThis run uses a separate profile in .cache/phase-3-profile.\nStop with Ctrl C.`,
 );
 function run(executable, args) {
   return new Promise((resolveRun, reject) => {

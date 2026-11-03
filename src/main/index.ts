@@ -287,7 +287,7 @@ void app.whenReady().then(() => {
         return service.project({
           type: 'native-sample',
           path: join(
-            app.isPackaged ? process.resourcesPath : app.getAppPath(),
+            app.isPackaged ? process.resourcesPath : join(__dirname, '../..'),
             'examples/phase-3',
             sample[0],
           ),

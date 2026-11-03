@@ -373,6 +373,7 @@ it('preserves editable sample copies and validates opening the main document fol
     const source = join(base, 'original');
     await mkdir(join(source, 'nested'), { recursive: true });
     await writeFile(join(source, 'nested', 'main.tex'), '\\documentclass{article}');
+    await writeFile(join(source, 'nested', 'other.tex'), '\\documentclass{article}');
     const destination = join(base, 'samples', 'Paper');
     const first = await sampleService.openSample(source, destination);
     await writeFile(
@@ -383,9 +384,11 @@ it('preserves editable sample copies and validates opening the main document fol
     expect(reopened.id).toBe(first.id);
     expect(await readFile(join(destination, 'nested', 'main.tex'), 'utf8')).toContain('% my edits');
     await expect(sampleService.openMainFolder('other-project')).rejects.toThrow();
+    const selected = reopened.files.find((file) => file.path === 'nested/main.tex')!;
+    await sampleService.command({ type: 'root', fileId: selected.id });
     const paper = await sampleService.openMainFolder(reopened.id);
     expect(paper.name).toBe('nested');
-    expect(paper.files[0].path).toBe('main.tex');
+    expect(paper.files.find((file) => file.id === paper.rootId)?.path).toBe('main.tex');
     await expect(sampleService.openMainFolder(paper.id)).rejects.toThrow('paper folder');
   } finally {
     sampleStore.close();

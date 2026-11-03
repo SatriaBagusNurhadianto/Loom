@@ -122,3 +122,18 @@ it('never lets a late structure result overwrite the newer source index', async 
   await Promise.resolve();
   expect(latex.items()[0]?.title).toBe('Current');
 });
+
+it('blocks keyboard/manual and automatic builds while a main document choice is unresolved', async () => {
+  const { latex, pending, request } = session();
+  await Promise.resolve();
+  latex.setMainChoiceRequired(true);
+  pending[0].resolve(result({ ...state, settings: { ...defaultBuildSettings, autoBuild: true } }));
+  await Promise.resolve();
+  await latex.compile();
+  expect(latex.error()).toContain('Choose the main document');
+  await vi.advanceTimersByTimeAsync(3000);
+  expect(request.mock.calls.filter(([command]) => command.type === 'build')).toHaveLength(0);
+  latex.setMainChoiceRequired(false);
+  await vi.advanceTimersByTimeAsync(1600);
+  expect(request.mock.calls.filter(([command]) => command.type === 'build')).toHaveLength(1);
+});

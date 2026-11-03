@@ -165,9 +165,13 @@ test('real isolated Electron boundary and a restartable utility process', async 
   await readyPid();
 });
 
+async function showLayoutReference() {
+  await page.getByRole('button', { name: 'Workspace settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Load read-only example', exact: true }).click();
+}
 test('a killed utility process reports failure and recovers without losing the workspace', async () => {
   const pid = await readyPid();
-  await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
+  await showLayoutReference();
   process.kill(pid, 'SIGKILL');
   await expect(
     page.getByRole('button', { name: 'Service unavailable', exact: true }),
@@ -200,7 +204,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await dimensions(2048, 1096);
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
+  await showLayoutReference();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   const preview = page.getByRole('region', { name: 'PDF preview', exact: true });
   await expect(page.getByRole('button', { name: 'Hide PDF panel', exact: true })).toBeVisible();
@@ -219,7 +223,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await expect(preview).toHaveCount(0);
   await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
   await expect(preview).toBeVisible();
-  await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
+  await showLayoutReference();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await mkdir(resolve('artifacts'), { recursive: true });
   await page.screenshot({
@@ -287,7 +291,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
   await page.getByRole('button', { name: 'Return to workspace', exact: true }).click();
   await expect(page.getByRole('main', { name: 'Source workspace' })).toBeVisible();
-  await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
+  await showLayoutReference();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.screenshot({
     animations: 'disabled',
@@ -324,8 +328,7 @@ async function openSyntheticProject(): Promise<string> {
   }, folder);
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Root: main.tex');
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Original text.',
   );
@@ -995,8 +998,7 @@ test('native project creation and ZIP import preserve ordinary source and assets
   }, created);
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Root: main.tex');
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(await readFile(join(created, 'main.tex'), 'utf8')).toContain('\\documentclass{article}');
   const { zipSync, strToU8 } = await import('fflate');
   const archive = join(userData, 'source.zip'),
@@ -1018,8 +1020,7 @@ test('native project creation and ZIP import preserve ordinary source and assets
   await page.getByRole('button', { name: 'Project', exact: true }).click();
   await page.getByRole('button', { name: 'Project settings', exact: true }).click();
   await page.getByRole('button', { name: 'Import ZIP', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('Root: paper.tex');
-  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Imported',
   );
