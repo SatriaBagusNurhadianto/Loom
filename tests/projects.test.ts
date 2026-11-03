@@ -39,6 +39,22 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
+  it('changes build freshness for unresolved disk overlaps and missing files without discarding recovery text', async () => {
+    const command = await edit('local\nbeta\ngamma\n');
+    await writeFile(join(root, 'main.tex'), 'external\nbeta\ngamma\n');
+    await service.command(command);
+    const before = service.snapshot();
+    expect(before.files[0].conflict).toBe(true);
+    await writeFile(join(root, 'main.tex'), 'newer external\nbeta\ngamma\n');
+    await service.refresh();
+    expect(service.snapshot().sourceRevision).not.toBe(before.sourceRevision);
+    expect(service.snapshot().files[0].text).toBe(before.files[0].text);
+    const overlap = service.snapshot().sourceRevision;
+    await rm(join(root, 'main.tex'));
+    await service.refresh();
+    expect(service.snapshot().sourceRevision).not.toBe(overlap);
+    expect(service.snapshot().files[0].text).toBe(before.files[0].text);
+  });
   it('native file creation validates identity, containment, symlinks and existing files', async () => {
     const projectId = service.snapshot().id;
     await expect(service.createFile(join(dir, 'outside.tex'), projectId)).rejects.toThrow(

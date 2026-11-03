@@ -140,7 +140,12 @@ export type StructureItem = z.infer<typeof structureItemSchema>;
 export const latexValueSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('state'), state: buildStateSchema }).strict(),
   z
-    .object({ kind: z.literal('pdf'), buildId: id, data: z.string().max(48 * 1024 * 1024) })
+    .object({
+      kind: z.literal('pdf'),
+      buildId: id,
+      revision: z.string(),
+      data: z.string().max(48 * 1024 * 1024),
+    })
     .strict(),
   z
     .object({

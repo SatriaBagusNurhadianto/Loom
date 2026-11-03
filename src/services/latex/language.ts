@@ -72,7 +72,8 @@ export class TexlabClient {
     try {
       if (!uri.startsWith('file:') || !this.context) return null;
       const path = relative(this.context.root, fileURLToPath(uri)).split(sep).join('/');
-      return relativePath.safeParse(path).success && this.context.files.some((f) => f.path === path)
+      return relativePath.safeParse(path).success &&
+        this.context.files.some((f) => f.path === path && f.diskKind === 'text')
         ? path
         : null;
     } catch {
@@ -144,6 +145,17 @@ export class TexlabClient {
           ).slice(0, 3000),
         })),
       );
+      let diagnosticCount = [...this.diagnostics.values()].reduce(
+        (total, items) => total + items.length,
+        0,
+      );
+      for (const [key, items] of this.diagnostics) {
+        if (diagnosticCount <= 500) break;
+        if (key !== path) {
+          this.diagnostics.delete(key);
+          diagnosticCount -= items.length;
+        }
+      }
       return;
     }
     if (typeof message.id === 'number') {
@@ -223,7 +235,12 @@ export class TexlabClient {
       this.notify('initialized', {});
       this.notify('workspace/didChangeConfiguration', { settings: { texlab: configuration } });
       for (const file of context.files) {
-        if (file.text === null || !/\.(?:tex|bib|sty|cls)$/.test(file.path)) continue;
+        if (
+          file.text === null ||
+          file.diskKind !== 'text' ||
+          !/\.(?:tex|bib|sty|cls)$/.test(file.path)
+        )
+          continue;
         const uri = pathToFileURL(join(context.root, file.path)).href;
         this.documents.set(uri, { text: file.text, version: 1 });
         this.notify('textDocument/didOpen', {
@@ -259,8 +276,49 @@ export class TexlabClient {
     };
     try {
       await this.start(context);
-      const file = context.files.find((f) => f.id === command.fileId && f.text !== null);
+      const file = context.files.find(
+        (f) => f.id === command.fileId && f.text !== null && f.diskKind === 'text',
+      );
       if (!file) throw new Error('Select a text source file.');
+      const present = new Set<string>();
+      for (const source of context.files) {
+        if (
+          source.text === null ||
+          source.diskKind !== 'text' ||
+          !/\.(?:tex|bib|sty|cls)$/.test(source.path)
+        )
+          continue;
+        const sourceUri = pathToFileURL(join(context.root, source.path)).href;
+        present.add(sourceUri);
+        if (source.id === file.id) continue;
+        const existing = this.documents.get(sourceUri);
+        if (!existing) {
+          this.documents.set(sourceUri, { text: source.text, version: 1 });
+          this.notify('textDocument/didOpen', {
+            textDocument: {
+              uri: sourceUri,
+              languageId: source.path.endsWith('.bib') ? 'bibtex' : 'latex',
+              version: 1,
+              text: source.text,
+            },
+          });
+        } else if (existing.text !== source.text) {
+          existing.text = source.text;
+          existing.version++;
+          this.diagnostics.delete(source.path);
+          this.notify('textDocument/didChange', {
+            textDocument: { uri: sourceUri, version: existing.version },
+            contentChanges: [{ text: source.text }],
+          });
+        }
+      }
+      for (const known of this.documents.keys())
+        if (!present.has(known)) {
+          this.notify('textDocument/didClose', { textDocument: { uri: known } });
+          this.documents.delete(known);
+        }
+      for (const path of this.diagnostics.keys())
+        if (!context.files.some((f) => f.path === path)) this.diagnostics.delete(path);
       const uri = pathToFileURL(join(context.root, file.path)).href;
       const old = this.documents.get(uri);
       if (!old) {
@@ -368,7 +426,8 @@ export class TexlabClient {
 export function projectStructure(context: BuildInput): StructureItem[] {
   const result: StructureItem[] = [];
   for (const file of context.files) {
-    if (file.text === null || !/\.(?:tex|bib|sty|cls)$/.test(file.path)) continue;
+    if (file.text === null || file.diskKind !== 'text' || !/\.(?:tex|bib|sty|cls)$/.test(file.path))
+      continue;
     // Deliberately limited to literal constructs; TexLab owns language intelligence.
     const text = file.text.replace(/(?<!\\)%[^\n]*/g, (comment) => ' '.repeat(comment.length));
     const patterns: [StructureItem['kind'], RegExp][] = [

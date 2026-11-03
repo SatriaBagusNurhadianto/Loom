@@ -1,5 +1,5 @@
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
-import { promises as fs } from 'node:fs';
+import { writePdfExport } from './pdf-export';
 import { z } from 'zod';
 import { chooseFileRequestSchema, projectCommandSchema } from '../contracts/project';
 import {
@@ -179,19 +179,45 @@ void app.whenReady().then(() => {
         buildId: input.data.buildId,
       });
       if (!pdf.ok || pdf.value.kind !== 'pdf') return pdf;
+      const current = await service.project({ type: 'refresh' });
+      const location = service.projectLocation;
+      if (!current.ok) return current;
+      if (
+        !current.value ||
+        current.value.id !== input.data.projectId ||
+        location?.projectId !== input.data.projectId
+      )
+        return failure('INVALID_REQUEST', 'The project changed. Retry PDF export.', false);
+      const older = input.data.stale || pdf.value.revision !== current.value.sourceRevision;
       const selected = await dialog.showSaveDialog(window!, {
-        title: input.data.stale ? 'Export older PDF — source has changed' : 'Export compiled PDF',
-        defaultPath: input.data.stale ? 'paper-older-build.pdf' : 'paper.pdf',
+        title: older ? 'Export older PDF — source has changed' : 'Export compiled PDF',
+        defaultPath: older ? 'paper-older-build.pdf' : 'paper.pdf',
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
       });
       if (selected.canceled || !selected.filePath)
         return { ok: true, value: { kind: 'export', cancelled: true } };
-      await fs.writeFile(selected.filePath, Buffer.from(pdf.value.data, 'base64'));
+      const latest = await service.project({ type: 'refresh' });
+      if (!latest.ok) return latest;
+      if (
+        latest.value?.id !== current.value.id ||
+        latest.value.sourceRevision !== current.value.sourceRevision
+      )
+        return failure(
+          'INVALID_REQUEST',
+          'Source changed while choosing the destination. Retry export to identify the older PDF.',
+          true,
+        );
+      await writePdfExport(selected.filePath, Buffer.from(pdf.value.data, 'base64'), {
+        root: location.path,
+        paths: latest.value.files.filter((f) => !f.deleted).map((f) => f.path),
+      });
       return { ok: true, value: { kind: 'export', cancelled: false } };
-    } catch {
+    } catch (error) {
       return failure(
-        'SERVICE_UNAVAILABLE',
-        'PDF could not be exported. Check the destination and retry.',
+        'INVALID_REQUEST',
+        error instanceof Error
+          ? error.message
+          : 'PDF could not be exported. Check the destination and retry.',
       );
     } finally {
       choosing = false;

@@ -2,7 +2,7 @@
 
 **Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
 
-**Current state:** Phases 1–2 implemented and verified on Linux x86_64. Phase 3 has not started. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phases 1–3 implemented and verified on Linux x86_64. Phase 4 has not started. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 
@@ -70,18 +70,20 @@
 
 **Prerequisites:** Phase 2 complete.
 
-- [ ] Detect installed TeX tools, engines, latexmk and BibTeX/Biber; add guided missing-tool setup.
-- [ ] Store portable build settings separately from machine executable paths.
-- [ ] Connect TexLab over LSP for supported completion, diagnostics and navigation.
-- [ ] Implement root selection, single-project build scheduling, coalescing, cancellation, clean rebuild, and log/error display.
-- [ ] Associate builds with snapshots/revisions and preserve source-path mappings.
-- [ ] Integrate PDF.js worker, bounded page rendering, zoom, page navigation, selection, and export.
-- [ ] Implement forward/reverse SyncTeX where mapping exists; preserve position and identify stale output.
-- [ ] Connect outline, labels, citations and figure locations where resolvable.
+- [x] Detect installed TeX tools, engines, latexmk and BibTeX/Biber; add guided missing-tool setup.
+- [x] Store portable build settings separately from machine executable paths.
+- [x] Connect TexLab over LSP for supported completion, diagnostics and navigation.
+- [x] Implement root selection, single-project build scheduling, coalescing, cancellation, clean rebuild, and log/error display.
+- [x] Associate builds with snapshots/revisions and preserve source-path mappings.
+- [x] Integrate PDF.js worker, bounded page rendering, zoom, page navigation, selection, and export.
+- [x] Implement forward/reverse SyncTeX where mapping exists; preserve position and identify stale output.
+- [x] Connect outline, labels, citations and figure locations where resolvable.
 
 **Verification:** Build representative pdfLaTeX, XeLaTeX, LuaLaTeX, and Biber/BibTeX projects when those tools are available. Exercise missing dependencies, an ambiguous root, compile failure/cancellation, rapid edits, stale output, and mapping from snapshot paths. Clearly list unavailable live tool checks.
 
 **Exit:** The author can edit, compile, inspect, navigate, and export a multi-file paper. A failed build retains identifiable last-successful output, and unavailable mappings produce useful fallbacks.
+
+**Recorded exit evidence:** 69 deterministic checks, 19 default Electron regression/missing-tool cases, seven real native TeX/TexLab checks, five live Electron LaTeX/PDF scenarios, actual process cancellation/utility interruption/no-orphan verification, packaged sandboxed render/map/export smoke, Prism/narrow inspection, strict UI/DESIGN checks and iterative GPT-6.1 Terra review. Six synthetic sample folders and an isolated launcher are provided. Independent review's one app-startup failure and successful focused rerun are explicitly recorded. See [status](project_status.md), [testing](docs/phase-3-testing.md) and [review](docs/phase-3-review.md). Installed/cross-platform/performance acceptance remains Phase 8.
 
 ## Phase 4 — OpenCode agent and safe change review
 

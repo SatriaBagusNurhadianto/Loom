@@ -1,5 +1,7 @@
 # Phase 2 testing
 
+This remains the persistence/recovery regression guide. The current LaTeX/PDF workflow and sample projects are documented in [Phase 3 testing](phase-3-testing.md).
+
 Use `npm ci`, `npm run build`, and `npm start` for the real Electron application. Browser preview cannot access native projects. Tests use synthetic manuscripts and isolated application data. No TeX, provider credentials or Git operations are involved.
 
 ## Project workflow
@@ -38,4 +40,4 @@ Generated screenshots, packaging and audit outputs are ignored local evidence un
 
 ## Limits
 
-Linux x86_64 only has been exercised. Text files must be UTF-8 and at most 8 MiB; scan/index input is bounded to 32 MiB and 2,000 files. ZIP import limits are 64 MiB compressed and 128 MiB expanded. Symlink paths are excluded. Conflict refresh uses content polling rather than platform-specific watcher delivery. The final compare/rename cannot lock unrelated external writers; continued external mutation is rechecked on the next observation. Full performance, IME, installed-package and Windows/macOS coverage remain Phase 8 work. PDF compilation, agents, clone/export UI and references are later phases.
+Linux x86_64 only has been exercised. Text files must be UTF-8 and at most 8 MiB; scan/index input is bounded to 32 MiB and 2,000 files. ZIP import limits are 64 MiB compressed and 128 MiB expanded. Symlink paths are excluded. Conflict refresh uses content polling rather than platform-specific watcher delivery. The final compare/rename cannot lock unrelated external writers; continued external mutation is rechecked on the next observation. Full performance, IME, installed-package and Windows/macOS coverage remain Phase 8 work. PDF compilation and PDF export are now covered by Phase 3; agents, clone/source-export UI and research references remain later phases.

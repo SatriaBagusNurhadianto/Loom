@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, cp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, cp, rm, writeFile, readFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { MetadataStore } from '../src/services/project/store';
@@ -42,6 +42,9 @@ describe.skipIf(process.env.LOOM_TEST_TEX !== '1')(
         const state = await builds.status(id);
         expect(state.current?.status, state.current?.log).toBe('succeeded');
         expect(state.successful?.hasSynctex).toBe(true);
+        expect(state.current?.tools.find((tool) => tool.name === 'synctex')?.version).not.toContain(
+          'ERROR',
+        );
         const buildId = state.successful!.id;
         const forward = await builds.mapping({
           type: 'forward',
@@ -150,12 +153,76 @@ describe.skipIf(process.env.LOOM_TEST_TEX !== '1')(
         expect(definition.locations).toEqual(
           expect.arrayContaining([expect.objectContaining({ path: file.path, line: 1 })]),
         );
-      const invalid = file.text! + '\n\\begin{unclosed}';
+      const invalid = file.text! + '\n\\begin{unclosed';
       await language.execute(context, { ...update, version: 4, text: invalid });
       await new Promise((r) => setTimeout(r, 1000));
       const diagnostics = await language.execute(context, { ...update, version: 4, text: invalid });
       if (diagnostics.kind === 'language')
-        expect(diagnostics.diagnostics.length).toBeGreaterThan(0);
+        expect(
+          diagnostics.diagnostics.some((d) => d.path === file.path && d.severity === 'error'),
+        ).toBe(true);
+    }, 30000);
+    it('refreshes inactive TexLab definitions after external edits, rename and deletion', async () => {
+      const root = join(dir, 'inactive');
+      await cp(resolve('examples/phase-3/multi-file'), root, { recursive: true });
+      await projects.open(root);
+      const id = projects.snapshot().id;
+      let context = projects.buildContext(id);
+      const file = context.files.find((f) => f.path === 'main.tex')!;
+      const text = file.text!.replace('\\end{document}', '\\ref{sec:fresh}\n\\end{document}');
+      const command = {
+        type: 'language' as const,
+        projectId: id,
+        fileId: file.id,
+        version: 1,
+        text,
+        action: 'update' as const,
+        position: {
+          line: text.slice(0, text.indexOf('\\ref{')).split('\n').length - 1,
+          character: 10,
+        },
+      };
+      await language.execute(context, command);
+      await writeFile(
+        join(root, 'sections/results.tex'),
+        '\\section{Fresh}\n\\label{sec:fresh}\nHello',
+      );
+      await projects.refresh();
+      context = projects.buildContext(id);
+      const changed = await language.execute(context, {
+        ...command,
+        action: 'definition',
+        version: 2,
+      });
+      if (changed.kind !== 'language') throw new Error('wrong result');
+      expect(changed.locations).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: 'sections/results.tex' })]),
+      );
+      await rename(join(root, 'sections/results.tex'), join(root, 'sections/renamed.tex'));
+      await projects.refresh();
+      context = projects.buildContext(id);
+      const renamedText = text.replace('sections/results', 'sections/renamed');
+      const renamed = await language.execute(context, {
+        ...command,
+        text: renamedText,
+        action: 'definition',
+        version: 3,
+      });
+      if (renamed.kind !== 'language') throw new Error('wrong result');
+      expect(renamed.locations).toEqual(
+        expect.arrayContaining([expect.objectContaining({ path: 'sections/renamed.tex' })]),
+      );
+      await rm(join(root, 'sections/renamed.tex'));
+      await projects.refresh();
+      context = projects.buildContext(id);
+      const deleted = await language.execute(context, {
+        ...command,
+        text: renamedText,
+        action: 'definition',
+        version: 4,
+      });
+      if (deleted.kind !== 'language') throw new Error('wrong result');
+      expect(deleted.locations).toEqual([]);
     }, 30000);
   },
 );

@@ -22,9 +22,11 @@ export function spawnOwnedTool(
   cwd?: string,
   env?: NodeJS.ProcessEnv,
 ) {
+  const environment: NodeJS.ProcessEnv = { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' };
+  environment.PATH = (environment.PATH ?? '').split(delimiter).filter(isAbsolute).join(delimiter);
   return spawn(process.execPath, ['-e', supervisor, executable, ...args], {
     cwd,
-    env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: '1' },
+    env: environment,
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
@@ -97,9 +99,13 @@ export async function detectTools(): Promise<Tool[]> {
       if (!executable)
         return { name, available: false, version: 'Not found on PATH', executable: null };
       try {
-        const result = await runTool(executable, [name === 'latexmk' ? '-v' : '--version'], {
-          timeoutMs: 5000,
-        });
+        const result = await runTool(
+          executable,
+          [name === 'latexmk' ? '-v' : name === 'synctex' ? 'help' : '--version'],
+          {
+            timeoutMs: 5000,
+          },
+        );
         return {
           name,
           available: result.code === 0,

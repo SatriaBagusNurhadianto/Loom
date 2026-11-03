@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtemp, cp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -169,6 +171,18 @@ test.describe('live Phase 3 Electron workflow', () => {
       )
       .toBe('%PDF-');
     await page.screenshot({ path: 'artifacts/phase-3-workspace.png' });
+    const sourceBeforeExport = await readFile(join(root, 'main.tex'), 'utf8');
+    await app.evaluate(
+      ({ dialog }, path) => {
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+      },
+      join(root, 'main.tex'),
+    );
+    await page.getByRole('button', { name: 'Export compiled PDF' }).click();
+    await expect(
+      page.locator('.project-error').filter({ hasText: 'Choose a .pdf filename' }),
+    ).toBeVisible();
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe(sourceBeforeExport);
     expect(errors).toEqual([]);
   });
   test('retains last successful PDF after failure, marks unsaved/external inputs stale and restores after restart', async () => {
@@ -237,6 +251,44 @@ test.describe('live Phase 3 Electron workflow', () => {
     await expect(page.locator('.document-tabs button[aria-pressed="true"]')).toContainText(
       'results.tex',
     );
+  });
+  test('cancels a real long TeX process and recovers an interrupted utility without orphan tools', async () => {
+    test.setTimeout(60000);
+    await dimensions(1440, 960);
+    await openExample();
+    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await waitPdf();
+    const original = await readFile(join(root, 'main.tex'), 'utf8');
+    const slow = original.replace(
+      '\\begin{document}',
+      '\\begin{document}\n\\newcount\\loomcounter\n\\loop\\ifnum\\loomcounter<100000000\n\\advance\\loomcounter by 1\n\\repeat\n',
+    );
+    await writeFile(join(root, 'main.tex'), slow);
+    await expect(page.locator('.build-status')).toHaveText('PDF out of date');
+    const processes = async () =>
+      (await promisify(execFile)('ps', ['-eo', 'pid,args'])).stdout
+        .split('\n')
+        .filter(
+          (line) => line.includes(join(directory, 'data', 'builds')) && /latexmk|pdftex/.test(line),
+        );
+    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await expect.poll(processes).not.toEqual([]);
+    await page.locator('.build-status').click();
+    const modal = page.getByRole('dialog', { name: 'Build and LaTeX' });
+    await modal.getByRole('button', { name: 'Cancel build', exact: true }).click();
+    await expect(modal.getByText('Build cancelled', { exact: true })).toBeVisible();
+    await expect.poll(processes).toEqual([]);
+    await modal.getByRole('button', { name: 'Close dialog' }).click();
+    await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
+    await page.getByRole('button', { name: 'Compile', exact: true }).click();
+    await expect.poll(processes).not.toEqual([]);
+    const status = await page.evaluate(() => window.loom!.getStatus());
+    if (!status.ok || !status.value.pid) throw new Error('service unavailable');
+    process.kill(status.value.pid, 'SIGKILL');
+    await expect.poll(processes).toEqual([]);
+    await page.evaluate(() => window.loom!.restartService());
+    await expect(page.locator('.build-status')).toHaveText('Build interrupted');
+    await expect(page.locator('.pdf-sheet canvas')).toBeVisible();
   });
   test('portable settings retain edits during polling, auto-build coalesces and narrow keyboard navigation works', async () => {
     await dimensions(1440, 960);

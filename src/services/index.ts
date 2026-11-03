@@ -99,6 +99,7 @@ port.on('message', (event: { data: unknown }) => {
   if (!parsed.success) return;
   void projects.run(async () => {
     try {
+      const previousProject = projects.nativeLocation()?.projectId;
       const n = native.safeParse(parsed.data.command);
       let value;
       if (n.success) {
@@ -111,6 +112,7 @@ port.on('message', (event: { data: unknown }) => {
         else value = await projects.importZip(c.path, c.destination!);
       } else value = await projects.command(projectCommandSchema.parse(parsed.data.command));
       const location = projects.nativeLocation();
+      if (previousProject !== location?.projectId) language.dispose();
       if (location) port.postMessage({ type: 'project-context', ...location });
       port.postMessage({ type: 'project-result', id: parsed.data.id, result: { ok: true, value } });
     } catch (error) {

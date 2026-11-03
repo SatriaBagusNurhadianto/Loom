@@ -1,6 +1,6 @@
 # Loom architecture
 
-**Status:** Phase 1 shell and Phase 2 local project/document services implemented. Build, agent, research and Git services below remain planned; verification state belongs in project_status.md.
+**Status:** Phases 1–3 shell, project/document, local build/language and PDF services implemented. Agent, research and Git services below remain planned; verification state belongs in project_status.md.
 
 **Product authority:** [PRD.md](PRD.md). **Visual authority:** [DESIGN.md](DESIGN.md). **Build sequence:** [phases.md](phases.md). **Actual implementation state:** [project_status.md](project_status.md).
 
@@ -29,7 +29,7 @@ The first validated target is a Linux x86_64 pilot. Process contracts and applic
 | Agent                  | OpenCode local server and TypeScript SDK       | Initial harness integration                                                       |
 | Packaging              | electron-builder                               | Installable desktop artifact                                                      |
 
-Exact dependencies are pinned in `package.json` and `package-lock.json`; the package manager is npm 11.19.0. Phase 1 uses Electron 45.2.1, electron-vite 6.0.0, SolidJS 1.9.18 and TypeScript 6.0.3. CodeMirror, Yjs, IndexedDB and SQLite are now installed/implemented for Phase 2; PDF, language, compilation, agent and Git integrations remain later-phase choices.
+Exact dependencies are pinned in `package.json` and `package-lock.json`; the package manager is npm 11.19.0. Phase 1 uses Electron 45.2.1, electron-vite 6.0.0, SolidJS 1.9.18 and TypeScript 6.0.3. CodeMirror, Yjs, IndexedDB and SQLite are now installed/implemented for Phase 2; PDF.js, TexLab and local compilation are implemented for Phase 3; agent and Git integrations remain later-phase choices.
 
 ## 3. Process model
 
@@ -276,3 +276,11 @@ Saving build settings explicitly writes ordinary `loom.build.json` (version 1, p
 TexLab uses framed JSON-RPC over an owned subprocess, bounded request IDs/timeouts, document versions, supported completion/definitions and diagnostics. Its automatic build and ChkTeX loops are disabled. Definitions and diagnostics are filtered to known project paths. Diagnostics without a server revision are explicitly identified as unversioned, rather than claimed to match a particular current edit. Supported literal section/label/citation/figure locations supplement TexLab without pretending to parse arbitrary macros.
 
 PDF retrieval accepts only a retained successful build ID (32 MiB PDF limit); SyncTeX uses that artifact's snapshot paths, and maps only paths in its original manifest. Native PDF export retrieves the requested artifact before opening the save dialog and labels older-source exports. The renderer owns freshness and requires recompile before mapping a stale PDF to current text.
+
+### Phase 3 review hardening
+
+External configuration changes are reconciled and re-parsed on observation, including configured-root identity/path/availability; invalid or missing-root configuration blocks builds until repaired. Settings writes use the same checkpointed/versioned filesystem bridge as manuscript text. Build records take settings from their captured source snapshot. The source fingerprint includes observed disk hashes/kinds as well as recoverable live text, so unresolved overlap/deletion marks output older without discarding human recovery.
+
+TexLab's open document set is synchronized with project files on language requests: inactive edits receive didChange, new/renamed sources receive didOpen and missing/deleted sources receive didClose. Locations are filtered to available project text; missing recovery remains in the document service. Aggregate diagnostic storage is capped at 500. Owned children inherit only absolute PATH entries, matching executable discovery.
+
+Native PDF export rechecks project/revision around the picker, derives older-output state from the artifact revision and renderer dirty state, and rejects existing project inputs and symbolic-link destinations. The output is written/fsynced to an exclusive temporary sibling then renamed; replacing an external hard link never truncates the manuscript inode. Interrupted replacement retains the previous destination. Native-only paths remain outside renderer snapshots.

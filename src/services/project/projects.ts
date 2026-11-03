@@ -30,6 +30,7 @@ type Project = {
   preferences: string | null;
   buildSettings?: BuildSettings;
   buildConfigError?: string;
+  buildConfigRevision?: string;
 };
 const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
@@ -150,28 +151,8 @@ export class ProjectService {
       this.project = stored
         ? JSON.parse(stored)
         : { id: randomUUID(), name: basename(root), rootId: null, files: [], preferences: null };
+      delete this.project!.buildConfigRevision;
       await this.refresh();
-      try {
-        const config = portableBuildSchema.parse(
-          JSON.parse(await fs.readFile(await this.safe('loom.build.json'), 'utf8')),
-        );
-        const rootFile = this.project!.files.find(
-          (f) => !f.deleted && f.path === config.root && f.path.endsWith('.tex'),
-        );
-        if (!rootFile)
-          throw new Error('Configured root is missing. Select a root and save build settings.');
-        this.project!.rootId = rootFile.id;
-        this.project!.buildSettings = config.settings;
-        delete this.project!.buildConfigError;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-          this.project!.buildConfigError =
-            'Invalid loom.build.json. Select the root and save build settings to repair it.';
-        else {
-          delete this.project!.buildSettings;
-          delete this.project!.buildConfigError;
-        }
-      }
       this.persist();
       this.store.set('lastProject', root);
       for (const doc of previous.documents.values()) doc.destroy();
@@ -340,6 +321,7 @@ export class ProjectService {
       );
       if (roots.length === 1) this.project.rootId = roots[0].id;
     }
+    this.readBuildConfiguration();
     this.persist();
     this.store.index(
       this.root,
@@ -531,27 +513,58 @@ export class ProjectService {
     for (const file of this.project.files) await this.save(file);
     return this.snapshot();
   }
+  private readBuildConfiguration() {
+    if (!this.project) return;
+    const file = this.project.files.find((f) => !f.deleted && f.path === 'loom.build.json');
+    if (!file) {
+      delete this.project.buildSettings;
+      delete this.project.buildConfigError;
+      delete this.project.buildConfigRevision;
+      return;
+    }
+    const text = file.binary ? '' : this.doc(file).getText('source').toString();
+    const baseRevision = hash(text) + ':' + String(file.conflict);
+    try {
+      if (file.conflict) throw new Error('Configuration needs external-change review.');
+      const config = portableBuildSchema.parse(JSON.parse(text));
+      const root = this.project.files.find(
+        (f) => !f.deleted && f.path === config.root && f.path.endsWith('.tex'),
+      );
+      const revision = `${baseRevision}:${root?.id}:${root?.path}:${root?.diskKind}`;
+      if (this.project.buildConfigRevision === revision) return;
+      this.project.buildConfigRevision = revision;
+      if (!root || root.diskKind !== 'text')
+        throw new Error('Configured root is missing or unavailable.');
+      this.project.rootId = root.id;
+      this.project.buildSettings = config.settings;
+      delete this.project.buildConfigError;
+    } catch {
+      delete this.project.buildConfigRevision;
+      this.project.buildConfigError =
+        'Invalid, missing-root or conflicting loom.build.json. Review the file, select the root and save build settings to repair it.';
+    }
+  }
   async configureBuild(projectId: string, settings: BuildSettings) {
     const context = this.buildContext(projectId);
     const root = context.files.find((f) => f.id === context.snapshot.rootId)?.path;
     if (!root) throw new Error('Choose a root .tex document before saving build settings.');
-    const target = await this.safe('loom.build.json');
-    const temp = await this.safe(`.loom-save-${randomUUID()}`);
-    try {
-      const handle = await fs.open(temp, 'wx', 0o600);
-      try {
-        await handle.writeFile(JSON.stringify({ version: 1, root, settings }, null, 2) + '\n');
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      await fs.rename(temp, target);
-      this.project!.buildSettings = settings;
-      delete this.project!.buildConfigError;
-      await this.refresh();
-    } finally {
-      await fs.rm(temp, { force: true });
+    await this.refresh();
+    let file = this.project!.files.find((f) => !f.deleted && f.path === 'loom.build.json');
+    if (!file) {
+      await this.command({ type: 'create', path: 'loom.build.json' });
+      file = this.project!.files.find((f) => !f.deleted && f.path === 'loom.build.json');
     }
+    if (!file || file.binary || file.conflict)
+      throw new Error('Resolve external changes to loom.build.json before saving settings.');
+    // Use the same checkpointed, fingerprint-checked atomic write as manuscript text.
+    this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n');
+    this.persist();
+    await this.save(file);
+    if (file.conflict)
+      throw new Error(
+        'Build configuration changed on disk. Review the conflict before saving settings.',
+      );
+    await this.refresh();
   }
   /** Internal only: native roots never cross the renderer bridge. Call inside run(). */
   buildContext(projectId: string) {
@@ -568,6 +581,7 @@ export class ProjectService {
         .map((f) => ({
           id: f.id,
           path: f.path,
+          diskKind: f.diskKind ?? (f.binary ? 'binary' : 'text'),
           revision: f.binary ? f.diskRevision : hash(this.doc(f).getText('source').toString()),
           text: f.binary ? null : this.doc(f).getText('source').toString(),
         })),
@@ -588,6 +602,8 @@ export class ProjectService {
             .map((f) => [
               f.path,
               f.binary ? f.diskRevision : hash(this.doc(f).getText('source').toString()),
+              f.diskRevision ?? null,
+              f.diskKind ?? null,
             ])
             .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
         ]),

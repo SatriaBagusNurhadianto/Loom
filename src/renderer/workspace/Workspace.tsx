@@ -94,8 +94,13 @@ export function Workspace() {
     setNotice('Read-only example loaded. No project files were created.');
   };
   const focusMode = (mode: Layout['mode']) => {
+    const previous = document.activeElement;
     update({ mode });
-    requestAnimationFrame(() => (mode === 'pdf' ? pdf : source)?.focus());
+    requestAnimationFrame(() => {
+      // A later keyboard/pointer action owns focus; do not steal it from a menu.
+      if (document.activeElement === previous || document.activeElement === document.body)
+        (mode === 'pdf' ? pdf : source)?.focus();
+    });
   };
   const togglePreview = () => {
     const open = !pdfVisible();
@@ -812,11 +817,13 @@ export function Workspace() {
                         ? 'Build failed'
                         : latex.state()?.current?.status === 'cancelled'
                           ? 'Cancelled'
-                          : latex.state()?.successful
-                            ? latex.stale()
-                              ? 'PDF out of date'
-                              : 'Compiled'
-                            : 'Compile setup'}
+                          : latex.state()?.current?.status === 'interrupted'
+                            ? 'Build interrupted'
+                            : latex.state()?.successful
+                              ? latex.stale()
+                                ? 'PDF out of date'
+                                : 'Compiled'
+                              : 'Compile setup'}
                 </span>
                 <Icon name="down" size={14} />
               </button>

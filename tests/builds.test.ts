@@ -43,7 +43,7 @@ async function fakeTools() {
 if(process.argv.includes('--version')||process.argv.includes('-v')){console.log('synthetic tool 1');process.exit(0)}
 const out=process.argv.find(x=>x.startsWith('-outdir=')).slice(8);
 const input=fs.readFileSync('sections/body.tex','utf8');
-setTimeout(()=>{ if(input.includes('FAIL')){console.log('sections/body.tex:2: Undefined control sequence.');process.exit(1)} fs.writeFileSync(path.join(out,'main.pdf'),'%PDF-1.7\\n'+input);fs.writeFileSync(path.join(out,'main.synctex.gz'),'synthetic mapping');console.log('synthetic successful run');},input.includes('SLOW')?500:50);`;
+setTimeout(()=>{ if(input.includes('FAIL')){console.log('sections/body.tex:2: Undefined control sequence.');process.exit(1)} fs.writeFileSync(path.join(out,'main.pdf'),'%PDF-1.7\\n'+input);if(!input.includes('NO_MAP'))fs.writeFileSync(path.join(out,'main.synctex.gz'),'synthetic mapping');console.log('synthetic successful run');},input.includes('SLOW')?500:50);`;
   for (const tool of ['latexmk', 'pdflatex', 'xelatex', 'lualatex', 'bibtex', 'biber'])
     await writeFile(join(bin, tool), code, { mode: 0o755 });
   process.env.PATH = bin + ':' + originalPath;
@@ -151,6 +151,108 @@ describe('snapshot build scheduler (synthetic native tools)', () => {
     await second.open(copiedRoot);
     expect(second.buildContext(second.snapshot().id).settings?.engine).toBe('xelatex');
     secondStore.close();
+  });
+  it('reloads external portable root/settings and rejects malformed configuration before building', async () => {
+    await fakeTools();
+    const id = projects.snapshot().id;
+    await builds.settings(id, {
+      engine: 'pdflatex',
+      bibliography: 'auto',
+      recipe: 'latexmk',
+      autoBuild: false,
+      delayMs: 1500,
+    });
+    await writeFile(
+      join(directory, 'paper with spaces', 'alternate.tex'),
+      '\\documentclass{article}\n\\begin{document}Alternate\\end{document}',
+    );
+    const config = {
+      version: 1,
+      root: 'alternate.tex',
+      settings: {
+        engine: 'lualatex',
+        bibliography: 'none',
+        recipe: 'latexmk',
+        autoBuild: false,
+        delayMs: 1000,
+      },
+    };
+    await writeFile(
+      join(directory, 'paper with spaces', 'loom.build.json'),
+      JSON.stringify(config),
+    );
+    await projects.refresh();
+    expect((await builds.status(id)).settings.engine).toBe('lualatex');
+    expect(projects.snapshot().files.find((f) => f.id === projects.snapshot().rootId)?.path).toBe(
+      'alternate.tex',
+    );
+    await writeFile(join(directory, 'paper with spaces', 'loom.build.json'), '{invalid');
+    await projects.refresh();
+    builds.request(id, false);
+    await builds.idle(id);
+    expect((await builds.status(id)).current?.log).toContain('loom.build.json');
+    await writeFile(
+      join(directory, 'paper with spaces', 'loom.build.json'),
+      JSON.stringify(config),
+    );
+    await projects.refresh();
+    expect(projects.buildContext(id).configError).toBeUndefined();
+    await writeFile(join(directory, 'paper with spaces', 'loom.build.json'), '{invalid');
+    await projects.refresh();
+    await builds.settings(id, {
+      engine: 'xelatex',
+      bibliography: 'auto',
+      recipe: 'latexmk',
+      autoBuild: false,
+      delayMs: 1500,
+    });
+    expect(
+      JSON.parse(await readFile(join(directory, 'paper with spaces', 'loom.build.json'), 'utf8'))
+        .settings.engine,
+    ).toBe('xelatex');
+    expect(projects.buildContext(id).configError).toBeUndefined();
+    await projects.command({
+      type: 'rename',
+      fileId: projects.snapshot().rootId!,
+      path: 'renamed.tex',
+    });
+    await projects.refresh();
+    expect(projects.buildContext(id).configError).toContain('missing-root');
+    await builds.settings(id, {
+      engine: 'xelatex',
+      bibliography: 'auto',
+      recipe: 'latexmk',
+      autoBuild: false,
+      delayMs: 1500,
+    });
+    expect(
+      JSON.parse(await readFile(join(directory, 'paper with spaces', 'loom.build.json'), 'utf8'))
+        .root,
+    ).toBe('renamed.tex');
+    expect(projects.buildContext(id).configError).toBeUndefined();
+    await projects.command({ type: 'delete', fileId: projects.snapshot().rootId! });
+    await projects.refresh();
+    expect(projects.buildContext(id).configError).toContain('missing-root');
+  });
+  it('provides an explicit fallback when a successful output has no source map', async () => {
+    await fakeTools();
+    const id = projects.snapshot().id;
+    await writeFile(join(directory, 'paper with spaces', 'sections/body.tex'), 'NO_MAP');
+    await projects.refresh();
+    builds.request(id, false);
+    await builds.idle(id);
+    const state = await builds.status(id);
+    expect(state.successful?.hasPdf).toBe(true);
+    expect(state.successful?.hasSynctex).toBe(false);
+    await expect(
+      builds.mapping({
+        type: 'forward',
+        projectId: id,
+        buildId: state.successful!.id,
+        path: 'main.tex',
+        line: 1,
+      }),
+    ).rejects.toThrow('no SyncTeX mapping');
   });
   it('reports missing tools and ambiguous roots without modifying the project', async () => {
     process.env.PATH = join(directory, 'missing');

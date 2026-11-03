@@ -89,6 +89,8 @@ export class BuildService {
       };
       this.sessions.set(projectId, session);
     }
+    const configured = this.projects.buildContext(projectId).settings;
+    if (configured) session.state.settings = configured;
     session.state.tools = this.tools.map(({ executable: _path, ...tool }) => tool);
     return session;
   }
@@ -238,6 +240,7 @@ export class BuildService {
       if (input.configError) throw new Error(input.configError);
       if (signal.aborted) throw new Error('Build cancelled.');
       record.revision = input.snapshot.sourceRevision!;
+      if (input.settings) record.settings = { ...input.settings };
       record.root = input.files.find((f) => f.id === input.snapshot.rootId)?.path ?? record.root;
       await this.detect();
       record.tools = this.tools.map(({ executable: _path, ...tool }) => tool);
@@ -370,7 +373,12 @@ export class BuildService {
     const artifact = this.artifact(projectId, buildId);
     if (!(await this.validPdf(artifact.pdf)))
       throw new Error('The saved PDF is missing. Compile again.');
-    return { kind: 'pdf', buildId, data: (await fs.readFile(artifact.pdf)).toString('base64') };
+    return {
+      kind: 'pdf',
+      buildId,
+      revision: artifact.record.revision,
+      data: (await fs.readFile(artifact.pdf)).toString('base64'),
+    };
   }
   async mapping(
     command: Extract<LatexCommand, { type: 'forward' | 'reverse' }>,
