@@ -42,6 +42,7 @@ export function Modal(props: {
   open: boolean;
   onClose: () => void;
   children: JSX.Element;
+  initialFocus?: string;
 }) {
   const titleId = createUniqueId();
   let dialog!: HTMLDialogElement;
@@ -50,6 +51,7 @@ export function Modal(props: {
     if (props.open && !dialog.open) {
       previous = document.activeElement as HTMLElement;
       dialog.showModal();
+      if (props.initialFocus) dialog.querySelector<HTMLElement>(props.initialFocus)?.focus();
     } else if (!props.open && dialog.open) {
       dialog.close();
       previous?.focus();

@@ -16,8 +16,8 @@ export const layoutSchema = z
 export type Layout = z.infer<typeof layoutSchema>;
 export const defaultLayout: Layout = {
   version: 1,
-  sidebar: 30,
-  pdf: 27,
+  sidebar: 20,
+  pdf: 32,
   sidebarOpen: true,
   pdfOpen: true,
   outlineOpen: true,

@@ -59,7 +59,8 @@ Phase 1 implements the workspace shell and shared primitives. The palette and me
 
 Reference evidence:
 
-- Primary: the user's screenshot, `design/references/prism-workspace.png`.
+- Original workspace: `design/references/prism-workspace.png`.
+- Newer sidebar and assistant states: `design/references/prism-sidebar.png`, `prism-assistant-expanded.png`, and `prism-assistant-empty.png`; these guide the refined navigation, narrower sidebar and two-row composer.
 - Official launch page: https://openai.com/index/introducing-prism/
 - Official workspace description: https://help.openai.com/en/articles/20001050-troubleshooting-prism
 - The official launch illustration describes source on the left, a compiled paper on the right, and an assistant prompt in the workspace.
@@ -117,17 +118,17 @@ Runtime token ownership is `src/renderer/ui/tokens.css`; `workspace.css` consume
 
 Shared control/empty/modal ownership is `src/renderer/ui/primitives.tsx`; line icons live in `Icon.tsx`. Modal dialogs use native `<dialog>.showModal()` with browser focus containment, Escape, background inertness and explicit restoration to the opener. Search has immediate local filtering and a clear action. Sidebar Files/Chats are toggle buttons in a named group, rather than incomplete ARIA tabs. There is no select/listbox or data table in Phase 1. Global scrollbars have standard and Chromium styles, hover/active states, and a forced-colors override.
 
-Reference layout starts at 30% sidebar, 43% source, 27% PDF, with six-pixel keyboard-operable dividers. Sidebar bounds are 18–38%, PDF 22–45%, with at least 25% retained for source. Below 1100px, show Source or PDF focus mode and a compact view toolbar. Preserve split preference across automatic responsive changes. Native Electron minimum is 720×540.
+The newer supplied Prism references use a narrower sidebar. New layouts start at 20% sidebar, 48% source, 32% PDF; saved user widths are retained, with six-pixel keyboard-operable dividers. Sidebar bounds are 18–38%, PDF 22–45%, with at least 25% retained for source. Below 1100px, show Source or PDF focus mode and a compact view toolbar. Preserve split preference across automatic responsive changes. Native Electron minimum is 720×540.
 
 The default state is honestly empty. A user-triggered synthetic example permits reference comparison without implying a real project, editor, saved file, compilation, or agent. The composer is a foundation surface with an explicit disconnected state and disabled Send. Availability dialogs explain each later-phase action. Phase 1 stored UI layout alone with a versioned, validated schema. Phase 2 real projects use the document/recovery and SQLite preferences described below; the synthetic example remains transient.
 
-Notifications use one stable status region with a dismiss action; errors that require recovery remain inline in diagnostics. Width sliders and divider keys provide alternatives to pointer dragging. F6 cycles visible panels. Source/PDF/Split controls and Ctrl Alt 1/2/3 provide focus modes; Ctrl Alt B toggles sidebar. Reduced motion and forced colors are handled globally. English desktop is the initial locale; Japan-market behavior is outside this brief.
+Notifications use one stable status region with a dismiss action; routine notices dismiss after five seconds, pausing while hovered or focused; errors that require recovery remain inline in diagnostics. Width sliders and divider keys provide alternatives to pointer dragging. F6 cycles visible panels. Source/PDF/Split controls and Ctrl Alt 1/2/3 provide focus modes; Ctrl Alt B toggles sidebar. Reduced motion and forced colors are handled globally. English desktop is the initial locale; Japan-market behavior is outside this brief.
 
 ## Motion and interactive micro-feedback
 
 Motion design tokens live in `src/renderer/ui/tokens.css`:
 
-- `--duration-fast`: 80ms for active tactile click feedback (subtle scale: 0.97 on buttons, 0.92 on icon buttons).
+- `--duration-fast`: 80ms for active tactile click feedback (subtle scale: 0.99 on buttons, 0.96 on icon buttons).
 - `--duration-normal`: 140ms with easing `--ease-standard: cubic-bezier(0.16, 1, 0.3, 1)` for smooth hover backgrounds, borders, colors, and shadows.
 - `--duration-modal`: 160ms for dialog fade/scale pop-in, toast notice slide-up, and outline accordion rotation.
 
@@ -147,3 +148,11 @@ All transitions and animations are strictly disabled under `@media (prefers-redu
 The real project surface reuses the Phase 1 shell, shared Modal and notification region. Project selection uses operating-system folder/ZIP dialogs; file creation uses the native save picker inside the open project, while rename/delete use app-owned dialogs. Delete retains a recoverable copy. Project controls are available through the center toolbar on a narrow desktop. File tabs are labeled toggle buttons, not incomplete ARIA tabs. Search is transient local manuscript state rather than a shareable URL; it runs against the service's rebuildable SQLite index with stale-result suppression and an immediate clear control.
 
 CodeMirror owns source editing, syntax, line numbers, selection, search/replace and keyboard commands; Yjs owns live text. External updates apply through the binding rather than remounting the editor. Font/wrapping, file tabs, caret/selection/scroll and project layout are stored in SQLite project preferences. The existing validated local-storage layout remains the startup/browser fallback. Disk acknowledgment alone permits “Saved to disk”; conflicts and connection errors stay visible. PDF and assistant remain explicitly unavailable until their respective phases.
+
+## Refined project navigation
+
+The supplied sidebar and expanded-composer references guide the Phase 2 UX correction. Files and Chats remain peer controls for a real project. Folder disclosure buttons and nested lists use native button semantics and Tab/Enter rather than an incomplete ARIA tree. File rows show the basename, an icon and quiet root/conflict status; full paths remain available in accessible names and titles. Stable primitive IDs retain focus across polling snapshots.
+
+The sidebar is height-bounded. Its file browser and outline have independent scroll regions; the local workspace/settings footer is a non-shrinking sibling anchored at the bottom. Search appears on demand, supports IME, immediate clear and Enter, and keeps generation-checked results. Per-file rename/move/root/delete actions live in the shared `ActionMenu` native top-layer popover with keyboard navigation, Escape, light dismissal and focus return. Deleted files use a dedicated recovery dialog. Root metadata lives in project settings. Rename/delete use the existing Modal; errors stay inline and retain the filename.
+
+`Project` in the source toolbar opens a compact file navigator, including at the minimum desktop size. Project selection/import and editor preferences have a separate Projects dialog. The toolbar owns horizontally scrolling document tabs and compact save/find/project actions; persistence status remains visible below the editor. The two-row assistant composer stays at the bottom of the center column and truthfully explains the disconnected agent. Opening a real project clears the transient example state.

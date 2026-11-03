@@ -70,11 +70,15 @@ Generated artifacts are ignored local evidence. Fixtures are synthetic. No live 
 - AppImage installation, Windows/macOS, full IME and large-project performance targets, physical disk-exhaustion/power-loss testing and the complete research workflow remain unverified. A packaged smoke is not an installed pilot release.
 - Root inference selects only a unique `\\documentclass` candidate; ambiguous projects require explicit root selection. Rich label/citation/figure navigation and language diagnostics belong to Phase 3.
 
-## UX corrections in progress
+## UX corrections — implementation verified; Terra review pending
 
 - Native **New file** now uses the OS save picker, starts in the open project, creates exclusively inside that project and selects the result. Cancellation retains the current document. Native paths remain outside renderer snapshots.
 - Native containment/identity/symlink/overwrite coverage added at the service boundary and real Electron picker-boundary cases added. Verified: `npm run check` passed; `npm run test:e2e` passed 13 of 13 in consecutive runs (11 original + 2 native-picker cases). One new e2e strict-mode locator issue was fixed by scoping the file-row assertion to the sidebar, and service-restart synchronization in test 7 was stabilized by awaiting ready state and disk acknowledgment before post-restart keystrokes. Verified: full test suite passes 13 of 13 cleanly.
 - Interactive animations and smoothed click interactions implemented across buttons, file rows, tabs, dialogs, notices, search inputs, and outline accordions with `--duration-fast/normal/modal` and `--ease-standard`, strictly honoring `prefers-reduced-motion`. Verified: `npm run check` passed; `npm run test:e2e` (13/13) passed cleanly.
+
+- Rebuilt project navigation around folder disclosures and per-file menus; file search is on demand, deleted files have a recovery dialog, and root metadata moved to project settings. The account/settings footer remains outside scrolling content. Document tabs and native actions share one toolbar; a compact Project files dialog serves smaller windows. New default widths follow the newer Prism reference (20/48/32), preserving saved widths.
+- Current checks: `npm run check` passed (41 deterministic tests) and all 16 Electron cases passed. The richer workflow checks native folder creation, binary assets, keyboard menus, invalid rename recovery, long-list footer containment, stable row focus, search/no-results, reduced motion and 720×540 navigation. Actual screenshots at 1600×1000, 2048×1096 and 900×700 were inspected against the user’s references. Strict UI audit: zero findings; DESIGN lint: zero errors/warnings. Evidence: `artifacts/phase-2-ux-workspace.png`, `phase-2-ux-file-menu.png`, `phase-2-ux-small.png`, `phase-2-ux-audit.json`.
+- Handoff audit: retained verified native-picker commit `6e1a412` and motion-token commit `807354c`; replaced the unfinished panel markup with the cohesive navigation above. Local `phase-2-example/` and `skills/` folders remain outside these code commits. Review and packaging are the remaining work for this correction task.
 
 ## Next concrete task
 

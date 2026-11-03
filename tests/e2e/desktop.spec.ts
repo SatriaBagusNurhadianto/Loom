@@ -191,19 +191,21 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await mkdir(resolve('artifacts'), { recursive: true });
   await page.screenshot({
+    animations: 'disabled',
     path: resolve('artifacts/phase-1-electron-reference.png'),
     scale: 'css',
   });
 
   const divider = page.getByRole('separator', { name: 'Sidebar width' });
+  const startingWidth = Number(await divider.getAttribute('aria-valuenow'));
   await divider.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(divider).toHaveAttribute('aria-valuenow', '31');
+  await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await page.reload();
-  await expect(divider).toHaveAttribute('aria-valuenow', '31');
+  await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await divider.focus();
   await page.keyboard.press('Home');
-  await expect(divider).toHaveAttribute('aria-valuenow', '30');
+  await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth));
   await page.keyboard.press('Control+Alt+b');
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await page.reload();
@@ -232,6 +234,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.getByRole('button', { name: 'View workspace example', exact: true }).last().click();
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await page.screenshot({
+    animations: 'disabled',
     path: resolve('artifacts/phase-1-electron-small-source.png'),
     scale: 'css',
   });
@@ -239,6 +242,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
   await expect(page.getByRole('main', { name: 'Source workspace' })).toHaveCount(0);
   await page.screenshot({
+    animations: 'disabled',
     path: resolve('artifacts/phase-1-electron-small-pdf.png'),
     scale: 'css',
   });
@@ -271,6 +275,173 @@ async function openSyntheticProject(): Promise<string> {
   );
   return folder;
 }
+test('sidebar footer, folder navigation and row focus remain stable with many files', async () => {
+  const folder = await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  await mkdir(join(folder, 'sections'));
+  await Promise.all(
+    Array.from({ length: 80 }, (_, i) =>
+      writeFile(join(folder, 'sections', `part-${i}.tex`), `\\section{Part ${i}}\n`),
+    ),
+  );
+  await page.evaluate(() => window.loom!.project({ type: 'refresh' }));
+  const sidebar = page.getByRole('complementary', { name: 'Project sidebar' });
+  const folderButton = sidebar.getByRole('button', { name: 'Folder sections', exact: true });
+  await expect(folderButton).toBeVisible();
+  await folderButton.click();
+  await expect(folderButton).toHaveAttribute('aria-expanded', 'false');
+  await page.evaluate(() => window.loom!.project({ type: 'refresh' }));
+  await expect(folderButton).toHaveAttribute('aria-expanded', 'false');
+  await folderButton.click();
+  const row = sidebar.getByRole('button', { name: 'sections/part-0.tex', exact: true });
+  await row.focus();
+  await page.evaluate(() => window.loom!.project({ type: 'refresh' }));
+  await expect(row).toBeFocused();
+  const footerGap = await sidebar.evaluate(
+    (element) =>
+      element.getBoundingClientRect().bottom -
+      element.querySelector('.sidebar-footer')!.getBoundingClientRect().bottom,
+  );
+  expect(footerGap).toBeLessThanOrEqual(1);
+  expect(
+    await page
+      .locator('.project-browser')
+      .evaluate((element) => element.scrollHeight > element.clientHeight),
+  ).toBe(true);
+  await dimensions(1280, 720);
+  expect(
+    await sidebar.evaluate(
+      (element) =>
+        element.querySelector('.sidebar-footer')!.getBoundingClientRect().bottom <= innerHeight,
+    ),
+  ).toBe(true);
+});
+
+test('Prism navigation, native folder creation, assets and narrow dialog stay usable', async () => {
+  const folder = await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  await mkdir(join(folder, 'sections'));
+  await mkdir(join(folder, 'assets'));
+  await writeFile(
+    join(folder, 'sections', 'background.tex'),
+    '\\section{Background}\nSynthetic background.\n',
+  );
+  await writeFile(
+    join(folder, 'sections', 'methods.tex'),
+    '\\section{Methods}\nReproducible methods.\n',
+  );
+  await writeFile(join(folder, 'assets', 'figure.png'), Buffer.from([0, 255, 4]));
+  await writeFile(
+    join(folder, 'main.tex'),
+    '\\documentclass[11pt]{article}\n\\usepackage[margin=1in]{geometry}\n\\usepackage{graphicx}\n\n\\title{A reproducible manuscript}\n\\author{Loom Example}\n\\date{\\today}\n\n\\begin{document}\n\\maketitle\n\\section{Introduction}\nOriginal text.\n\n\\input{sections/background}\n\\input{sections/methods}\n\\bibliography{references}\n\\end{document}\n',
+  );
+  await expect(page.getByRole('button', { name: 'Folder sections', exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'A reproducible manuscript',
+  );
+  await desktop.evaluate(
+    ({ dialog }, path) => {
+      dialog.showSaveDialog = async (...args: unknown[]) => {
+        (globalThis as { fileDialogOptions?: unknown }).fileDialogOptions = args.at(-1);
+        return { canceled: false, filePath: path };
+      };
+    },
+    join(folder, 'sections', 'picked.tex'),
+  );
+  await page.getByRole('button', { name: 'New file in sections', exact: true }).click();
+  await expect
+    .poll(() => readFile(join(folder, 'sections', 'picked.tex'), 'utf8').catch(() => null))
+    .toBe('');
+  expect(
+    await desktop.evaluate(() => (globalThis as { fileDialogOptions?: unknown }).fileDialogOptions),
+  ).toMatchObject({ defaultPath: join(folder, 'sections', 'untitled.tex') });
+  const sidebar = page.getByRole('complementary', { name: 'Project sidebar' });
+  await sidebar.getByRole('button', { name: 'main.tex', exact: true }).click();
+  await dimensions(1600, 1000);
+  await page.screenshot({
+    path: resolve('artifacts/phase-2-ux-workspace.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Actions for main.tex', exact: true }).click();
+  const menu = page.getByRole('menu', { name: 'Actions for main.tex' });
+  await expect(menu).toBeVisible();
+  expect(
+    await menu.evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+    }),
+  ).toBe(true);
+  await page.screenshot({
+    path: resolve('artifacts/phase-2-ux-file-menu.png'),
+    animations: 'disabled',
+  });
+  await page.keyboard.press('Escape');
+  await sidebar.getByRole('button', { name: 'assets/figure.png', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Project asset' })).toBeVisible();
+  await sidebar.getByRole('button', { name: 'main.tex', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Chats', exact: true }).click();
+  await expect(sidebar).toContainText('No conversations yet');
+  await sidebar.getByRole('button', { name: 'Files', exact: true }).click();
+  await dimensions(900, 700);
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Project files', exact: true })).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-2-ux-small.png'),
+    animations: 'disabled',
+  });
+  await dimensions(720, 540);
+  const navigation = page.getByRole('dialog', { name: 'Project files', exact: true });
+  expect(
+    await navigation.evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      return r.bottom <= innerHeight && r.top >= 0 && r.width <= innerWidth;
+    }),
+  ).toBe(true);
+  await navigation.getByRole('button', { name: 'sections/methods.tex', exact: true }).click();
+  await expect(navigation).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Reproducible methods',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('file action menus support keyboard, inline errors, search and reduced motion', async () => {
+  await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  const trigger = page.getByRole('button', { name: 'Actions for main.tex', exact: true });
+  await trigger.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Rename / move', exact: true })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole('menuitem', { name: 'Rename / move', exact: true }).click();
+  const path = page.getByRole('textbox', { name: 'Project-relative path' });
+  await expect(path).toBeFocused();
+  await path.fill('../outside.tex');
+  await page.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
+  await expect(path).toHaveValue('../outside.tex');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Search project', exact: true }).click();
+  const search = page.getByRole('textbox', { name: 'Search project text' });
+  await expect(search).toBeFocused();
+  await search.fill('absent-word-924');
+  await search.press('Enter');
+  await expect(page.getByRole('region', { name: 'Project search results' })).toContainText(
+    '0 matching locations',
+  );
+  await page.getByRole('button', { name: 'Clear project search' }).click();
+  await expect(search).toBeFocused();
+  await expect(page.getByRole('button', { name: 'main.tex', exact: true }).first()).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await trigger.evaluate((element) => getComputedStyle(element).transitionDuration)).toBe(
+    '0s',
+  );
+});
+
 test('New file uses the native save picker and opens the created file', async () => {
   const folder = await openSyntheticProject();
   await page.keyboard.press('Control+Alt+3');
@@ -359,11 +530,17 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('after restart');
   await mkdir(resolve('artifacts'), { recursive: true });
   await dimensions(2048, 1096);
-  await page.screenshot({ path: resolve('artifacts/phase-2-electron-reference.png') });
+  await page.screenshot({
+    animations: 'disabled',
+    path: resolve('artifacts/phase-2-electron-reference.png'),
+  });
   await dimensions(900, 700);
   await page.getByRole('button', { name: 'Project', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('references.bib');
-  await page.screenshot({ path: resolve('artifacts/phase-2-electron-small.png') });
+  await page.screenshot({
+    animations: 'disabled',
+    path: resolve('artifacts/phase-2-electron-small.png'),
+  });
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -407,6 +584,7 @@ test('file operations, root choice, search locations, find/replace and caret res
   await editor.focus();
   await page.keyboard.press('Control+s');
   await expect.poll(() => readFile(join(folder, 'main.tex'), 'utf8')).toContain('Updated text.');
+  await page.getByRole('button', { name: 'Search project', exact: true }).click();
   const query = page.getByRole('textbox', { name: 'Search project text' });
   await query.fill('Updated text.');
   const hit = page.getByRole('button', { name: /main.tex:4/ });
@@ -425,19 +603,20 @@ test('file operations, root choice, search locations, find/replace and caret res
     .getByRole('complementary', { name: 'Project sidebar' })
     .getByRole('button', { name: '章节/结果.tex', exact: true })
     .click();
-  await page.getByRole('button', { name: /Use 章节\/结果.tex as root/ }).click();
-  await page.getByRole('button', { name: 'Rename / move', exact: true }).click();
+  await page.getByRole('button', { name: 'Actions for 章节/结果.tex', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Use 章节\/结果.tex as root/ }).click();
+  await page.getByRole('button', { name: 'Actions for 章节/结果.tex', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rename / move', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project-relative path' }).fill('sections/results.tex');
   await page.getByRole('button', { name: 'Rename', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'sections/results.tex', exact: true }).first(),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Actions for sections/results.tex', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
-  await page
-    .getByRole('complementary', { name: 'Project sidebar' })
-    .getByText('Recover deleted files', { exact: true })
-    .click();
+  await page.getByRole('button', { name: 'Project file options', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Deleted files (1)', exact: true }).click();
   await page.getByRole('button', { name: 'Restore sections/results.tex' }).click();
   await expect
     .poll(async () => {
@@ -526,6 +705,7 @@ test('native project creation and ZIP import preserve ordinary source and assets
     { archive, destination },
   );
   await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
   await page.getByRole('button', { name: 'Import ZIP', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Root: paper.tex');
   await page.keyboard.press('Escape');
