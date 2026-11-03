@@ -1,5 +1,6 @@
 import {
   projectCommandSchema,
+  chooseFileRequestSchema,
   projectResultSchema,
   type ProjectChoice,
   type ProjectCommand,
@@ -32,6 +33,15 @@ async function invoke(
 }
 
 const desktop: LoomDesktop = {
+  chooseFile: async (request) => {
+    const input = chooseFileRequestSchema.safeParse(request);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid file choice.', false);
+    try {
+      return projectResultSchema.parse(await ipcRenderer.invoke(channels.chooseFile, input.data));
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'The file dialog is unavailable. Try again.');
+    }
+  },
   project: async (command: ProjectCommand) => {
     const input = projectCommandSchema.safeParse(command);
     if (!input.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);

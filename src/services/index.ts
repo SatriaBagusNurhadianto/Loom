@@ -6,13 +6,22 @@ import { z } from 'zod';
 const port = process.parentPort;
 if (!port) throw new Error('The Loom service requires a parent port.');
 const projects = new ProjectService(new MetadataStore(process.argv[2]));
-const native = z
-  .object({
-    type: z.enum(['native-open', 'native-create', 'native-import-folder', 'native-import-zip']),
-    path: z.string().min(1),
-    destination: z.string().optional(),
-  })
-  .strict();
+const native = z.union([
+  z
+    .object({
+      type: z.literal('native-create-file'),
+      path: z.string().min(1),
+      projectId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.enum(['native-open', 'native-create', 'native-import-folder', 'native-import-zip']),
+      path: z.string().min(1),
+      destination: z.string().optional(),
+    })
+    .strict(),
+]);
 const request = z
   .object({ type: z.literal('project'), id: z.string(), command: z.unknown() })
   .strict();
@@ -30,12 +39,15 @@ port.on('message', (event: { data: unknown }) => {
       let value;
       if (n.success) {
         const c = n.data;
-        if (c.type === 'native-open') value = await projects.open(c.path);
+        if (c.type === 'native-create-file') value = await projects.createFile(c.path, c.projectId);
+        else if (c.type === 'native-open') value = await projects.open(c.path);
         else if (c.type === 'native-create') value = await projects.create(c.path);
         else if (c.type === 'native-import-folder')
           value = await projects.importFolder(c.path, c.destination!);
         else value = await projects.importZip(c.path, c.destination!);
       } else value = await projects.command(projectCommandSchema.parse(parsed.data.command));
+      const location = projects.nativeLocation();
+      if (location) port.postMessage({ type: 'project-context', ...location });
       port.postMessage({ type: 'project-result', id: parsed.data.id, result: { ok: true, value } });
     } catch (error) {
       port.postMessage({

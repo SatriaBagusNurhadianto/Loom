@@ -1,6 +1,7 @@
 import {
   projectResultSchema,
   type ProjectChoice,
+  type ChooseFileRequest,
   type ProjectCommand,
   type ProjectResult,
 } from './project';
@@ -14,6 +15,7 @@ export const channels = {
   event: 'loom:service:event',
   project: 'loom:project:command',
   chooseProject: 'loom:project:choose',
+  chooseFile: 'loom:project:choose-file',
 } as const;
 
 export const operationErrorSchema = z
@@ -59,6 +61,7 @@ export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 
 // No project paths, file access, shell execution, or arbitrary IPC are exposed.
 export interface LoomDesktop {
+  chooseFile(request: ChooseFileRequest): Promise<ProjectResult>;
   project(command: ProjectCommand): Promise<ProjectResult>;
   chooseProject(choice: ProjectChoice): Promise<ProjectResult>;
   onCloseRequest(listener: () => void): () => void;
@@ -76,6 +79,9 @@ export const serviceRequestSchema = z
   })
   .strict();
 export const serviceMessageSchema = z.discriminatedUnion('type', [
+  z
+    .object({ type: z.literal('project-context'), projectId: z.string(), path: z.string() })
+    .strict(),
   z
     .object({ type: z.literal('project-result'), id: z.string(), result: projectResultSchema })
     .strict(),

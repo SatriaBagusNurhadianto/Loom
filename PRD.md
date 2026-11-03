@@ -26,22 +26,22 @@ The base application is free. Researchers remain responsible for external model/
 
 The distinction below prevents recommendations from being mistaken for explicit user decisions.
 
-| Topic | Planning decision | Origin |
-|---|---|---|
-| Application form | Electron desktop application | Confirmed by user |
-| Agent approach | Integrate existing harnesses; researchers bring their own agent setup | Confirmed by user |
-| First harness | OpenCode, through its local server and TypeScript SDK | Engineering default; user delegated the simplest initial choice |
-| Additional harnesses | Codex and other supported agents through adapters | Product direction; staged after the first integration |
-| Live collaboration | Deferred until after the initial desktop release | Confirmed by user |
-| Accounts | No Loom account required for the local release; introduce with cloud services | Engineering default; user explicitly deferred live collaboration but did not separately decide account timing |
-| Compiler setup | Detect existing LaTeX installations and guide setup when missing | Confirmed by user |
-| Managed LaTeX installation | Later enhancement | Confirmed by user |
-| Visual reference | Match the supplied current Prism workspace screenshot | Confirmed by user |
-| First validated platform | Linux x86_64 pilot, matching the current development environment | Engineering default; the user's Codex/OpenCode answer addressed harness choice rather than operating systems |
-| Platform expansion | Windows and macOS after platform-specific packaging and workflow validation | Engineering default; shared implementation must remain portable |
-| Core stack | Electron, TypeScript, SolidJS, CodeMirror 6, PDF.js, Node.js, TexLab, latexmk, local persistence | Working technical recommendation consolidated from the discussion |
-| Shared document foundation | Yjs-backed editing and a versioned bridge to filesystem tools | Working architectural recommendation for future collaboration |
-| Visual prose mode | Later enhancement; launch uses source editing plus PDF preview | Engineering default; user described visual prose editing as a possible addition |
+| Topic                      | Planning decision                                                                                | Origin                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Application form           | Electron desktop application                                                                     | Confirmed by user                                                                                             |
+| Agent approach             | Integrate existing harnesses; researchers bring their own agent setup                            | Confirmed by user                                                                                             |
+| First harness              | OpenCode, through its local server and TypeScript SDK                                            | Engineering default; user delegated the simplest initial choice                                               |
+| Additional harnesses       | Codex and other supported agents through adapters                                                | Product direction; staged after the first integration                                                         |
+| Live collaboration         | Deferred until after the initial desktop release                                                 | Confirmed by user                                                                                             |
+| Accounts                   | No Loom account required for the local release; introduce with cloud services                    | Engineering default; user explicitly deferred live collaboration but did not separately decide account timing |
+| Compiler setup             | Detect existing LaTeX installations and guide setup when missing                                 | Confirmed by user                                                                                             |
+| Managed LaTeX installation | Later enhancement                                                                                | Confirmed by user                                                                                             |
+| Visual reference           | Match the supplied current Prism workspace screenshot                                            | Confirmed by user                                                                                             |
+| First validated platform   | Linux x86_64 pilot, matching the current development environment                                 | Engineering default; the user's Codex/OpenCode answer addressed harness choice rather than operating systems  |
+| Platform expansion         | Windows and macOS after platform-specific packaging and workflow validation                      | Engineering default; shared implementation must remain portable                                               |
+| Core stack                 | Electron, TypeScript, SolidJS, CodeMirror 6, PDF.js, Node.js, TexLab, latexmk, local persistence | Working technical recommendation consolidated from the discussion                                             |
+| Shared document foundation | Yjs-backed editing and a versioned bridge to filesystem tools                                    | Working architectural recommendation for future collaboration                                                 |
+| Visual prose mode          | Later enhancement; launch uses source editing plus PDF preview                                   | Engineering default; user described visual prose editing as a possible addition                               |
 
 These defaults make the PRD actionable without another clarification round. They may be revised explicitly before the relevant implementation milestone. Desktop launch support must be described according to platforms actually validated.
 
@@ -51,12 +51,12 @@ Researchers move among source editors, PDFs, compilers, reference managers, Git 
 
 Loom serves researchers and students who already use or need LaTeX: graduate students writing theses, researchers preparing papers, and authors working with technical coauthors. The initial workflow assumes access to a desktop computer and willingness to install an agent harness and a TeX distribution with guidance.
 
-| User | Main job | Success looks like |
-|---|---|---|
-| Paper or thesis author | Draft and revise a substantial manuscript | Moves between source, evidence, agent edits, and compiled output without transferring text between applications |
-| Researcher with a preferred agent | Use an established harness on manuscript files | Keeps the harness's supported model choices and authentication while working in Loom |
-| Coauthor using Git | Review and exchange revisions | Understands the proposed changes, checks the PDF, and commits/pulls/pushes deliberately |
-| Researcher learning LaTeX | Work with a template and resolve errors | Gets actionable setup and compiler guidance while retaining editable source |
+| User                              | Main job                                       | Success looks like                                                                                              |
+| --------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Paper or thesis author            | Draft and revise a substantial manuscript      | Moves between source, evidence, agent edits, and compiled output without transferring text between applications |
+| Researcher with a preferred agent | Use an established harness on manuscript files | Keeps the harness's supported model choices and authentication while working in Loom                            |
+| Coauthor using Git                | Review and exchange revisions                  | Understands the proposed changes, checks the PDF, and commits/pulls/pushes deliberately                         |
+| Researcher learning LaTeX         | Work with a template and resolve errors        | Gets actionable setup and compiler guidance while retaining editable source                                     |
 
 The community research is qualitative evidence, not a representative demand survey. See [the research brief](research/latex-editor-opportunity-brief.md) for firsthand accounts and citations.
 
@@ -154,7 +154,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 - Preserve existing source, custom classes, bibliography entries, and assets without converting the project to a proprietary manuscript format.
 - Support projects containing multiple source files, subdirectories, images, and local style/class files.
 - Detect likely root documents and let the author select one when detection is ambiguous.
-- Provide file creation, renaming, move, deletion with recovery where Loom performs the operation, and project-wide text search.
+- Provide file creation, renaming, move, deletion with recovery where Loom performs the operation, and project-wide text search. New file opens the native location picker, starting inside the current project; reject destinations outside it and preserve existing files.
 - Do not change the original project merely to inspect it. Explain when a requested action will create configuration or output files.
 - Keep transient build data, agent state, credentials, and machine-specific paths out of default repository exports and commits.
 
@@ -312,12 +312,12 @@ The user's [Prism screenshot](design/references/prism-workspace.png) is the prim
 
 ### 6.1 Default workspace
 
-| Region | Required structure |
-|---|---|
-| Left sidebar | Loom identity, collapse control, project selector, Files/Chats tabs, search/add actions, file tree, outline, local workspace/profile area |
-| Center | Open file tabs, Tools action, source editor with line numbers, assistant composer anchored at the bottom of this column |
-| Assistant composer | Prompt entry, attachments, harness/model controls, send/stop state; capability-aware actions |
-| Right | Light PDF surface, build state and controls, expand/export/overflow actions, rendered paper, navigation |
+| Region             | Required structure                                                                                                                        |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Left sidebar       | Loom identity, collapse control, project selector, Files/Chats tabs, search/add actions, file tree, outline, local workspace/profile area |
+| Center             | Open file tabs, Tools action, source editor with line numbers, assistant composer anchored at the bottom of this column                   |
+| Assistant composer | Prompt entry, attachments, harness/model controls, send/stop state; capability-aware actions                                              |
+| Right              | Light PDF surface, build state and controls, expand/export/overflow actions, rendered paper, navigation                                   |
 
 The screenshot's approximate width allocation is 30% sidebar, 42% editor/composer, and 27% PDF, plus insets. Use those proportions for comparison at the reference size, with resizable/collapsible behavior at other window sizes. The composer does not span the entire application width.
 
@@ -336,21 +336,21 @@ The supplied screenshot does not establish expanded chat placement, Tools conten
 
 ### 7.1 Desktop stack
 
-| Concern | Working choice | Responsibility |
-|---|---|---|
-| Shell and build | Electron, TypeScript, electron-vite | Desktop lifecycle, packaging inputs, typed boundaries |
-| UI | SolidJS | Workspace controls and targeted state updates |
-| Source editing | CodeMirror 6 | Editing transactions, selections, decorations, undo integration |
-| Shared text | Yjs with the CodeMirror 6 binding | Live text model designed for future synchronized editing |
-| PDF | PDF.js with its worker | Rendering, selection, bounded page caching |
-| Local services | Node.js in an Electron utility process | Filesystem reconciliation, agent adapters, builds, Git |
-| Language features | TexLab over LSP | LaTeX language intelligence |
-| Builds | latexmk and installed TeX engines/BibTeX/Biber | Compatible native compilation |
-| Local persistence | IndexedDB for Yjs; SQLite for app metadata and derived indexes | Durable local work and application state |
-| Search/version control | ripgrep and native Git | Source search and asynchronous collaboration |
-| Harness | OpenCode local server/TypeScript SDK first | Existing agent execution and supported provider access |
-| Agent tools | Loom tools exposed through supported integration surfaces, including MCP where appropriate | Compilation, project diagnostics, literature workflows |
-| Distribution | electron-builder | Platform-specific application packages and updates |
+| Concern                | Working choice                                                                             | Responsibility                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Shell and build        | Electron, TypeScript, electron-vite                                                        | Desktop lifecycle, packaging inputs, typed boundaries           |
+| UI                     | SolidJS                                                                                    | Workspace controls and targeted state updates                   |
+| Source editing         | CodeMirror 6                                                                               | Editing transactions, selections, decorations, undo integration |
+| Shared text            | Yjs with the CodeMirror 6 binding                                                          | Live text model designed for future synchronized editing        |
+| PDF                    | PDF.js with its worker                                                                     | Rendering, selection, bounded page caching                      |
+| Local services         | Node.js in an Electron utility process                                                     | Filesystem reconciliation, agent adapters, builds, Git          |
+| Language features      | TexLab over LSP                                                                            | LaTeX language intelligence                                     |
+| Builds                 | latexmk and installed TeX engines/BibTeX/Biber                                             | Compatible native compilation                                   |
+| Local persistence      | IndexedDB for Yjs; SQLite for app metadata and derived indexes                             | Durable local work and application state                        |
+| Search/version control | ripgrep and native Git                                                                     | Source search and asynchronous collaboration                    |
+| Harness                | OpenCode local server/TypeScript SDK first                                                 | Existing agent execution and supported provider access          |
+| Agent tools            | Loom tools exposed through supported integration surfaces, including MCP where appropriate | Compilation, project diagnostics, literature workflows          |
+| Distribution           | electron-builder                                                                           | Platform-specific application packages and updates              |
 
 Use a shared contract layer for typed commands/events and validation at process boundaries. Keep application identity and document services independent of SolidJS and Electron so a later browser interface can reuse them.
 
@@ -399,16 +399,16 @@ Each build records a source snapshot identifier, root file, tool configuration, 
 
 ### 8.3 Core product records
 
-| Record | Essential information |
-|---|---|
-| Project | Stable ID, local root, name, root document, file manifest, portable build settings |
-| Project file | Stable ID, relative path, content type, live/disk revision, persistence state |
-| Agent session | Project ID, harness ID, harness session ID, model/capabilities, conversation references, state |
-| Change set | Baseline and resulting revisions, affected files, agent turn, review/recovery information |
-| Build | Source snapshot, tool versions/configuration, status, log/diagnostics, PDF and mapping metadata |
-| Bibliography record | Key, metadata, identifiers, origin, source/evidence links, duplicate status |
-| Research attachment | Local asset identity, provenance, explicit agent-use context |
-| Git state | Repository, branch, index/worktree status, operation state; native Git remains authoritative |
+| Record              | Essential information                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| Project             | Stable ID, local root, name, root document, file manifest, portable build settings              |
+| Project file        | Stable ID, relative path, content type, live/disk revision, persistence state                   |
+| Agent session       | Project ID, harness ID, harness session ID, model/capabilities, conversation references, state  |
+| Change set          | Baseline and resulting revisions, affected files, agent turn, review/recovery information       |
+| Build               | Source snapshot, tool versions/configuration, status, log/diagnostics, PDF and mapping metadata |
+| Bibliography record | Key, metadata, identifiers, origin, source/evidence links, duplicate status                     |
+| Research attachment | Local asset identity, provenance, explicit agent-use context                                    |
+| Git state           | Repository, branch, index/worktree status, operation state; native Git remains authoritative    |
 
 Store recoverable source separately from disposable indexes. Bound logs, caches, and retained snapshots with a documented retention policy. Checkpoints must remain available until an operation no longer depends on them.
 
@@ -434,15 +434,15 @@ This section defines compatibility requirements, not services that must be deplo
 
 Performance figures below are proposed engineering targets, not measured results. Establish a baseline on a documented Linux pilot machine with at least four CPU cores, 16 GB RAM, SSD storage, and a 1080p display. Report packaged-release measurements; external model/network latency and native compiler duration are measured separately.
 
-| Workload | Initial target |
-|---|---|
-| Typing during a build and agent stream | p95 input-to-paint below 50 ms; no recurring long UI stalls |
-| Cold launch into a recent local project | Usable editor within 3 seconds on the reference machine, with optional services loading afterward |
-| Open an indexed source file up to 10,000 lines | p95 below 250 ms after project initialization |
-| Navigate using an available source/PDF mapping | p95 below 250 ms once the relevant source and PDF are loaded |
-| Local indexed bibliography search | p95 below 200 ms for 5,000 entries |
-| Automatic save | Normally begins after a short idle interval; explicit Save flushes pending work and acknowledges actual persistence |
-| Idle workspace | No polling/rebuild loops; app-owned CPU returns close to idle after background work settles |
+| Workload                                       | Initial target                                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Typing during a build and agent stream         | p95 input-to-paint below 50 ms; no recurring long UI stalls                                                         |
+| Cold launch into a recent local project        | Usable editor within 3 seconds on the reference machine, with optional services loading afterward                   |
+| Open an indexed source file up to 10,000 lines | p95 below 250 ms after project initialization                                                                       |
+| Navigate using an available source/PDF mapping | p95 below 250 ms once the relevant source and PDF are loaded                                                        |
+| Local indexed bibliography search              | p95 below 200 ms for 5,000 entries                                                                                  |
+| Automatic save                                 | Normally begins after a short idle interval; explicit Save flushes pending work and acknowledges actual persistence |
+| Idle workspace                                 | No polling/rebuild loops; app-owned CPU returns close to idle after background work settles                         |
 
 Use a larger test project containing at least 100,000 lines across 1,000 files, a 200-page PDF, and 5,000 bibliography entries. Track memory over repeated edits/builds and verify bounded caches rather than assuming a fixed memory figure proves efficiency.
 
@@ -468,14 +468,14 @@ Use a larger test project containing at least 100,000 lines across 1,000 files, 
 
 ## 11. Success measures
 
-| Outcome | Measurement |
-|---|---|
-| Researcher reaches a useful workspace | Completion rate for opening a real project, configuring tools, and producing the first successful PDF |
-| AI integration saves transfer work | Author completes a revision and sees it in the source/PDF without copying text through another application |
-| Changes remain trustworthy | Accepted/reverted change sets, manual repairs, stale-edit incidents, and recoverable failures |
-| Citation workflow is useful | Time to a verified citation; missing/incorrect metadata and duplicate insertion rates |
-| Workspace is responsive | Recorded startup, typing, navigation, memory-growth, and build-concurrency measurements |
-| Product becomes a regular writing tool | Voluntary pilot feedback and repeated use over a two-week writing period |
+| Outcome                                | Measurement                                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Researcher reaches a useful workspace  | Completion rate for opening a real project, configuring tools, and producing the first successful PDF      |
+| AI integration saves transfer work     | Author completes a revision and sees it in the source/PDF without copying text through another application |
+| Changes remain trustworthy             | Accepted/reverted change sets, manual repairs, stale-edit incidents, and recoverable failures              |
+| Citation workflow is useful            | Time to a verified citation; missing/incorrect metadata and duplicate insertion rates                      |
+| Workspace is responsive                | Recorded startup, typing, navigation, memory-growth, and build-concurrency measurements                    |
+| Product becomes a regular writing tool | Voluntary pilot feedback and repeated use over a two-week writing period                                   |
 
 Begin with opt-in pilot feedback and local diagnostics. Any remote analytics must be explicit and exclude manuscript content and credentials by default. Do not invent adoption statistics before testing with researchers.
 
@@ -483,15 +483,15 @@ Begin with opt-in pilot feedback and local diagnostics. Any remote analytics mus
 
 Milestones are dependency ordered rather than calendar estimates.
 
-| Milestone | Deliverable | Exit condition |
-|---|---|---|
-| M1 — Workspace foundation | Electron shell, shared types, Prism-reference layout, project files, CodeMirror, Yjs persistence | A real source project opens, edits, saves, and reopens without lost text; screenshot comparison at reference and smaller desktop sizes |
-| M2 — Complete LaTeX loop | Tool detection, TexLab, build scheduler, PDF.js, diagnostics, SyncTeX | Compatible multi-file projects build; stale PDF and missing dependency cases behave correctly |
-| M3 — External agent workflow | OpenCode adapter, sessions, composer, permission UI, file reconciliation, change review/recovery | A project-aware revision is applied, compiled, inspected, cancelled/resumed, and safely reverted |
-| M4 — Research features | arXiv search, bibliography validation, Zotero import, image conversion, equation/figure/table assistance | Verified sources and supported image inputs produce inspectable, portable manuscript edits |
-| M5 — Git and publication | Repository operations, conflict handling, source/PDF export, preflight | Two clones exchange revisions; source archive builds with a documented compatible toolchain |
-| M6 — Pilot release | Packaged Linux build, onboarding, recovery, performance and compatibility checks | Release acceptance suite passes with recorded limitations and no unresolved source-loss defects |
-| M7 — Expansion | Additional platforms/harnesses, followed by accounts and cloud collaboration | Each capability passes its own packaging, permission, persistence, and end-to-end workflow checks |
+| Milestone                    | Deliverable                                                                                              | Exit condition                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| M1 — Workspace foundation    | Electron shell, shared types, Prism-reference layout, project files, CodeMirror, Yjs persistence         | A real source project opens, edits, saves, and reopens without lost text; screenshot comparison at reference and smaller desktop sizes |
+| M2 — Complete LaTeX loop     | Tool detection, TexLab, build scheduler, PDF.js, diagnostics, SyncTeX                                    | Compatible multi-file projects build; stale PDF and missing dependency cases behave correctly                                          |
+| M3 — External agent workflow | OpenCode adapter, sessions, composer, permission UI, file reconciliation, change review/recovery         | A project-aware revision is applied, compiled, inspected, cancelled/resumed, and safely reverted                                       |
+| M4 — Research features       | arXiv search, bibliography validation, Zotero import, image conversion, equation/figure/table assistance | Verified sources and supported image inputs produce inspectable, portable manuscript edits                                             |
+| M5 — Git and publication     | Repository operations, conflict handling, source/PDF export, preflight                                   | Two clones exchange revisions; source archive builds with a documented compatible toolchain                                            |
+| M6 — Pilot release           | Packaged Linux build, onboarding, recovery, performance and compatibility checks                         | Release acceptance suite passes with recorded limitations and no unresolved source-loss defects                                        |
+| M7 — Expansion               | Additional platforms/harnesses, followed by accounts and cloud collaboration                             | Each capability passes its own packaging, permission, persistence, and end-to-end workflow checks                                      |
 
 ### First-release acceptance scenarios
 
@@ -512,16 +512,16 @@ Milestones are dependency ordered rather than calendar estimates.
 
 ## 13. Principal risks and product responses
 
-| Risk | Product response |
-|---|---|
-| Harness version or protocol changes | Supported version ranges, adapter isolation, compatibility checks, recorded integration fixtures |
-| Agent file writes conflict with live state | Versioned filesystem bridge, baselines, grouped changes, conflict detection, safe revert |
-| Compiler setup remains difficult | Detection, understandable dependency diagnostics, guided setup; managed installs later |
-| Scientific or citation suggestions are wrong | Inspectable evidence, explicit uncertainty, source links, author review, actual build/tool results |
-| Custom LaTeX exceeds parser understanding | Preserve source and allow manual control; degrade structural assistance explicitly |
-| Large PDFs or event streams consume resources | Bounded rendering/caches, virtualization, batched events, separate workers, measured workloads |
+| Risk                                           | Product response                                                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Harness version or protocol changes            | Supported version ranges, adapter isolation, compatibility checks, recorded integration fixtures                    |
+| Agent file writes conflict with live state     | Versioned filesystem bridge, baselines, grouped changes, conflict detection, safe revert                            |
+| Compiler setup remains difficult               | Detection, understandable dependency diagnostics, guided setup; managed installs later                              |
+| Scientific or citation suggestions are wrong   | Inspectable evidence, explicit uncertainty, source links, author review, actual build/tool results                  |
+| Custom LaTeX exceeds parser understanding      | Preserve source and allow manual control; degrade structural assistance explicitly                                  |
+| Large PDFs or event streams consume resources  | Bounded rendering/caches, virtualization, batched events, separate workers, measured workloads                      |
 | UI fidelity obscures unavailable functionality | Match the reference while making deferred features honestly unavailable or replacing them with useful local actions |
-| Later collaboration requires a rewrite | Shared document model and stable IDs now; deferred cloud deployment with defined service boundaries |
+| Later collaboration requires a rewrite         | Shared document model and stable IDs now; deferred cloud deployment with defined service boundaries                 |
 
 ## 14. References and related artifacts
 

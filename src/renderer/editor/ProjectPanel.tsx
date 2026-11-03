@@ -9,7 +9,7 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace; onNavigate?: 
   const [hits, setHits] = createSignal<NonNullable<ProjectSnapshot['hits']>>([]);
   let searchInput!: HTMLInputElement;
   const [path, setPath] = createSignal('');
-  const [operation, setOperation] = createSignal<'create' | 'rename' | 'delete' | null>(null);
+  const [operation, setOperation] = createSignal<'rename' | 'delete' | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [formError, setFormError] = createSignal('');
   const [matchIds, setMatchIds] = createSignal<string[] | null>(null);
@@ -56,11 +56,9 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace; onNavigate?: 
     try {
       const op = operation();
       const result =
-        op === 'create'
-          ? await w.command({ type: 'create', path: path() })
-          : op === 'rename'
-            ? await w.command({ type: 'rename', fileId: w.active(), path: path() })
-            : await w.command({ type: 'delete', fileId: w.active() });
+        op === 'rename'
+          ? await w.command({ type: 'rename', fileId: w.active(), path: path() })
+          : await w.command({ type: 'delete', fileId: w.active() });
       if (result?.ok) {
         setOperation(null);
         setPath('');
@@ -72,13 +70,7 @@ export function ProjectPanel(props: { workspace: ProjectWorkspace; onNavigate?: 
   return (
     <div class="project-panel">
       <div class="project-actions">
-        <button
-          onClick={() => {
-            setPath('');
-            setFormError('');
-            setOperation('create');
-          }}
-        >
+        <button disabled={w.pending()} onClick={() => void w.newFile()}>
           New file
         </button>
         <button

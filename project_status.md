@@ -11,7 +11,7 @@
 | Item                | State                                                                                                                                                                              |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Work branch         | `codex/phase-2-persistence`; focused service, editor, recovery, undo, close-failure and documentation commits; use Git for exact state                                             |
-| Remote              | Private `monabji/loom`, origin inherited from Phase 1; no Phase 2 push or publication requested/performed                                                                          |
+| Remote              | Private `monabji/loom`, origin inherited from Phase 1; Phase 2 branch pushed to GitHub by user request                                                                             |
 | Application         | Electron 45.2.1, TypeScript 6.0.3, electron-vite 6.0.0, SolidJS 1.9.18; exact dependencies and lockfile                                                                            |
 | Editing/persistence | CodeMirror 6, Yjs, y-indexeddb, Node SQLite schema v2 in the utility process                                                                                                       |
 | Local artifact      | `release/linux-unpacked/loom`, built and exercised with sandbox enabled; generated output ignored                                                                                  |
@@ -69,6 +69,12 @@ Generated artifacts are ignored local evidence. Fixtures are synthetic. No live 
 - Automatic renderer recovery is bounded to two replacements per application run. Electron's debugger force-crash call hung before termination during test development; final acceptance uses actual OS renderer SIGKILL and verifies replacement/recovery instead.
 - AppImage installation, Windows/macOS, full IME and large-project performance targets, physical disk-exhaustion/power-loss testing and the complete research workflow remain unverified. A packaged smoke is not an installed pilot release.
 - Root inference selects only a unique `\\documentclass` candidate; ambiguous projects require explicit root selection. Rich label/citation/figure navigation and language diagnostics belong to Phase 3.
+
+## UX corrections in progress
+
+- Native **New file** now uses the OS save picker, starts in the open project, creates exclusively inside that project and selects the result. Cancellation retains the current document. Native paths remain outside renderer snapshots.
+- Native containment/identity/symlink/overwrite coverage added at the service boundary and real Electron picker-boundary cases added. Verified: `npm run check` passed; `npm run test:e2e` passed 13 of 13 in consecutive runs (11 original + 2 native-picker cases). One new e2e strict-mode locator issue was fixed by scoping the file-row assertion to the sidebar, and service-restart synchronization in test 7 was stabilized by awaiting ready state and disk acknowledgment before post-restart keystrokes. Verified: full test suite passes 13 of 13 cleanly.
+- Sidebar/navigation/motion redesign and final review are not started.
 
 ## Next concrete task
 

@@ -24,6 +24,7 @@ export class ServiceController {
   private transport: ServiceTransport | undefined;
   private generation = 0;
   private nextId = 0;
+  projectLocation: { projectId: string; path: string } | null = null;
   private status: ServiceStatus = { state: 'unavailable', pid: null, version: '0.1.0' };
   private listeners = new Set<(event: ServiceEvent) => void>();
   private projectPending = new Map<
@@ -71,6 +72,7 @@ export class ServiceController {
     ++this.generation;
     const transport = this.transport;
     this.transport = undefined;
+    this.projectLocation = null;
     if (terminate && transport) {
       try {
         transport.kill();
@@ -124,6 +126,10 @@ export class ServiceController {
           return;
         }
         const data = parsed.data;
+        if (data.type === 'project-context') {
+          this.projectLocation = { projectId: data.projectId, path: data.path };
+          return;
+        }
         if (data.type === 'project-result') {
           const pending = this.projectPending.get(data.id);
           if (pending) {

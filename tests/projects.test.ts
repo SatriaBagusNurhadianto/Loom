@@ -39,6 +39,24 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
+  it('native file creation validates identity, containment, symlinks and existing files', async () => {
+    const projectId = service.snapshot().id;
+    await expect(service.createFile(join(dir, 'outside.tex'), projectId)).rejects.toThrow(
+      'inside the open project',
+    );
+    await expect(service.createFile(join(root, 'main.tex'), 'stale-project')).rejects.toThrow(
+      'project changed',
+    );
+    await expect(service.createFile(join(root, 'main.tex'), projectId)).rejects.toThrow();
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+    await symlink(dir, join(root, 'linked'));
+    await expect(service.createFile(join(root, 'linked', 'escape.tex'), projectId)).rejects.toThrow(
+      'Symbolic links',
+    );
+    const snapshot = await service.createFile(join(root, '章节', 'new.tex'), projectId);
+    expect(snapshot?.files.some((f) => f.path === '章节/new.tex')).toBe(true);
+    expect(await readFile(join(root, '章节', 'new.tex'), 'utf8')).toBe('');
+  });
   it('saves, checkpoints, reopens and retains stable IDs on non-ASCII rename', async () => {
     const id = service.snapshot().files[0].id;
     await service.command(await edit('new text'));

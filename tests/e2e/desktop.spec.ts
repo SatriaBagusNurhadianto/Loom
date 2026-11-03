@@ -105,6 +105,7 @@ test('real isolated Electron boundary and a restartable utility process', async 
     })),
   ).toEqual({
     api: [
+      'chooseFile',
       'chooseProject',
       'completeClose',
       'getStatus',
@@ -270,6 +271,52 @@ async function openSyntheticProject(): Promise<string> {
   );
   return folder;
 }
+test('New file uses the native save picker and opens the created file', async () => {
+  const folder = await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  const path = join(folder, '章节', 'new.tex');
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+  }, path);
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  await expect.poll(() => readFile(path, 'utf8').catch(() => null)).toBe('');
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toBeVisible();
+  await expect(page.locator('.source-tab')).toContainText('new.tex');
+});
+test('native file picker cancellation and rejected destinations preserve the active source', async () => {
+  const folder = await openSyntheticProject();
+  await page.keyboard.press('Control+Alt+3');
+  await desktop.evaluate(({ dialog }) => {
+    dialog.showSaveDialog = async (...args: unknown[]) => {
+      (globalThis as { fileDialogOptions?: unknown }).fileDialogOptions = args.at(-1);
+      return { canceled: true, filePath: '' };
+    };
+  });
+  const create = page.getByRole('button', { name: 'New file', exact: true });
+  await create.click();
+  await expect(create).toBeEnabled();
+  expect(
+    await desktop.evaluate(() => (globalThis as { fileDialogOptions?: unknown }).fileDialogOptions),
+  ).toMatchObject({ title: 'Create new file', defaultPath: join(folder, 'untitled.tex') });
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Original text.',
+  );
+  await desktop.evaluate(
+    ({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+    },
+    join(userData, 'outside.tex'),
+  );
+  await create.click();
+  await expect(page.getByRole('alert')).toContainText('inside the open project folder');
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Original text.',
+  );
+  await expect
+    .poll(() => readFile(join(userData, 'outside.tex'), 'utf8').catch(() => null))
+    .toBe(null);
+});
+
 test('real project editing, external reconciliation, restart, IndexedDB, tabs and small window', async () => {
   const folder = await openSyntheticProject();
   const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
@@ -302,6 +349,8 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await expect(editor).toContainText('% Human addition');
   await expect(editor).toContainText('External text.');
   await page.evaluate(() => window.loom!.restartService());
+  await readyPid();
+  await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
   await expect(editor).toContainText('% Human addition');
   await editor.click();
   await page.keyboard.press('Control+End');
@@ -365,10 +414,17 @@ test('file operations, root choice, search locations, find/replace and caret res
   await hit.click();
   await page.getByRole('button', { name: 'Clear project search' }).click();
   await expect(query).toBeFocused();
+  await desktop.evaluate(
+    ({ dialog }, path) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
+    },
+    join(folder, '章节/结果.tex'),
+  );
   await page.getByRole('button', { name: 'New file', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Project-relative path' }).fill('章节/结果.tex');
-  await page.getByRole('button', { name: 'Create', exact: true }).click();
-  await page.getByRole('button', { name: '章节/结果.tex', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Project sidebar' })
+    .getByRole('button', { name: '章节/结果.tex', exact: true })
+    .click();
   await page.getByRole('button', { name: /Use 章节\/结果.tex as root/ }).click();
   await page.getByRole('button', { name: 'Rename / move', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project-relative path' }).fill('sections/results.tex');

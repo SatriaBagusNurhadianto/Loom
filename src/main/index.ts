@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { projectCommandSchema } from '../contracts/project';
+import { chooseFileRequestSchema, projectCommandSchema } from '../contracts/project';
 import {
   app,
   dialog,
@@ -150,6 +150,40 @@ void app.whenReady().then(() => {
     return service.project(command.data);
   });
   let choosing = false;
+  ipcMain.handle(channels.chooseFile, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot create project files.', false);
+    const input = chooseFileRequestSchema.safeParse(payload);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid file choice.', false);
+    if (choosing) return failure('BUSY', 'A file dialog is already open.');
+    choosing = true;
+    try {
+      const current = await service.project({ type: 'current' });
+      if (!current.ok) return current;
+      const location = service.projectLocation;
+      if (
+        !location ||
+        current.value?.id !== input.data.projectId ||
+        location.projectId !== input.data.projectId
+      )
+        return failure('INVALID_REQUEST', 'Open the project before creating a file.', false);
+      const selected = await dialog.showSaveDialog(window!, {
+        title: 'Create new file',
+        buttonLabel: 'Create file',
+        defaultPath: join(location.path, input.data.directory ?? '', 'untitled.tex'),
+      });
+      if (selected.canceled || !selected.filePath) return { ok: true, value: null };
+      return service.project({
+        type: 'native-create-file',
+        path: selected.filePath,
+        projectId: input.data.projectId,
+      });
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'The file dialog could not open. Try again.');
+    } finally {
+      choosing = false;
+    }
+  });
   ipcMain.handle(channels.chooseProject, async (event, payload: unknown) => {
     if (!trustedSender(event))
       return failure('FORBIDDEN', 'This window cannot choose projects.', false);

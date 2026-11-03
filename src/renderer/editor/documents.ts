@@ -266,6 +266,38 @@ export function createProjectWorkspace(report: (message: string) => void) {
     if (existing) await command({ type: 'load', fileId: id });
     preferences();
   }
+  async function newFile(directory?: string) {
+    const current = project();
+    if (!current || pending()) return;
+    if (!window.loom) {
+      setError('File dialogs require the Electron desktop app.');
+      return;
+    }
+    setPending(true);
+    try {
+      if (!(await flushPending())) return;
+      await queue;
+      const known = new Set(current.files.map((f) => f.id));
+      const result = await window.loom.chooseFile({
+        projectId: current.id,
+        ...(directory ? { directory } : {}),
+      });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      if (!result.value) return;
+      setError('');
+      accept(result.value);
+      const created = result.value.files.find((f) => !known.has(f.id) && !f.deleted);
+      if (created) {
+        await select(created.id);
+        report(`Created ${created.path}.`);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
   async function choose(choice: ProjectChoice) {
     if (pending()) return;
     if (!window.loom) {
@@ -400,6 +432,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
     command,
     flush,
     choose,
+    newFile,
   };
 }
 export type ProjectWorkspace = ReturnType<typeof createProjectWorkspace>;

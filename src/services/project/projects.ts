@@ -174,6 +174,18 @@ export class ProjectService {
     }
     return this.project ? this.snapshot() : null;
   }
+  nativeLocation() {
+    return this.project ? { projectId: this.project.id, path: this.root } : null;
+  }
+  async createFile(path: string, projectId: string): Promise<ProjectSnapshot | null> {
+    await this.current();
+    if (this.project?.id !== projectId)
+      throw new Error('The open project changed. Choose the file location again.');
+    const target = resolve(path);
+    if (!target.startsWith(this.root + sep))
+      throw new Error('Choose a location inside the open project folder.');
+    return this.command({ type: 'create', path: relative(this.root, target).split(sep).join('/') });
+  }
   async create(path: string): Promise<ProjectSnapshot> {
     await fs.mkdir(path, { recursive: false });
     await fs.writeFile(

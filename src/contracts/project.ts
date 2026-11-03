@@ -94,3 +94,11 @@ export const projectResultSchema = z.discriminatedUnion('ok', [
 ]);
 export type ProjectResult = z.infer<typeof projectResultSchema>;
 export type ProjectChoice = 'open' | 'create' | 'import-folder' | 'import-zip';
+
+export const chooseFileRequestSchema = z
+  .object({
+    projectId: id,
+    directory: relativePath.optional(),
+  })
+  .strict();
+export type ChooseFileRequest = z.infer<typeof chooseFileRequestSchema>;
