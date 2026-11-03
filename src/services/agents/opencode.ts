@@ -47,7 +47,7 @@ export interface HarnessAdapter {
     sessionId: string,
   ): Promise<{ permissions: Record<string, unknown>[]; questions: Record<string, unknown>[] }>;
   permission(sessionId: string, id: string, reply: 'once' | 'reject'): Promise<void>;
-  answer(sessionId: string, id: string, answer: unknown): Promise<void>;
+  answer(sessionId: string, id: string, answer: unknown, reject?: boolean): Promise<void>;
   readonly capabilities: HarnessCapabilities;
   models(directory: string): Promise<AgentModel[]>;
   create(directory: string): Promise<string>;

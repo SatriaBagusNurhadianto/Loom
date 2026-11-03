@@ -104,3 +104,68 @@ describe('Codex adapter protocol boundaries', () => {
     expect(settled).toBe(true);
   });
 });
+
+it('surfaces native MCP consent instead of rejecting paper tool calls', async () => {
+  const { adapter, child } = fixture();
+  adapter.rpc = vi.fn(async () => ({ thread: { id: 'thread' } }));
+  await adapter.create('/paper');
+  adapter.receive({
+    id: 101,
+    method: 'mcpServer/elicitation/request',
+    params: {
+      threadId: 'thread',
+      serverName: 'loom',
+      mode: 'form',
+      message: 'Allow the paper structure tool?',
+      requestedSchema: {
+        type: 'object',
+        properties: { allow: { type: 'boolean', title: 'Allow tool' } },
+        required: ['allow'],
+      },
+    },
+  });
+  expect(child.stdin.write).not.toHaveBeenCalled();
+  expect((await adapter.pending('thread')).questions).toMatchObject([
+    { id: '101', title: 'Allow the paper structure tool?' },
+  ]);
+  await adapter.answer('thread', '101', { allow: true });
+  expect(child.stdin.write).toHaveBeenCalledWith(
+    JSON.stringify({ id: 101, result: { action: 'accept', content: { allow: true } } }) + '\n',
+  );
+});
+
+it('handles native filesystem grants and MCP denial without inventing approval decisions', async () => {
+  const { adapter, child } = fixture();
+  adapter.rpc = vi.fn(async () => ({ thread: { id: 'thread' } }));
+  await adapter.create('/paper');
+  adapter.receive({
+    id: 102,
+    method: 'item/permissions/requestApproval',
+    params: { threadId: 'thread', permissions: { fileSystem: { write: ['/paper'] } } },
+  });
+  expect((await adapter.pending('thread')).permissions).toMatchObject([
+    { id: '102', action: 'Grant access for this agent request' },
+  ]);
+  await adapter.permission('thread', '102', 'once');
+  expect(child.stdin.write).toHaveBeenLastCalledWith(
+    JSON.stringify({
+      id: 102,
+      result: { permissions: { fileSystem: { write: ['/paper'] } }, scope: 'turn' },
+    }) + '\n',
+  );
+  adapter.receive({
+    id: 103,
+    method: 'mcpServer/elicitation/request',
+    params: {
+      threadId: 'thread',
+      serverName: 'loom',
+      mode: 'form',
+      message: 'Approve?',
+      requestedSchema: { type: 'object', properties: {} },
+    },
+  });
+  await adapter.answer('thread', '103', {}, true);
+  expect(child.stdin.write).toHaveBeenLastCalledWith(
+    JSON.stringify({ id: 103, result: { action: 'decline' } }) + '\n',
+  );
+});

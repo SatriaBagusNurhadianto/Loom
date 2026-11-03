@@ -118,6 +118,16 @@ it.skipIf(process.env.LOOM_AGENT_INFERENCE !== '1')(
       while (state.running && Date.now() < until) {
         for (const p of state.permissions)
           await agents.command({ type: 'permission', projectId, requestId: p.id, reply: 'once' });
+        for (const q of state.questions)
+          if (q.rejectable)
+            await agents.command({
+              type: 'answer',
+              projectId,
+              requestId: q.id,
+              answer: Object.fromEntries(
+                q.fields.map((f) => [f.key, f.type === 'boolean' ? true : 'yes']),
+              ),
+            });
         await new Promise((resolve) => setTimeout(resolve, 750));
         state = await agents.command({ type: 'status', projectId });
       }
@@ -176,7 +186,7 @@ it.skipIf(process.env.LOOM_CODEX_INFERENCE !== '1')(
         projectId,
         sessionId,
         prompt:
-          'Edit main.tex: replace exactly "Original synthetic sentence." with "Codex revised this synthetic sentence." Use a local file tool; preserve the newline. Do not edit other files or commit. Report the changed filename.',
+          'First call the Loom paper_structure MCP tool to inspect this paper. Then use your native filesystem tool to edit main.tex: replace exactly "Original synthetic sentence." with "Codex revised this synthetic sentence." Use a local file tool; preserve the newline. Do not edit other files or commit. Report the changed filename.',
         model,
         attachments: ['main.tex'],
         selection: null,
@@ -186,12 +196,27 @@ it.skipIf(process.env.LOOM_CODEX_INFERENCE !== '1')(
       while (state.running && Date.now() < until) {
         for (const p of state.permissions)
           await agents.command({ type: 'permission', projectId, requestId: p.id, reply: 'once' });
+        for (const q of state.questions)
+          if (q.rejectable)
+            await agents.command({
+              type: 'answer',
+              projectId,
+              requestId: q.id,
+              answer: Object.fromEntries(
+                q.fields.map((f) => [f.key, f.type === 'boolean' ? true : 'yes']),
+              ),
+            });
         await new Promise((resolve) => setTimeout(resolve, 750));
         state = await agents.command({ type: 'status', projectId });
       }
       expect(state.error).toBe('');
       expect(state.running).toBe(false);
       expect(state.turns[0].status).toBe('succeeded');
+      expect(
+        state.messages.some(
+          (m) => m.role === 'tool' && m.text.includes('paper_structure') && m.state === 'completed',
+        ),
+      ).toBe(true);
       expect(
         await (await import('node:fs/promises')).readFile(join(root, 'main.tex'), 'utf8'),
       ).toContain('Codex revised');

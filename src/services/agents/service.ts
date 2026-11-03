@@ -415,7 +415,7 @@ export class AgentService {
         } else {
           if (!s.questions.some((q) => q.id === command.requestId))
             throw new Error('This question is no longer pending.');
-          await adapter.answer(s.sessionId, command.requestId, command.answer);
+          await adapter.answer(s.sessionId, command.requestId, command.answer, command.reject);
         }
         await this.refresh();
       } else if (command.type === 'review') {
@@ -478,6 +478,7 @@ export class AgentService {
       s.questions = pending.questions.map((q) => ({
         id: string(q.id),
         title: string(q.title),
+        rejectable: q.rejectable === true,
         fields: list(q.fields)
           .slice(0, 100)
           .map((value) => {

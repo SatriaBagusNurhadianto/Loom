@@ -36,7 +36,12 @@ const fieldSchema = z
   })
   .strict();
 export const agentQuestionSchema = z
-  .object({ id, title: z.string().max(1000), fields: z.array(fieldSchema).max(100) })
+  .object({
+    id,
+    title: z.string().max(1000),
+    fields: z.array(fieldSchema).max(100),
+    rejectable: z.boolean().optional(),
+  })
   .strict();
 export const agentChangeSchema = z
   .object({
@@ -146,6 +151,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('answer'),
+      reject: z.boolean().optional(),
       projectId: id,
       requestId: id,
       answer: z.record(

@@ -273,3 +273,11 @@ Artifacts are ignored local evidence: `phase-4-conversation.png`, `phase-4-quest
 **Remaining limits:** Linux x86_64 only; existing project/build/PDF limits plus 128 MiB pre-turn recovery and 100 retained turns/chats per project; bounded diff/excerpt display with original recovery retained. Unreadable/future recovery metadata deliberately blocks agent/structural operations rather than guessing. Additional harness adapters, image attachments (Phase 6), literature/Zotero (Phase 5), product Git/export (Phase 7), installed/cross-platform/performance/IME/pilot research (Phase 8) remain future work. No known unresolved manuscript-loss blocker remains from this review.
 
 **Next concrete task:** Phase 5 literature/bibliography contracts and read-oriented Zotero setup, retaining explicit evidence levels, source traceability and safe bibliography insertion. Do not start that phase without its prerequisites and scoped implementation work.
+
+## Phase 4 native consent correction — 4 November 2026
+
+The user's real Codex report revealed a coverage gap: earlier live checks edited files without calling Loom's native MCP tools. A new structured regression reproduced native `mcpServer/elicitation/request` being answered with an unsupported-method error. A real Codex revision requiring `paper_structure` then remained waiting because the service dropped the question's rejection/consent metadata.
+
+Codex now surfaces MCP forms and native filesystem/network permission grants, sends their actual native response shapes, preserves consent metadata through the service, handles resolved requests and supplies complete question field descriptions. Forms offer explicit Deny, and boolean answers retain false correctly. No approval is granted automatically by production code.
+
+The protocol regression went from red to green. The strengthened authorized live Codex case now calls the actual Loom MCP structure tool, edits the synthetic manuscript, reconnects native history and safely reverts; it passed. The combined native/protocol run passed six tests, with three unrelated opt-in cases skipped. Connection layout, per-chat permission/reasoning controls and installed OpenCode 1.19.x compatibility are separate work in progress in response to the user's follow-up.

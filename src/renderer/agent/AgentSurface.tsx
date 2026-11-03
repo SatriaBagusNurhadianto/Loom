@@ -465,7 +465,14 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                 class="agent-request"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  const values = answers()[question.id] ?? {};
+                  const values = {
+                    ...Object.fromEntries(
+                      question.fields
+                        .filter((f) => f.type === 'boolean')
+                        .map((f) => [f.key, false]),
+                    ),
+                    ...answers()[question.id],
+                  };
                   const missing = question.fields.find(
                     (field) =>
                       field.required &&
@@ -488,7 +495,7 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                       type: 'answer',
                       projectId,
                       requestId: question.id,
-                      answer: answers()[question.id] ?? {},
+                      answer: values,
                     });
                 }}
               >
@@ -595,12 +602,34 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                     </label>
                   )}
                 </For>
-                <button
-                  class="primary-button"
-                  disabled={a.busy() || question.fields.some((f) => f.type === 'external')}
-                >
-                  Send answer
-                </button>
+                <div class="button-row">
+                  <Show when={question.rejectable}>
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      disabled={a.busy()}
+                      onClick={() => {
+                        const projectId = a.projects.project()?.id;
+                        if (projectId)
+                          void a.act({
+                            type: 'answer',
+                            projectId,
+                            requestId: question.id,
+                            answer: {},
+                            reject: true,
+                          });
+                      }}
+                    >
+                      Deny
+                    </button>
+                  </Show>
+                  <button
+                    class="primary-button"
+                    disabled={a.busy() || question.fields.some((f) => f.type === 'external')}
+                  >
+                    Send answer
+                  </button>
+                </div>
               </form>
             )}
           </For>

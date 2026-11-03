@@ -13,7 +13,10 @@ type Session = {
     string,
     { nativeId: string | number; method: string; params: Record<string, unknown> }
   >;
-  questions: Map<string, { nativeId: string | number; params: Record<string, unknown> }>;
+  questions: Map<
+    string,
+    { nativeId: string | number; params: Record<string, unknown>; method?: string }
+  >;
 };
 export class CodexAdapter implements HarnessAdapter {
   get supervisorPid() {
@@ -202,11 +205,12 @@ export class CodexAdapter implements HarnessAdapter {
         this.write({ id: nativeId, error: { code: -32601, message: 'No matching Loom session.' } });
         return;
       }
-      if (method === 'item/tool/requestUserInput')
-        session.questions.set(key, { nativeId, params: p });
+      if (method === 'item/tool/requestUserInput' || method === 'mcpServer/elicitation/request')
+        session.questions.set(key, { nativeId, params: p, method });
       else if (
         method === 'item/commandExecution/requestApproval' ||
-        method === 'item/fileChange/requestApproval'
+        method === 'item/fileChange/requestApproval' ||
+        method === 'item/permissions/requestApproval'
       )
         session.permissions.set(key, { nativeId, method, params: p });
       else {
@@ -231,6 +235,11 @@ export class CodexAdapter implements HarnessAdapter {
         }
       }
       return;
+    }
+    if (method === 'serverRequest/resolved') {
+      const key = String(p.requestId);
+      session.permissions.delete(key);
+      session.questions.delete(key);
     }
     if (method === 'turn/started') {
       session.turnId = string(object(p.turn).id);
@@ -463,36 +472,99 @@ export class CodexAdapter implements HarnessAdapter {
     return {
       permissions: [...(s?.permissions ?? [])].map(([id, r]) => ({
         id,
-        action: r.method.includes('fileChange') ? 'Change project files' : 'Run a command',
+        action: r.method.includes('fileChange')
+          ? 'Change project files'
+          : r.method.includes('permissions')
+            ? 'Grant access for this agent request'
+            : 'Run a command',
         resources: [
-          string(r.params.command, string(r.params.reason, 'Requested native operation')),
+          ...(r.method.includes('permissions')
+            ? [
+                string(r.params.reason, 'Requested native access'),
+                JSON.stringify(r.params.permissions).slice(0, 3000),
+              ]
+            : [string(r.params.command, string(r.params.reason, 'Requested native operation'))]),
         ],
       })),
       questions: [...(s?.questions ?? [])].map(([id, r]) => ({
         id,
-        title: 'A question about your paper',
-        fields: list(r.params.questions).map((value) => {
-          const q = object(value);
-          return {
-            key: string(q.id),
-            type: 'string',
-            title: string(q.question),
-            required: true,
-            options: Array.isArray(q.options)
-              ? q.options.map((v) => {
-                  const o = object(v);
-                  return { value: string(o.label), label: string(o.label) };
-                })
-              : [],
-          };
-        }),
+        title:
+          r.method === 'mcpServer/elicitation/request'
+            ? string(r.params.message).slice(0, 1000)
+            : 'A question about your paper',
+        rejectable: r.method === 'mcpServer/elicitation/request',
+        fields:
+          r.method === 'mcpServer/elicitation/request'
+            ? this.elicitationFields(r.params)
+            : list(r.params.questions).map((value) => {
+                const q = object(value);
+                return {
+                  key: string(q.id),
+                  type: 'string',
+                  title: string(q.question),
+                  description: string(q.header),
+                  required: true,
+                  options: Array.isArray(q.options)
+                    ? q.options.map((v) => {
+                        const o = object(v);
+                        return { value: string(o.label), label: string(o.label) };
+                      })
+                    : [],
+                };
+              }),
       })),
     };
+  }
+  private elicitationFields(params: Record<string, unknown>) {
+    if (params.mode === 'url')
+      return [
+        {
+          key: 'external',
+          title: 'Complete the requested action in your browser, then continue here.',
+          description: string(params.url),
+          type: 'external',
+          required: false,
+          options: [],
+        },
+      ];
+    const schema = object(params.requestedSchema),
+      properties = object(schema.properties ?? {});
+    return Object.entries(properties)
+      .slice(0, 100)
+      .map(([key, raw]) => {
+        const field = object(raw);
+        const enums = Array.isArray(field.enum) ? field.enum : [];
+        const items = field.items && typeof field.items === 'object' ? object(field.items) : {};
+        const itemEnums = Array.isArray(items.enum) ? items.enum : [];
+        return {
+          key,
+          title: string(field.title, key).slice(0, 1000),
+          description: string(field.description).slice(0, 3000),
+          type:
+            field.type === 'array'
+              ? 'multiselect'
+              : ['boolean', 'number', 'integer'].includes(string(field.type))
+                ? string(field.type)
+                : 'string',
+          required: Array.isArray(schema.required) && schema.required.includes(key),
+          options: (field.type === 'array' ? itemEnums : enums)
+            .slice(0, 100)
+            .map((v) => ({ value: String(v), label: String(v) })),
+        };
+      });
   }
   async permission(sessionId: string, id: string, reply: 'once' | 'reject') {
     const s = this.sessions.get(sessionId),
       r = s?.permissions.get(id);
     if (!r) throw new Error('This approval request is no longer pending.');
+    if (r.method === 'item/permissions/requestApproval') {
+      this.write({
+        id: r.nativeId,
+        result: { permissions: reply === 'reject' ? {} : r.params.permissions, scope: 'turn' },
+      });
+      s!.permissions.delete(id);
+      return;
+    }
     const decision = reply === 'reject' ? 'decline' : 'accept';
     const options = r.params.availableDecisions;
     if (Array.isArray(options) && !options.includes(decision))
@@ -502,11 +574,19 @@ export class CodexAdapter implements HarnessAdapter {
     this.write({ id: r.nativeId, result: { decision } });
     s!.permissions.delete(id);
   }
-  async answer(sessionId: string, id: string, answer: unknown) {
+  async answer(sessionId: string, id: string, answer: unknown, reject = false) {
     const s = this.sessions.get(sessionId),
       r = s?.questions.get(id);
     if (!r) throw new Error('This question is no longer pending.');
     const values = object(answer);
+    if (r.method === 'mcpServer/elicitation/request') {
+      this.write({
+        id: r.nativeId,
+        result: reject ? { action: 'decline' } : { action: 'accept', content: values },
+      });
+      s!.questions.delete(id);
+      return;
+    }
     this.write({
       id: r.nativeId,
       result: {
