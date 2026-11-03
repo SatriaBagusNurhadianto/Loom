@@ -1,7 +1,10 @@
+import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
+import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 import { chooseFileRequestSchema, projectCommandSchema } from '../contracts/project';
 import {
   app,
+  shell,
   dialog,
   BrowserWindow,
   ipcMain,
@@ -148,6 +151,51 @@ void app.whenReady().then(() => {
     const command = projectCommandSchema.safeParse(payload);
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);
     return service.project(command.data);
+  });
+  ipcMain.handle(channels.setup, async (event, guide: unknown) => {
+    if (!trustedSender(event)) return;
+    if (guide === 'tex') await shell.openExternal('https://www.latex-project.org/get/');
+    else if (guide === 'texlab')
+      await shell.openExternal('https://github.com/latex-lsp/texlab#installation');
+  });
+  ipcMain.handle(channels.latex, (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot use LaTeX services.', false);
+    const command = latexCommandSchema.safeParse(payload);
+    if (!command.success) return failure('INVALID_REQUEST', 'Invalid LaTeX command.', false);
+    return service.latex(command.data);
+  });
+  ipcMain.handle(channels.exportPdf, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot export PDFs.', false);
+    const input = exportPdfSchema.safeParse(payload);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid PDF export.', false);
+    if (choosing) return failure('BUSY', 'A native dialog is already open.');
+    choosing = true;
+    try {
+      const pdf = await service.latex({
+        type: 'pdf',
+        projectId: input.data.projectId,
+        buildId: input.data.buildId,
+      });
+      if (!pdf.ok || pdf.value.kind !== 'pdf') return pdf;
+      const selected = await dialog.showSaveDialog(window!, {
+        title: input.data.stale ? 'Export older PDF — source has changed' : 'Export compiled PDF',
+        defaultPath: input.data.stale ? 'paper-older-build.pdf' : 'paper.pdf',
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (selected.canceled || !selected.filePath)
+        return { ok: true, value: { kind: 'export', cancelled: true } };
+      await fs.writeFile(selected.filePath, Buffer.from(pdf.value.data, 'base64'));
+      return { ok: true, value: { kind: 'export', cancelled: false } };
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'PDF could not be exported. Check the destination and retry.',
+      );
+    } finally {
+      choosing = false;
+    }
   });
   let choosing = false;
   ipcMain.handle(channels.chooseFile, async (event, payload: unknown) => {

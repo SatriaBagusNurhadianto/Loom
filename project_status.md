@@ -2,7 +2,7 @@
 
 **Updated:** 4 November 2026
 
-**Overall:** Phases 0–2 complete for the exercised Linux x86_64 desktop target. Phase 2 projects, source editing and reliable local persistence are implemented and verified. The Prism UX corrections are complete and independently reviewed by GPT-6.1 Terra. Phase 3 has not started.
+**Overall:** Phases 0–2 complete for the exercised Linux x86_64 desktop target. Phase 2 projects, source editing and reliable local persistence are implemented and verified. The Prism UX corrections are complete and independently reviewed by GPT-6.1 Terra. Phase 3 native build/language services are implemented; renderer integration and final acceptance are in progress.
 
 **Current milestone:** A real ordinary LaTeX project opens, edits, saves and reopens. External overlaps remain reviewable; unsent IndexedDB recovery survives renderer/service termination and disk divergence. The sidebar footer is anchored, native file creation returns to the editor, and the file browser uses folders and contextual actions. GPT-6-Luna medium reviewed the original implementation; GPT-6.1 Terra reviewed the UX correction and independently exercised focused workflows.
 
@@ -24,7 +24,7 @@
 | 0 — Repository/readiness      | Complete    | Existing documented/private remote baseline                                                                            |
 | 1 — Scaffold/workspace        | Complete    | Existing shell, security/lifecycle/layout acceptance, reference screenshots and package evidence; regressions retained |
 | 2 — Projects/persistence      | Complete    | 53 deterministic tests, 18 real Electron cases, latest package smoke, visual checks and Luna/Terra reviews             |
-| 3 — LaTeX/PDF                 | Not started | No TeX, TexLab, PDF.js or source/PDF mapping integration                                                               |
+| 3 — LaTeX/PDF                 | In progress | Native snapshot build/language unit verified; renderer and final acceptance pending                                    |
 | 4 — OpenCode agent            | Not started | Product sends no model/provider calls; reviewer delegation is development tooling only                                 |
 | 5 — Literature/Zotero         | Not started | Requirements only                                                                                                      |
 | 6 — Scientific content/images | Not started | Requirements only                                                                                                      |
@@ -115,3 +115,13 @@ Generated artifacts are ignored local evidence. Fixtures are synthetic. No live 
 ## Next concrete task
 
 Phase 3: detect installed TeX engines/latexmk/BibTeX/Biber, establish portable build settings and revision-associated build snapshots, then connect TexLab, compilation and PDF.js according to [phases.md](phases.md). No Phase 3 implementation was started by this task.
+
+## Phase 3 work in progress — native build/language unit
+
+- Implemented strict named LaTeX contracts, tool/version detection, saved immutable snapshots, per-project single-build scheduling/coalescing/cancellation, clean rebuild, bounded logs/diagnostics, retained successful PDF/SyncTeX mapping, restart interruption records and native PDF export boundary.
+- Explicit settings persist to portable `loom.build.json`; machine PATH/executables remain separate. TexLab uses an owned framed LSP process with its automatic builds disabled; literal manuscript structure supports project locations.
+- Preserved the existing document model and recovery bridge. Baseline regression: 19 project tests plus the two real Electron overlap/IndexedDB-only renderer-termination recovery cases passed before implementation.
+- Native verification: synthetic process/snapshot/failure tests and six live toolchain checks. Live pdfLaTeX, XeLaTeX, LuaLaTeX, Biber, BibTeX and TexLab completion/definition/diagnostics are exercised against fixtures in `examples/phase-3`. Final counts and renderer/package acceptance will be recorded after integration; Phase 3 is not yet complete.
+- GPT-6.1 Terra reviewed the native changes. Bibliography compatibility, queued root deletion, portable settings, owned TexLab lifecycle and unversioned-diagnostic honesty findings were addressed; additional review/acceptance remains.
+- Test tools were downloaded outside the repository under `/tmp/loom-phase3-tools`; Biber requires the temporary extracted libcrypt compatibility library on this Arch machine. These are verification tools, not a bundled product toolchain. Source fixtures are synthetic.
+- Next: finish the real PDF.js/editor/build controls, exercise Electron success/failure/stale/cancellation/mapping/export and narrow/keyboard states, rerun Terra review and provide the testing guide.

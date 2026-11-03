@@ -1,3 +1,4 @@
+import type { LatexCommand, LatexResult } from '../contracts/latex';
 import type { ProjectResult } from '../contracts/project';
 import {
   failure,
@@ -30,6 +31,10 @@ export class ServiceController {
   private projectPending = new Map<
     string,
     { resolve: (result: ProjectResult) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private latexPending = new Map<
+    string,
+    { resolve: (result: LatexResult) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private pending = new Map<string, Pending>();
   private startup: Promise<Result<ServiceStatus>> | undefined;
@@ -93,6 +98,11 @@ export class ServiceController {
       pending.resolve(result);
     }
     this.projectPending.clear();
+    for (const pending of this.latexPending.values()) {
+      clearTimeout(pending.timer);
+      pending.resolve(result);
+    }
+    this.latexPending.clear();
     if (!result.ok) this.publish(result.error);
     return result;
   }
@@ -126,6 +136,15 @@ export class ServiceController {
           return;
         }
         const data = parsed.data;
+        if (data.type === 'latex-result') {
+          const pending = this.latexPending.get(data.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.latexPending.delete(data.id);
+            pending.resolve(data.result);
+          }
+          return;
+        }
         if (data.type === 'project-context') {
           this.projectLocation = { projectId: data.projectId, path: data.path };
           return;
@@ -232,6 +251,25 @@ export class ServiceController {
     });
   }
 
+  async latex(command: LatexCommand): Promise<LatexResult> {
+    const ready = await this.start();
+    if (!ready.ok) return ready;
+    if (this.latexPending.size >= 16)
+      return failure('BUSY', 'Too many LaTeX requests. Try again shortly.');
+    const id = `${this.generation}:latex:${++this.nextId}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.latexPending.delete(id);
+        resolve(failure('TIMEOUT', 'LaTeX request timed out. Retry or reconnect the service.'));
+      }, 25000);
+      this.latexPending.set(id, { resolve, timer });
+      try {
+        this.transport!.postMessage({ type: 'latex', id, command });
+      } catch {
+        this.unavailable('SERVICE_UNAVAILABLE', 'LaTeX connection interrupted.');
+      }
+    });
+  }
   restart(): Promise<Result<ServiceStatus>> {
     if (this.startup) return this.startup;
     this.stop();

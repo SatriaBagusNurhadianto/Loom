@@ -1,3 +1,4 @@
+import { latexCommandSchema, latexResultSchema, exportPdfSchema } from '../contracts/latex';
 import {
   projectCommandSchema,
   chooseFileRequestSchema,
@@ -33,6 +34,30 @@ async function invoke(
 }
 
 const desktop: LoomDesktop = {
+  openSetup: async (guide) => {
+    if (guide === 'tex' || guide === 'texlab') await ipcRenderer.invoke(channels.setup, guide);
+  },
+  latex: async (command) => {
+    const input = latexCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid LaTeX command.', false);
+    try {
+      return latexResultSchema.parse(await ipcRenderer.invoke(channels.latex, input.data));
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'LaTeX connection interrupted. Reconnect and compile again.',
+      );
+    }
+  },
+  exportPdf: async (request) => {
+    const input = exportPdfSchema.safeParse(request);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid PDF export.', false);
+    try {
+      return latexResultSchema.parse(await ipcRenderer.invoke(channels.exportPdf, input.data));
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'PDF export failed. Retry.');
+    }
+  },
   chooseFile: async (request) => {
     const input = chooseFileRequestSchema.safeParse(request);
     if (!input.success) return failure('INVALID_REQUEST', 'Invalid file choice.', false);

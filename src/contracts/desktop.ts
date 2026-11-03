@@ -1,3 +1,4 @@
+import { latexResultSchema, type LatexCommand, type LatexResult } from './latex';
 import {
   projectResultSchema,
   type ProjectChoice,
@@ -16,6 +17,9 @@ export const channels = {
   project: 'loom:project:command',
   chooseProject: 'loom:project:choose',
   chooseFile: 'loom:project:choose-file',
+  latex: 'loom:latex:command',
+  setup: 'loom:latex:setup',
+  exportPdf: 'loom:latex:export',
 } as const;
 
 export const operationErrorSchema = z
@@ -61,6 +65,9 @@ export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 
 // No project paths, file access, shell execution, or arbitrary IPC are exposed.
 export interface LoomDesktop {
+  openSetup(guide: 'tex' | 'texlab'): Promise<void>;
+  latex(command: LatexCommand): Promise<LatexResult>;
+  exportPdf(request: { projectId: string; buildId: string; stale: boolean }): Promise<LatexResult>;
   chooseFile(request: ChooseFileRequest): Promise<ProjectResult>;
   project(command: ProjectCommand): Promise<ProjectResult>;
   chooseProject(choice: ProjectChoice): Promise<ProjectResult>;
@@ -79,6 +86,7 @@ export const serviceRequestSchema = z
   })
   .strict();
 export const serviceMessageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('latex-result'), id: z.string(), result: latexResultSchema }).strict(),
   z
     .object({ type: z.literal('project-context'), projectId: z.string(), path: z.string() })
     .strict(),

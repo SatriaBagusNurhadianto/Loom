@@ -1,3 +1,4 @@
+import { portableBuildSchema, type BuildSettings } from '../../contracts/latex';
 import { promises as fs } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -27,6 +28,8 @@ type Project = {
   rootId: string | null;
   files: RecordFile[];
   preferences: string | null;
+  buildSettings?: BuildSettings;
+  buildConfigError?: string;
 };
 const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
@@ -148,6 +151,28 @@ export class ProjectService {
         ? JSON.parse(stored)
         : { id: randomUUID(), name: basename(root), rootId: null, files: [], preferences: null };
       await this.refresh();
+      try {
+        const config = portableBuildSchema.parse(
+          JSON.parse(await fs.readFile(await this.safe('loom.build.json'), 'utf8')),
+        );
+        const rootFile = this.project!.files.find(
+          (f) => !f.deleted && f.path === config.root && f.path.endsWith('.tex'),
+        );
+        if (!rootFile)
+          throw new Error('Configured root is missing. Select a root and save build settings.');
+        this.project!.rootId = rootFile.id;
+        this.project!.buildSettings = config.settings;
+        delete this.project!.buildConfigError;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+          this.project!.buildConfigError =
+            'Invalid loom.build.json. Select the root and save build settings to repair it.';
+        else {
+          delete this.project!.buildSettings;
+          delete this.project!.buildConfigError;
+        }
+      }
+      this.persist();
       this.store.set('lastProject', root);
       for (const doc of previous.documents.values()) doc.destroy();
       return this.snapshot();
@@ -506,6 +531,48 @@ export class ProjectService {
     for (const file of this.project.files) await this.save(file);
     return this.snapshot();
   }
+  async configureBuild(projectId: string, settings: BuildSettings) {
+    const context = this.buildContext(projectId);
+    const root = context.files.find((f) => f.id === context.snapshot.rootId)?.path;
+    if (!root) throw new Error('Choose a root .tex document before saving build settings.');
+    const target = await this.safe('loom.build.json');
+    const temp = await this.safe(`.loom-save-${randomUUID()}`);
+    try {
+      const handle = await fs.open(temp, 'wx', 0o600);
+      try {
+        await handle.writeFile(JSON.stringify({ version: 1, root, settings }, null, 2) + '\n');
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(temp, target);
+      this.project!.buildSettings = settings;
+      delete this.project!.buildConfigError;
+      await this.refresh();
+    } finally {
+      await fs.rm(temp, { force: true });
+    }
+  }
+  /** Internal only: native roots never cross the renderer bridge. Call inside run(). */
+  buildContext(projectId: string) {
+    if (!this.project || this.project.id !== projectId)
+      throw new Error('The open project changed.');
+    const snapshot = this.snapshot();
+    return {
+      settings: this.project.buildSettings,
+      configError: this.project.buildConfigError,
+      root: this.root,
+      snapshot,
+      files: this.project.files
+        .filter((f) => !f.deleted)
+        .map((f) => ({
+          id: f.id,
+          path: f.path,
+          revision: f.binary ? f.diskRevision : hash(this.doc(f).getText('source').toString()),
+          text: f.binary ? null : this.doc(f).getText('source').toString(),
+        })),
+    };
+  }
   snapshot(): ProjectSnapshot {
     const p = this.project!;
     return {
@@ -513,6 +580,18 @@ export class ProjectService {
       name: p.name,
       rootId: p.rootId,
       preferences: p.preferences,
+      sourceRevision: hash(
+        JSON.stringify([
+          p.rootId,
+          p.files
+            .filter((f) => !f.deleted)
+            .map((f) => [
+              f.path,
+              f.binary ? f.diskRevision : hash(this.doc(f).getText('source').toString()),
+            ])
+            .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+        ]),
+      ),
       files: p.files.map((f) => {
         const text = f.binary ? null : this.doc(f).getText('source').toString();
         return {

@@ -89,6 +89,7 @@ export const projectSnapshotSchema = z
     rootId: id.nullable(),
     files: z.array(projectFileSchema),
     preferences: z.string().nullable(),
+    sourceRevision: z.string().optional(),
     matches: z.array(id).optional(),
     hits: z.array(searchHitSchema).max(200).optional(),
   })
