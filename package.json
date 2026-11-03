@@ -74,6 +74,32 @@
       ],
       "category": "Office",
       "executableName": "loom"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "examples/phase-3/multi-file",
+        "to": "examples/phase-3/multi-file"
+      },
+      {
+        "from": "examples/phase-3/biber",
+        "to": "examples/phase-3/biber"
+      },
+      {
+        "from": "examples/phase-3/bibtex",
+        "to": "examples/phase-3/bibtex"
+      },
+      {
+        "from": "examples/phase-3/ambiguous",
+        "to": "examples/phase-3/ambiguous"
+      },
+      {
+        "from": "examples/phase-3/broken",
+        "to": "examples/phase-3/broken"
+      },
+      {
+        "from": "examples/phase-3/missing-package",
+        "to": "examples/phase-3/missing-package"
+      }
+    ]
   }
 }

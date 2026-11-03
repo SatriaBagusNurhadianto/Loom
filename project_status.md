@@ -165,3 +165,10 @@ The live temporary toolchain is TinyTeX/TeX Live 2026, latexmk 4.88, pdfTeX 1.40
 **Remaining release limits:** Linux x86_64 only; 128 MiB build snapshots, 32 MiB PDFs and existing Phase 2 project limits. The fixed latexmk recipe disables RC files and shell escape and is not an OS sandbox. Installed AppImage, Windows/macOS, full IME/large-project/p95 performance and the one independent startup exit remain Phase 8 hardening work. There are no unresolved known manuscript-loss defects from this review. OpenCode/model calls, research/Zotero, Git/source ZIP export and cloud remain outside Phase 3.
 
 **Next concrete task:** Phase 4 OpenCode adapter/capability/connection contracts and authorized live harness setup. Preserve the tested document/build scheduler and post-write recovery semantics; do not introduce a custom model/tool loop.
+
+## Phase 3 researcher UX correction — in progress
+
+- Reproduced the user's exact `sections/introduction.tex` missing-file failure with a real TeX build: the sample's parent folder was open, so `multi-file/main.tex` resolved inputs from the wrong directory. The original live reproduction failed in 0.94 seconds with the screenshot's error.
+- Added allowlisted native sample opening (editable copies preserved in app data, bundled in development and packages), and explicit validated main-document-folder recovery. Compilation's working directory is not silently changed for existing nested-root projects.
+- Native verification: TypeScript passes; 21 project filesystem/recovery tests pass, including sample-copy preservation and project identity checks. Real nested-paper reproduction now passes after explicit recovery (1/1 focused live test).
+- Next: simplify first-use PDF actions, progressively disclose technical settings, show contextual recovery and verify the complete researcher flow in Electron.

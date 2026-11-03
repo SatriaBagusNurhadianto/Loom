@@ -317,7 +317,11 @@ export function createProjectWorkspace(report: (message: string) => void) {
       const result = await window.loom.chooseProject(choice);
       if (result.ok) {
         accept(result.value);
-        if (result.value) report(`Opened ${result.value.name}.`);
+        if (result.value) {
+          setError('');
+          report(`Opened ${result.value.name}.`);
+          return result.value;
+        }
       } else setError(result.error.message);
     } finally {
       setPending(false);

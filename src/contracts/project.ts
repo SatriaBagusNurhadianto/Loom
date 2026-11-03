@@ -105,7 +105,20 @@ export const projectResultSchema = z.discriminatedUnion('ok', [
     .strict(),
 ]);
 export type ProjectResult = z.infer<typeof projectResultSchema>;
-export type ProjectChoice = 'open' | 'create' | 'import-folder' | 'import-zip';
+export const projectChoiceSchema = z.enum([
+  'open',
+  'create',
+  'import-folder',
+  'import-zip',
+  'main-folder',
+  'sample',
+  'sample-biber',
+  'sample-bibtex',
+  'sample-ambiguous',
+  'sample-broken',
+  'sample-missing-package',
+]);
+export type ProjectChoice = z.infer<typeof projectChoiceSchema>;
 
 export const chooseFileRequestSchema = z
   .object({

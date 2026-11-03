@@ -363,3 +363,32 @@ it('retains the old project when opening a new folder fails', async () => {
   await service.command(await edit('old project remains editable'));
   expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('old project remains editable');
 });
+
+// Native sample/recovery actions use the same real filesystem and recovery service.
+it('preserves editable sample copies and validates opening the main document folder', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'loom-sample-'));
+  const sampleStore = new MetadataStore(join(base, 'metadata'));
+  const sampleService = new ProjectService(sampleStore);
+  try {
+    const source = join(base, 'original');
+    await mkdir(join(source, 'nested'), { recursive: true });
+    await writeFile(join(source, 'nested', 'main.tex'), '\\documentclass{article}');
+    const destination = join(base, 'samples', 'Paper');
+    const first = await sampleService.openSample(source, destination);
+    await writeFile(
+      join(destination, 'nested', 'main.tex'),
+      '\\documentclass{article}\n% my edits',
+    );
+    const reopened = await sampleService.openSample(source, destination);
+    expect(reopened.id).toBe(first.id);
+    expect(await readFile(join(destination, 'nested', 'main.tex'), 'utf8')).toContain('% my edits');
+    await expect(sampleService.openMainFolder('other-project')).rejects.toThrow();
+    const paper = await sampleService.openMainFolder(reopened.id);
+    expect(paper.name).toBe('nested');
+    expect(paper.files[0].path).toBe('main.tex');
+    await expect(sampleService.openMainFolder(paper.id)).rejects.toThrow('paper folder');
+  } finally {
+    sampleStore.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});

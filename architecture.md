@@ -284,3 +284,9 @@ External configuration changes are reconciled and re-parsed on observation, incl
 TexLab's open document set is synchronized with project files on language requests: inactive edits receive didChange, new/renamed sources receive didOpen and missing/deleted sources receive didClose. Locations are filtered to available project text; missing recovery remains in the document service. Aggregate diagnostic storage is capped at 500. Owned children inherit only absolute PATH entries, matching executable discovery.
 
 Native PDF export rechecks project/revision around the picker, derives older-output state from the artifact revision and renderer dirty state, and rejects existing project inputs and symbolic-link destinations. The output is written/fsynced to an exclusive temporary sibling then renamed; replacing an external hard link never truncates the manuscript inode. Interrupted replacement retains the previous destination. Native-only paths remain outside renderer snapshots.
+
+### Researcher onboarding and nested paper recovery
+
+The native project chooser accepts allowlisted sample names. Main resolves a bundled sample directory and an application-data destination; the utility creates an ordinary editable copy once and reopens it thereafter, preserving prior edits. The package explicitly includes the six synthetic sample directories. No renderer-supplied absolute path or executable is accepted.
+
+An explicit **Open paper folder** recovery action uses the selected main document's parent directory. The utility validates project identity, saved/conflict state and symlink-free containment before opening it as a project. It never silently changes compilation's working directory: valid nested roots that resolve inputs from the existing project folder keep their existing behavior.

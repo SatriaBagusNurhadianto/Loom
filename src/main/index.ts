@@ -1,7 +1,10 @@
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
 import { writePdfExport } from './pdf-export';
-import { z } from 'zod';
-import { chooseFileRequestSchema, projectCommandSchema } from '../contracts/project';
+import {
+  chooseFileRequestSchema,
+  projectCommandSchema,
+  projectChoiceSchema,
+} from '../contracts/project';
 import {
   app,
   shell,
@@ -261,11 +264,35 @@ void app.whenReady().then(() => {
   ipcMain.handle(channels.chooseProject, async (event, payload: unknown) => {
     if (!trustedSender(event))
       return failure('FORBIDDEN', 'This window cannot choose projects.', false);
-    const choice = z.enum(['open', 'create', 'import-folder', 'import-zip']).safeParse(payload);
+    const choice = projectChoiceSchema.safeParse(payload);
     if (!choice.success) return failure('INVALID_REQUEST', 'Invalid project choice.', false);
     if (choosing) return failure('BUSY', 'A project dialog is already open.');
     choosing = true;
     try {
+      if (choice.data === 'main-folder') {
+        const location = service.projectLocation;
+        if (!location) return failure('INVALID_REQUEST', 'Open a paper first.', false);
+        return service.project({ type: 'native-main-folder', projectId: location.projectId });
+      }
+      const samples: Record<string, [string, string]> = {
+        sample: ['multi-file', 'Sample paper'],
+        'sample-biber': ['biber', 'References with Biber'],
+        'sample-bibtex': ['bibtex', 'References with BibTeX'],
+        'sample-ambiguous': ['ambiguous', 'Choose a paper'],
+        'sample-broken': ['broken', 'Practice fixing an error'],
+        'sample-missing-package': ['missing-package', 'Missing package example'],
+      };
+      const sample = samples[choice.data];
+      if (sample)
+        return service.project({
+          type: 'native-sample',
+          path: join(
+            app.isPackaged ? process.resourcesPath : app.getAppPath(),
+            'examples/phase-3',
+            sample[0],
+          ),
+          destination: join(app.getPath('userData'), 'sample-papers', sample[1]),
+        });
       if (choice.data === 'create') {
         const selected = await dialog.showSaveDialog(window!, {
           title: 'Create project folder',

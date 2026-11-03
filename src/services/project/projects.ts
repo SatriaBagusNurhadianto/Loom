@@ -183,6 +183,36 @@ export class ProjectService {
   nativeLocation() {
     return this.project ? { projectId: this.project.id, path: this.root } : null;
   }
+  async openMainFolder(projectId: string): Promise<ProjectSnapshot> {
+    await this.refresh();
+    const context = this.buildContext(projectId);
+    const root = context.snapshot.files.find(
+      (file) => file.id === context.snapshot.rootId && !file.deleted,
+    );
+    if (!root || !root.path.includes('/'))
+      throw new Error('Choose a main document in a paper folder first.');
+    if (context.snapshot.files.some((file) => !file.deleted && (file.conflict || !file.saved)))
+      throw new Error(
+        'Save your changes and review conflicting files before opening the paper folder.',
+      );
+    const path = await this.safe(root.path);
+    if (!(await fs.stat(path)).isFile())
+      throw new Error('The main document is no longer available.');
+    return this.open(dirname(path));
+  }
+  async openSample(source: string, destination: string): Promise<ProjectSnapshot> {
+    // Both locations are fixed by main; the renderer supplies only an allowlisted sample name.
+    await fs.mkdir(dirname(destination), { recursive: true });
+    try {
+      const stat = await fs.lstat(destination);
+      if (stat.isSymbolicLink() || !stat.isDirectory())
+        throw new Error('The sample folder is unavailable. Choose another project folder.');
+      return this.open(destination); // Preserve a researcher's earlier sample edits.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    return this.importFolder(source, destination);
+  }
   async createFile(path: string, projectId: string): Promise<ProjectSnapshot | null> {
     await this.current();
     if (this.project?.id !== projectId)

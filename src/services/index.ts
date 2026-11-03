@@ -18,6 +18,7 @@ const latexRequest = z
 let languageQueue: Promise<unknown> = Promise.resolve();
 
 const native = z.union([
+  z.object({ type: z.literal('native-main-folder'), projectId: z.string().min(1) }).strict(),
   z
     .object({
       type: z.literal('native-create-file'),
@@ -27,7 +28,13 @@ const native = z.union([
     .strict(),
   z
     .object({
-      type: z.enum(['native-open', 'native-create', 'native-import-folder', 'native-import-zip']),
+      type: z.enum([
+        'native-open',
+        'native-create',
+        'native-import-folder',
+        'native-import-zip',
+        'native-sample',
+      ]),
       path: z.string().min(1),
       destination: z.string().optional(),
     })
@@ -104,7 +111,12 @@ port.on('message', (event: { data: unknown }) => {
       let value;
       if (n.success) {
         const c = n.data;
-        if (c.type === 'native-create-file') value = await projects.createFile(c.path, c.projectId);
+        if (c.type === 'native-create-file')
+          value = await projects.createFile(c.path!, c.projectId);
+        else if (c.type === 'native-main-folder')
+          value = await projects.openMainFolder(c.projectId);
+        else if (c.type === 'native-sample')
+          value = await projects.openSample(c.path, c.destination!);
         else if (c.type === 'native-open') value = await projects.open(c.path);
         else if (c.type === 'native-create') value = await projects.create(c.path);
         else if (c.type === 'native-import-folder')

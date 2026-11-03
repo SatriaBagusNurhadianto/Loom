@@ -29,6 +29,28 @@ describe.skipIf(process.env.LOOM_TEST_TEX !== '1')(
       store.close();
       await rm(dir, { recursive: true, force: true });
     });
+    it('recovers a nested paper by explicitly opening the main document folder', async () => {
+      const parent = join(dir, 'sample collection');
+      await cp(resolve('examples/phase-3/multi-file'), join(parent, 'multi-file'), {
+        recursive: true,
+      });
+      await projects.open(parent);
+      const id = projects.snapshot().id;
+      await builds.status(id);
+      builds.request(id, false);
+      await builds.idle(id);
+      const state = await builds.status(id);
+      expect(state.current?.status).toBe('failed');
+      expect(state.current?.log).toContain("File `sections/introduction.tex' not found");
+      const opened = await projects.openMainFolder(id);
+      expect(opened.name).toBe('multi-file');
+      expect(opened.files.some((file) => file.path === 'sections/introduction.tex')).toBe(true);
+      await builds.status(opened.id);
+      builds.request(opened.id, false);
+      await builds.idle(opened.id);
+      const recovered = await builds.status(opened.id);
+      expect(recovered.current?.status, recovered.current?.log).toBe('succeeded');
+    }, 60000);
     for (const engine of ['pdflatex', 'xelatex', 'lualatex'] as const)
       it(`builds a real multi-file ${engine} paper and maps source in both directions`, async () => {
         const root = join(dir, '论文 with spaces');
