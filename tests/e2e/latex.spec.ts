@@ -169,6 +169,8 @@ test.describe('live Phase 3 Electron workflow', () => {
     await dimensions(1440, 960);
     root = join(directory, 'collection');
     await cp(resolve('examples/phase-3/multi-file'), join(root, 'multi-file'), { recursive: true });
+    // This manual-recovery fixture must not inherit a developer's local auto-build preference.
+    await rm(join(root, 'multi-file', 'loom.build.json'), { force: true });
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
     }, root);

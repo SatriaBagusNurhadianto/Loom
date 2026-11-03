@@ -297,15 +297,15 @@ Renderer sync payloads are captured when their serialized request starts, after 
 
 A separate edit counter changes on local document updates, not polling or bridge acknowledgments. Automatic PDF scheduling waits for a pause in those edits and stays quiet during routine saving. Manual PDF intent is bounded/coalesced, retains clean-rebuild intent, and is bound to project identity and service generation. Cancellation invalidates in-flight preparation as well as native builds; guards run immediately after asynchronous saves/refreshes so retired operations cannot report errors or consume intent in another project.
 
-## 16. Phase 4 recovery foundation — implementation in progress
+## 16. Phase 4 agent integration and recovery
 
 Agent turns checkpoint ordinary project bytes into protected application-data recovery folders before submission. SQLite stores the revision, session reference, checkpoint paths, observed before/after comparisons, and review state. These are private local recovery records, independent of Git and project exports. Checkpoint files and directories are synchronized before references are published. Launch checks both the saved revision and a second disk scan after checkpointing.
 
 Native writes enter the existing serialized filesystem reconciliation path. Files changed during a request are observations, not proof of authorship; review must explain that other writers may contribute. Loom's own saves mark a file as human-touched during a turn. Revert refuses those files conservatively, uses a three-way text merge to retain compatible later edits, and refuses overlap or changed binary/create/delete preconditions. Recoverable current bytes precede a revert. External deletion can be restored only when the disk remains missing and the retained live text is unchanged from its baseline. Existing path/symlink validation and atomic writes remain authoritative.
 
-An unsettled turn is recovered after service interruption even when an earlier observation already captured some writes. Recovery retains checkpoints; there is no automatic checkpoint cleanup. The pilot bounds papers at 128 MiB for agent recovery, 100 turns and 100 chats per project; normal project scan/text limits still apply. UI comparisons will be capped and labeled when truncated; original recovery bytes remain available to the service.
+An unsettled turn is recovered after service interruption even when an earlier observation already captured some writes. Recovery retains checkpoints; there is no automatic checkpoint cleanup. The pilot bounds papers at 128 MiB for agent recovery, 100 turns and 100 chats per project; normal project scan/text limits still apply. UI comparisons are capped and labeled when truncated; original recovery bytes remain available to the service.
 
-### Phase 4 native adapters — implementation in progress
+### Phase 4 native adapters
 
 The user explicitly expanded this phase on 4 November 2026 to selectable harness providers, using T3 Code settings as inspiration. Loom integrates OpenCode 2.2.x (from 2.2.1) and Codex 0.159.x through separate adapters; other harnesses require an explicit supported protocol adapter. T3 is a design/source reference, not a runtime dependency. Harness choice binds a chat to its native session; switching harnesses never resumes a foreign session.
 

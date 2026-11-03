@@ -2,9 +2,9 @@
 
 **Version:** 1.1
 
-**Date:** 3 November 2026
+**Date:** 4 November 2026
 
-**Status:** Product requirements baseline. Phases 1–3 are complete for the exercised Linux desktop target; implementation and verification are tracked in [project_status.md](project_status.md). Requirements below continue to describe the full first release, not completed functionality.
+**Status:** Product requirements baseline. Phases 1–4 are complete for the exercised Linux desktop target; implementation and verification are tracked in [project_status.md](project_status.md). Requirements below continue to describe the full first release, not completed functionality.
 
 **Product:** Free desktop workspace for scientific writing, powered by the researcher's chosen external agent harness.
 
@@ -30,8 +30,8 @@ The distinction below prevents recommendations from being mistaken for explicit 
 | -------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | Application form           | Electron desktop application                                                                     | Confirmed by user                                                                                             |
 | Agent approach             | Integrate existing harnesses; researchers bring their own agent setup                            | Confirmed by user                                                                                             |
-| First harnesses            | OpenCode native server/SDK and Codex app-server                                                  | Engineering default; user delegated the simplest initial choice                                               |
-| Additional harnesses       | Codex and other supported agents through adapters                                                | Product direction; staged after the first integration                                                         |
+| First harnesses            | OpenCode native server/SDK and Codex app-server                                                  | OpenCode initial default; user explicitly requested selectable OpenCode/Codex providers on 4 November 2026    |
+| Additional harnesses       | Other supported agents through native protocol adapters                                          | Product direction; staged after the initial OpenCode/Codex integration                                        |
 | Live collaboration         | Deferred until after the initial desktop release                                                 | Confirmed by user                                                                                             |
 | Accounts                   | No Loom account required for the local release; introduce with cloud services                    | Engineering default; user explicitly deferred live collaboration but did not separately decide account timing |
 | Compiler setup             | Detect existing LaTeX installations and guide setup when missing                                 | Confirmed by user                                                                                             |

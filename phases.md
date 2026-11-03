@@ -1,8 +1,8 @@
 # First desktop build plan
 
-**Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
+**Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, harnesses beyond OpenCode/Codex, voice, or visual prose editing.
 
-**Current state:** Phases 1–3 implemented and verified on Linux x86_64. Phase 4 has not started. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phases 1–4 implemented and verified on Linux x86_64. Next: Phase 5 literature and Zotero. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 
@@ -92,19 +92,21 @@
 
 **Prerequisites:** Phases 2–3 complete.
 
-- [ ] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK and Codex through its native app-server (user scope decision, 4 November 2026).
-- [ ] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
-- [ ] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
-- [ ] Support sessions, model selection, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
-- [ ] Expose appropriate Loom project/build tools through a supported integration surface.
-- [ ] Capture pre-turn baselines and group native agent writes by change set.
-- [ ] Show direct edits, diffs, keep/revert controls, and truthful post-write review semantics.
-- [ ] Preserve newer edits and partial multi-file work across cancellation/failure/reconnect.
-- [ ] Persist session references and expose project chats through the reference UI.
+- [x] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK and Codex through its native app-server (user scope decision, 4 November 2026).
+- [x] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
+- [x] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
+- [x] Support sessions, model selection, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
+- [x] Expose appropriate Loom project/build tools through a supported integration surface.
+- [x] Capture pre-turn baselines and group native agent writes by change set.
+- [x] Show direct edits, diffs, keep/revert controls, and truthful post-write review semantics.
+- [x] Preserve newer edits and partial multi-file work across cancellation/failure/reconnect.
+- [x] Persist session references and expose project chats through the reference UI.
 
 **Verification:** Cover adapter events with fixtures and perform a live authorized OpenCode smoke check when available. Inspect project context, questions/permissions, tool execution, cancellation, reconnect, agent/human overlapping edits, partial writes, and safe revert. Do not equate a mock response with a live integration.
 
 **Exit:** An author completes a project-aware agent revision, sees the changes without copy/paste, compiles, reviews, and recovers safely. No custom model/tool execution loop has been introduced.
+
+**Recorded evidence:** [Phase 4 final acceptance](project_status.md#phase-4-final-acceptance--4-november-2026), [setup/testing](docs/phase-4-testing.md), and [review/research](docs/phase-4-review.md).
 
 ## Phase 5 — Literature, bibliography, and Zotero
 
