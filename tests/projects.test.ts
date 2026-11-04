@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, writeFile, rename, rm, symlink } from 'node:fs/promises';
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as Y from 'yjs';
@@ -39,6 +40,44 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
+  it('imports a pasted image exclusively and preserves existing files on invalid or repeated input', async () => {
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const command = {
+      type: 'import-image' as const,
+      projectId: service.snapshot().id,
+      path: 'paste.png',
+      data: bytes.toString('base64'),
+    };
+    await service.command(command);
+    expect(await readFile(join(root, 'paste.png'))).toEqual(bytes);
+    await expect(service.command(command)).rejects.toThrow();
+    await expect(
+      service.command({
+        ...command,
+        path: 'other.png',
+        data: Buffer.from('wrong image').toString('base64'),
+      }),
+    ).rejects.toThrow('Paste a PNG');
+    await expect(service.command({ ...command, projectId: 'wrong' })).rejects.toThrow(
+      'paper changed',
+    );
+    expect(await readFile(join(root, 'paste.png'))).toEqual(bytes);
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+  });
+  it('does not publish a partial pasted image when the final link fails', async () => {
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    vi.spyOn(fs, 'link').mockRejectedValueOnce(new Error('simulated interruption'));
+    await expect(
+      service.command({
+        type: 'import-image',
+        projectId: service.snapshot().id,
+        path: 'paste.png',
+        data: bytes.toString('base64'),
+      }),
+    ).rejects.toThrow('simulated interruption');
+    await expect(readFile(join(root, 'paste.png'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+  });
   it('accepts a large external rewrite without a conflict when the author has no unsaved edits', async () => {
     const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
     const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');

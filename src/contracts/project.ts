@@ -27,6 +27,14 @@ export const projectCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('load'), fileId: id }).strict(),
   z.object({ type: z.literal('search'), query: z.string().max(500) }).strict(),
   z.object({ type: z.literal('create'), path: relativePath }).strict(),
+  z
+    .object({
+      type: z.literal('import-image'),
+      projectId: id,
+      path: relativePath,
+      data: z.string().max(14_000_000),
+    })
+    .strict(),
   z.object({ type: z.literal('rename'), fileId: id, path: relativePath }).strict(),
   z.object({ type: z.literal('delete'), fileId: id }).strict(),
   z.object({ type: z.literal('restore'), fileId: id }).strict(),

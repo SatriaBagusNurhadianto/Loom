@@ -751,6 +751,32 @@ test('image attachment explains unsupported model and preserves the draft at a s
   });
 });
 
+test('pasting an image saves an ordinary project asset and keeps clipboard text', async () => {
+  await connect();
+  const input = page.getByRole('textbox', { name: 'Ask about your paper' });
+  await input.fill('Draft ');
+  const allowsTextPaste = await input.evaluate((element) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(
+      new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])], 'board.png', {
+        type: 'image/png',
+      }),
+    );
+    transfer.setData('text/plain', 'caption');
+    return element.dispatchEvent(
+      new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+    );
+  });
+  expect(allowsTextPaste).toBe(true);
+  const attachment = page.getByRole('button', { name: /Remove attached file loom-paste-.*\.png/ });
+  await expect(attachment).toBeVisible();
+  const name = (await attachment.getAttribute('aria-label'))!.replace('Remove attached file ', '');
+  expect(await readFile(join(root, name))).toEqual(
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
+  );
+  await expect(input).toHaveValue('Draft ');
+});
+
 test('agent messages render supported Markdown as safe native elements', async () => {
   await connect();
   await page

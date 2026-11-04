@@ -203,6 +203,7 @@ port.on('message', (event: { data: unknown }) => {
             'native-import-zip',
             'native-sample',
             'native-main-folder',
+            'import-image',
             'rename',
             'delete',
             'restore',

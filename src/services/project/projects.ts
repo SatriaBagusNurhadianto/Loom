@@ -7,6 +7,8 @@ import { unzipSync } from 'fflate';
 import { relativePath, type ProjectCommand, type ProjectSnapshot } from '../../contracts/project';
 import { MetadataStore } from './store';
 import { reconcile, textChanges } from './reconcile';
+import { imageMime } from '../../domain/images';
+import { imageBytesMatch } from '../agents/images';
 type RecordFile = {
   id: string;
   path: string;
@@ -506,7 +508,37 @@ export class ProjectService {
       this.persist();
       return this.snapshot();
     }
-    if (command.type === 'create') {
+    if (command.type === 'import-image') {
+      if (this.project.id !== command.projectId)
+        throw new Error('The open paper changed. Paste the image again.');
+      const mime = imageMime(command.path);
+      const bytes = Buffer.from(command.data, 'base64');
+      if (!mime || bytes.length > 10 * 1024 * 1024 || !imageBytesMatch(mime, bytes))
+        throw new Error('Paste a PNG, JPEG, GIF or WebP image of at most 10 MiB.');
+      const target = await this.safe(command.path);
+      if (dirname(target) !== this.root)
+        throw new Error('Pasted images must be saved in the paper folder.');
+      const temporary = join(this.root, `.loom-save-${randomUUID()}`);
+      let file: Awaited<ReturnType<typeof fs.open>> | undefined;
+      try {
+        file = await fs.open(temporary, 'wx');
+        await file.writeFile(bytes);
+        await file.sync();
+        await file.close();
+        file = undefined;
+        await fs.link(temporary, target);
+        const directory = await fs.open(this.root, 'r');
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
+      } finally {
+        await file?.close();
+        await fs.rm(temporary, { force: true });
+      }
+      await this.refresh();
+    } else if (command.type === 'create') {
       const path = await this.safe(command.path);
       await fs.mkdir(dirname(path), { recursive: true });
       await fs.writeFile(path, '', { flag: 'wx' });

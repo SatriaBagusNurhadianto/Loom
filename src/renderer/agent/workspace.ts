@@ -311,6 +311,65 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setError('');
     }
   }
+  async function pasteImage(file: File) {
+    const projectId = projects.project()?.id;
+    if (!projectId || busy() || state()?.running) {
+      setError(
+        !projectId
+          ? 'Open a paper before pasting an image.'
+          : 'Wait for the current operation to finish before pasting an image.',
+      );
+      return;
+    }
+    const current = generation;
+    if (attachments().length >= 20) {
+      setError('Attach up to 20 files per request.');
+      return;
+    }
+    const extension = (
+      {
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/gif': 'gif',
+        'image/webp': 'webp',
+      } as Record<string, string>
+    )[file.type];
+    if (!extension || file.size > 10 * 1024 * 1024) {
+      setError('Paste a PNG, JPEG, GIF or WebP image of at most 10 MiB.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Could not read the pasted image.'));
+        reader.onload = () =>
+          typeof reader.result === 'string'
+            ? resolve(reader.result.split(',')[1] ?? '')
+            : reject(new Error('Could not read the pasted image.'));
+        reader.readAsDataURL(file);
+      });
+      if (current !== generation || projects.project()?.id !== projectId) return;
+      const path = `loom-paste-${crypto.randomUUID()}.${extension}`;
+      const result = await projects.command({ type: 'import-image', projectId, path, data });
+      if (current !== generation || projects.project()?.id !== projectId) return;
+      if (result?.ok) {
+        if (attachments().length >= 20) {
+          setError(`Image saved as ${path}, but the attachment limit was reached.`);
+          return;
+        }
+        setAttachments((old) => [...old, path]);
+        setError('');
+        report(`Pasted image saved as ${path}`);
+      } else if (result && !result.ok)
+        setError(`${result.error.message} Check whether ${path} was saved before retrying.`);
+    } catch (error) {
+      if (current === generation)
+        setError(error instanceof Error ? error.message : 'Could not paste the image.');
+    } finally {
+      if (current === generation) setBusy(false);
+    }
+  }
   function attachSelection() {
     const file = projects.file(),
       caret = file ? projects.caret(file.id) : undefined;
@@ -410,6 +469,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     open,
     setOpen,
     attachments,
+    pasteImage,
     setAttachments,
     selection,
     setSelection,

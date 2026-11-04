@@ -580,6 +580,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           ref={input}
           class="agent-prompt resize-none"
           aria-label="Ask about your paper"
+          title="Paste an image to add it to this paper and attach it"
           placeholder={
             a.projects.project() ? 'Ask anything' : 'Open a paper to work with an agent…'
           }
@@ -588,6 +589,14 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           maxLength={50000}
           value={a.draft()}
           onInput={(e) => a.setDraft(e.currentTarget.value)}
+          onPaste={(e) => {
+            if (!e.clipboardData) return;
+            const image = [...e.clipboardData.files].find((file) => file.type.startsWith('image/'));
+            if (image) {
+              if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+              void a.pasteImage(image);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
               e.preventDefault();
@@ -637,7 +646,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           <IconButton
             label="Attach paper files or images"
             icon="plus"
-            disabled={!a.projects.project() || running()}
+            disabled={!a.projects.project() || running() || a.busy()}
             onClick={() => void a.attachFiles().finally(() => input?.focus())}
           />
           <AgentChatMenus agent={a} onConnect={props.onConnect} />
