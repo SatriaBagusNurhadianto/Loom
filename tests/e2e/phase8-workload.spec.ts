@@ -125,8 +125,13 @@ test('opens and measures the packaged Phase 8 synthetic workload', async () => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, projectCopy);
   const projectOpenStart = performance.now();
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
   await expect(editor).toContainText('Synthetic Phase 8 workload', { timeout: 60_000 });
   const projectOpenToEditorMs = performance.now() - projectOpenStart;

@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ async function launchDesktop(): Promise<void> {
   page = await desktop.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await readyPid();
+  if ((await page.locator('.library-project').count()) > 0) await resumeFromLibrary(page);
 }
 test.beforeEach(async () => {
   userData = await mkdtemp(join(tmpdir(), 'loom-desktop-e2e-'));
@@ -212,6 +214,7 @@ test('an unresponsive utility process times out and can be restarted', async () 
 
 test('keyboard layout, saved preferences, focus modes, and reference screenshots', async () => {
   await dimensions(2048, 1096);
+  await showLayoutReference();
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
   await showLayoutReference();
@@ -230,6 +233,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await hidePreview.click();
   await expect(preview).toHaveCount(0);
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(preview).toHaveCount(0);
   await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
   await expect(preview).toBeVisible();
@@ -248,6 +252,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.keyboard.press('ArrowRight');
   await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await divider.focus();
   await page.keyboard.press('Home');
@@ -255,6 +260,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.keyboard.press('Control+Alt+b');
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Restore sidebar', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
@@ -337,8 +343,13 @@ async function openSyntheticProject(): Promise<string> {
   await desktop.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, folder);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Original text.',
@@ -357,8 +368,13 @@ test('opens and saves a project whose root path has spaces and non-ASCII charact
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, folder);
 
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
   await expect(editor).toContainText('Original text.');
   await editor.focus();
@@ -696,6 +712,7 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.keyboard.press('Control+s');
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(editor).toContainText('% Human addition');
   await expect(editor).toContainText('External text.');
   await page.evaluate(() => window.loom!.restartService());
@@ -734,6 +751,7 @@ test('unsent local edits and external overlaps remain reviewable', async () => {
   await expect(editor).toContainText('Human replacement');
   expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe('External replacement');
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible();
   await expect(editor).toContainText('Human replacement');
   await page.getByRole('button', { name: 'Keep local text' }).click();
@@ -1025,6 +1043,7 @@ test('IndexedDB-only edits survive renderer crash with disk divergence', async (
   });
   page = await recoveredWindow;
   await page.waitForLoadState('domcontentloaded');
+  await resumeFromLibrary(page);
   await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Recovered human text',
@@ -1038,8 +1057,13 @@ test('native project creation and ZIP import preserve ordinary source and assets
   await desktop.evaluate(({ dialog }, path) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
   }, created);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Create project', exact: true })
+    .click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(await readFile(join(created, 'main.tex'), 'utf8')).toContain('\\documentclass{article}');
   const { zipSync, strToU8 } = await import('fflate');
@@ -1119,7 +1143,7 @@ test('failed working-state persistence keeps the native window open', async () =
 
 test('beta workspace actions stay compact, discoverable and keyboard accessible', async () => {
   await openSyntheticProject();
-  await expect(page.getByText('Local workspace', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Local workspace', { exact: true })).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'Tools', exact: true })).toHaveCount(0);
   const toolbar = page.locator('.source-toolbar');
   await expect(toolbar.getByRole('button', { name: 'Open Git repository' })).toBeVisible();
@@ -1177,6 +1201,7 @@ test('appearance themes apply immediately, persist and keep the small workspace 
   await page.screenshot({ path: 'artifacts/appearance-light.png', animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean');
   await expect(page.locator('html')).toHaveAttribute('data-diff', 'blue-amber');
   await dimensions(720, 540);

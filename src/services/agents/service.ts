@@ -91,7 +91,8 @@ export class AgentService {
     }, 650);
   }
   async initialize() {
-    const current = await this.projects.run(() => this.projects.current());
+    // A disconnected drive retains its recovery records and must not lock the startup library.
+    const current = await this.projects.run(() => this.projects.current(true));
     if (current) await this.serialized(() => this.bind(current.id));
   }
   private serialized<T>(action: () => Promise<T>): Promise<T> {

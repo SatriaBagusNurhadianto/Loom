@@ -1,5 +1,6 @@
 import { For } from 'solid-js';
 const paths = {
+  list: ['M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'],
   appearance: [
     'M12 3a9 9 0 1 0 9 9c0-1.5-1-2-2.5-2H17a2 2 0 0 1-2-2V6.5C15 4 14 3 12 3z',
     'M7 10h.01M9 6h.01M6 15h.01M11 18h.01',

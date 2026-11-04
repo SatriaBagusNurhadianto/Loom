@@ -1,3 +1,5 @@
+import { ProjectManager } from '../projects/ProjectManager';
+import '../projects/projects.css';
 import { AppearanceDialog, createAppearance } from '../appearance/Appearance';
 import { References } from '../references/References';
 import {
@@ -68,7 +70,13 @@ export function Workspace() {
     const timer = setTimeout(() => setNotice(''), 5000);
     onCleanup(() => clearTimeout(timer));
   });
-  const projects = createProjectWorkspace(setNotice);
+  const [libraryOpen, setLibraryOpen] = createSignal(true);
+  const projects = createProjectWorkspace(setNotice, { libraryFirst: true });
+  const showLibrary = async () => {
+    if (!(await projects.saveSession())) return;
+    setDialog(null);
+    setLibraryOpen(true);
+  };
   const latex = createLatexWorkspace(projects, setNotice);
   const agent = createAgentWorkspace(projects, setNotice);
   const [chatHeight, setChatHeight] = createSignal(68);
@@ -82,7 +90,7 @@ export function Workspace() {
   const cloneFromChooser = async () => {
     const url = cloneUrl().trim();
     if (!url || !window.loom) return;
-    if (!(await projects.flushPending())) return;
+    if (!(await projects.saveSession())) return;
     setCloneBusy(true);
     setCloneError('');
     const result = await window.loom.cloneGit({ url });
@@ -95,6 +103,7 @@ export function Workspace() {
       setCloneUrl('');
       await projects.command({ type: 'current' });
       setDialog(null);
+      setLibraryOpen(false);
     }
   };
   let gitProjectId: string | undefined;
@@ -252,6 +261,7 @@ export function Workspace() {
   };
   const showExample = () => {
     setExample(true);
+    setLibraryOpen(false);
     setNotice('Read-only example loaded. No project files were created.');
   };
   const afterLayout = (action: () => void) => {
@@ -308,6 +318,7 @@ export function Workspace() {
     if (!opened) return;
     const newMain = opened.files.find((file) => file.id === opened.rootId)?.path;
     const conflictingMain = choice === 'main-folder' && newMain !== previousMain;
+    setLibraryOpen(false);
     setChooseMain(conflictingMain);
     setDialog(null);
     setExample(false);
@@ -317,7 +328,7 @@ export function Workspace() {
       if (introduction) await projects.select(introduction.id);
     }
     if (makePdf) showPdf();
-    else update({ pdfOpen: true, mode: 'split' });
+    else if (!projects.storedLayout()) update({ pdfOpen: true, mode: 'split' });
     if (makePdf) {
       if (!opened.rootId || conflictingMain) setDialog('build');
       else await latex.compile();
@@ -444,7 +455,7 @@ export function Workspace() {
     });
     const handleResize = () => setNarrow(window.innerWidth < 1100);
     const shortcuts = (e: KeyboardEvent) => {
-      if (e.isComposing || dialog()) return;
+      if (e.isComposing || dialog() || libraryOpen()) return;
       if ((e.ctrlKey || e.metaKey) && e.altKey) {
         if (['1', '2', '3', 'b'].includes(e.key.toLowerCase())) e.preventDefault();
         if (e.key === '1') focusMode('source');
@@ -473,7 +484,42 @@ export function Workspace() {
     });
   });
   return (
-    <div class="app-shell" ref={shell}>
+    <div class="app-shell" classList={{ 'library-visible': libraryOpen() }} ref={shell}>
+      <Show when={libraryOpen()}>
+        <ProjectManager
+          pending={projects.pending()}
+          error={projects.error()}
+          current={projects.project()?.name}
+          onContinue={() => {
+            setLibraryOpen(false);
+            requestAnimationFrame(() =>
+              document.querySelector<HTMLElement>('.cm-content')?.focus(),
+            );
+          }}
+          onChoose={(choice) => void openProject(choice)}
+          onOpen={async (projectId) => {
+            const opened = await projects.choose({ projectId });
+            if (opened) {
+              setLibraryOpen(false);
+              setDialog(null);
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLElement>('.cm-content')?.focus(),
+              );
+            }
+          }}
+          onAppearance={() => setAppearanceOpen(true)}
+          onMore={() => setDialog('projects')}
+          onSettings={() => setDialog('settings')}
+          onService={() => setDialog('service')}
+          serviceLabel={
+            service().state === 'ready'
+              ? 'Local service ready'
+              : service().state === 'starting'
+                ? 'Local service starting'
+                : 'Local service unavailable'
+          }
+        />
+      </Show>
       <a
         class="skip-link"
         href="#source"
@@ -485,7 +531,9 @@ export function Workspace() {
         Skip to source
       </a>
       <header class="compact-bar">
-        <span class="wordmark">Loom</span>
+        <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
+          Loom
+        </button>
         <nav aria-label="Workspace views">
           <button aria-pressed={effectiveMode() === 'source'} onClick={() => focusMode('source')}>
             Source
@@ -518,14 +566,20 @@ export function Workspace() {
               <span class="brand-mark" aria-hidden="true">
                 ◉
               </span>
-              <span class="wordmark">Loom</span>
+              <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
+                Loom
+              </button>
               <IconButton
                 label="Collapse sidebar"
                 icon="panel"
                 onClick={() => update({ sidebarOpen: false })}
               />
             </div>
-            <button class="project-selector" onClick={() => setDialog('projects')}>
+            <button
+              class="project-selector"
+              title="Your projects"
+              onClick={() => void showLibrary()}
+            >
               <span>
                 {projects.project()?.name ?? (example() ? 'Example project' : 'No project open')}
               </span>
@@ -829,7 +883,7 @@ export function Workspace() {
                 label="More workspace actions"
                 actions={[
                   { label: 'Scientific tools', icon: 'science', run: () => setDialog('tools') },
-                  { label: 'Projects', icon: 'folder', run: () => setDialog('projects') },
+                  { label: 'Projects', icon: 'folder', run: () => void showLibrary() },
                   {
                     label: 'Workspace settings',
                     icon: 'settings',
@@ -1321,6 +1375,9 @@ export function Workspace() {
         icon="folder"
         onClose={() => setDialog(null)}
       >
+        <button class="text-button" onClick={() => void showLibrary()}>
+          Your projects
+        </button>
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
           <p>The workspace example is read-only. Open or create a project to edit files.</p>

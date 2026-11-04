@@ -176,7 +176,15 @@ export class ProjectService {
         }
       }
     };
-    await walk(this.root);
+    try {
+      await walk(this.root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new Error(
+          'A project folder or file is unavailable. Reconnect its drive or restore its folder. Saved recovery data has been retained.',
+        );
+      throw error;
+    }
     // Publish only complete scans; removals evict cached paths, and failures retry.
     this.scanCache = cache;
     return found;
@@ -243,14 +251,23 @@ export class ProjectService {
       return await this.open(entry.path);
     } catch {
       throw new Error(
-        'This project folder is unavailable or could not be loaded. Reconnect its drive or use Open folder to locate it. Saved recovery data has been retained.',
+        'This project folder is unavailable or could not be loaded. Reconnect its drive or restore its folder at the original location. Saved recovery data has been retained.',
       );
     }
   }
-  async current(): Promise<ProjectSnapshot | null> {
+  async current(allowMissing = false): Promise<ProjectSnapshot | null> {
     if (!this.project) {
       const last = this.store.get('lastProject');
       if (last) {
+        if (allowMissing) {
+          try {
+            if (!(await fs.stat(last)).isDirectory()) return null;
+          } catch (error) {
+            if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+              return null;
+            throw error;
+          }
+        }
         try {
           return await this.open(last);
         } catch {
@@ -612,6 +629,12 @@ export class ProjectService {
     if (command.type === 'current') return this.current();
     if (!this.project) await this.current();
     if (!this.project) throw new Error('Open a project first.');
+    // Preferences are private metadata; an unplugged project must not prevent saving working state or leaving it.
+    if (command.type === 'preferences') {
+      this.project.preferences = command.value;
+      this.persist();
+      return this.snapshot();
+    }
     if (command.type === 'load') this.loadedId = command.fileId;
     if (command.type === 'sync') {
       this.loadedId = command.fileId;
@@ -672,11 +695,6 @@ export class ProjectService {
         matches: [...new Set(hits.map((hit) => hit.fileId))],
         hits,
       };
-    }
-    if (command.type === 'preferences') {
-      this.project.preferences = command.value;
-      this.persist();
-      return this.snapshot();
     }
     if (command.type === 'import-image') {
       return this.saveImage(command.projectId, command.path, Buffer.from(command.data, 'base64'));

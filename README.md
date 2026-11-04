@@ -2,7 +2,7 @@
 
 Electron workspace for scientific LaTeX writing. Loom supports ordinary folder/ZIP projects, durable source recovery, local TeX compilation, synchronized PDF review, OpenCode/Codex agents, research workflows, Git collaboration and portable publication export on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
 
-Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
+Choose a project from the startup manager, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
 
 Use the sidebar search icon for fuzzy filename and text search: `mtex` finds `main.tex`, and `intrduction` finds `Introduction`. Exact matches rank first. Matching text is highlighted in results and source; selecting a result focuses its passage. Clear removes the highlights. Ctrl F retains precise CodeMirror find/replace.
 
@@ -31,13 +31,19 @@ npm run dev:ui
 
 Open <http://127.0.0.1:5173>. Browser preview intentionally reports the desktop service as unavailable. The real transport and recovery checks require Electron. Run one dev server at a time; both use port 5173.
 
+## Local projects
+
+Loom opens at **Your projects**. Create a project, open an existing folder, or reopen a saved project from the searchable list/grid. **Import project** copies a folder or ZIP into a new destination; **Open folder** edits the existing folder. Use the workspace project name or Loom button to return to the manager. **More options** includes Git cloning and the sample library.
+
+Source and assets remain ordinary files in your chosen folder. Loom keeps chats, session references, editor state, recovery records and builds in its local application data; appearance is saved for this device. Keep both your project folders and Loom application data for a complete-session backup. Reconnect missing drives or restore folders at their original paths to preserve local identity. No account is needed.
+
 ## Try Phase 3
 
 ```bash
 npm run try:phase3
 ```
 
-This starts an isolated Electron profile. Click **Try a sample paper** (or click the current project name to open Projects first). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. Before the first PDF build on Linux x86_64, run `npm run setup:latex` to install the full official TeX Live bundle and TexLab into your user account. Loom also supports an existing system TeX installation. No administrator access or shell-profile changes are needed. See [setup and testing](docs/phase-3-testing.md).
+This starts an isolated Electron profile. Click **Try a sample paper** (or open **More options** in the project manager). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. Before the first PDF build on Linux x86_64, run `npm run setup:latex` to install the full official TeX Live bundle and TexLab into your user account. Loom also supports an existing system TeX installation. No administrator access or shell-profile changes are needed. See [setup and testing](docs/phase-3-testing.md).
 
 ## Try Phase 7
 

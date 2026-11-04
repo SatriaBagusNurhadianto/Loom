@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createServer, type Server, type ServerResponse } from 'node:http';
@@ -93,8 +94,13 @@ async function openProjectIfNeeded() {
   )
     return;
   await stubNativeOpenDialog([root]);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-editor')).toBeVisible();
 }
 async function restartElectron() {
@@ -503,8 +509,13 @@ test.beforeEach(async () => {
   endpoint = `http://127.0.0.1:${address.port}`;
   await launchElectron();
   await stubNativeOpenDialog([root]);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-editor')).toBeVisible();
 });
 test.afterEach(async () => {
@@ -683,6 +694,7 @@ test('partial cancellation, retained draft and project chat continuation after r
   );
   await page.getByRole('button', { name: 'Back to editor', exact: true }).click();
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('.cm-editor')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
     'Keep this next draft across reconnect.',
@@ -811,6 +823,7 @@ test('native reasoning and permission controls persist with the chat and reach t
   await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('.cm-editor')).toBeVisible();
   await connect();
   await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');

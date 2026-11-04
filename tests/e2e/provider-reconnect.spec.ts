@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -44,6 +45,11 @@ for (const harness of ['codex', 'opencode'] as const) {
           return result.ok && result.value.state;
         })
         .toBe('ready');
+      await expect(page.getByRole('main', { name: 'Your projects' })).toHaveAttribute(
+        'aria-busy',
+        'false',
+      );
+      if ((await page.locator('.library-project').count()) > 0) await resumeFromLibrary(page);
     };
     try {
       await mkdir(root);
@@ -52,8 +58,13 @@ for (const harness of ['codex', 'opencode'] as const) {
       await app!.evaluate(({ dialog }, path) => {
         dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
       }, root);
-      await page!.getByRole('button', { name: 'Open or create project', exact: true }).click();
-      await page!.getByRole('button', { name: 'Open folder', exact: true }).click();
+      await page!
+        .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+        .click();
+      await page!
+        .getByRole('dialog', { name: 'Projects', exact: true })
+        .getByRole('button', { name: 'Open folder', exact: true })
+        .click();
       await expect(page!.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
         source.trim(),
       );

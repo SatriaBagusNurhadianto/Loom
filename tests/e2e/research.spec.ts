@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -51,8 +52,13 @@ test.beforeEach(async () => {
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-content')).toBeVisible();
 });
 test.afterEach(async () => {
@@ -103,6 +109,7 @@ test('local reference preview, keyboard citation and repeated import preserve bi
   await expect(page.getByRole('dialog', { name: 'References', exact: true })).not.toBeVisible();
   expect(await readFile(join(root, 'refs.bib'), 'utf8')).toBe(bib);
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('.cm-content')).toContainText('\\cite{Synthetic2024}');
 });
 test('search clear, empty state, contextual agent evidence and narrow modal stay usable', async () => {

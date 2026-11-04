@@ -102,8 +102,13 @@ test.beforeEach(async ({}, testInfo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
   if (testInfo.title.includes('initial project chooser')) return;
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-content')).toBeVisible();
 });
 
@@ -397,7 +402,9 @@ test('clone is available from the initial project chooser before any project is 
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, destinationParent);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
   const projects = page.getByRole('dialog', { name: 'Projects', exact: true });
   await projects
     .getByLabel('Repository URL to clone', { exact: true })

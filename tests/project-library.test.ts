@@ -32,7 +32,15 @@ it('retains separate project identities and preferences across reopen, and keeps
   expect((await service.library()).find((p) => p.id === a.id)).toMatchObject({ available: false });
   await expect(service.reopen(a.id)).rejects.toThrow('recovery data has been retained');
   expect(service.snapshot().id).toBe(b.id);
+  await rm(join(directory, 'Paper B'), { recursive: true });
+  await expect(
+    service.command({ type: 'preferences', value: '{"font":17}' }),
+  ).resolves.toMatchObject({ preferences: '{"font":17}' });
   expect(store.load(join(directory, 'Paper A'))).not.toBeNull();
+  const restarted = new ProjectService(store);
+  expect(await restarted.current(true)).toBeNull();
+  await restarted.create(join(directory, 'Paper C'));
+  expect(await restarted.library()).toHaveLength(3);
   expect(
     projectResultSchema.safeParse({ ok: true, value: null, library: await service.library() })
       .success,

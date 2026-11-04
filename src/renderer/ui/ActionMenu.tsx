@@ -10,7 +10,12 @@ export type MenuAction = {
 };
 
 /** Native top-layer popover, with menu keyboard navigation and explicit focus return. */
-export function ActionMenu(props: { label: string; actions: MenuAction[]; disabled?: boolean }) {
+export function ActionMenu(props: {
+  label: string;
+  actions: MenuAction[];
+  icon?: IconName;
+  disabled?: boolean;
+}) {
   const id = createUniqueId();
   const [open, setOpen] = createSignal(false);
   let trigger!: HTMLButtonElement;
@@ -56,7 +61,7 @@ export function ActionMenu(props: { label: string; actions: MenuAction[]; disabl
           }
         }}
       >
-        <Icon name="more" />
+        <Icon name={props.icon ?? 'more'} />
       </button>
       <div
         ref={menu}
