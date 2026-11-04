@@ -29,6 +29,7 @@ export type AgentModel = z.infer<typeof agentModelSchema>;
 export const agentMessageSchema = z
   .object({
     id,
+    harness: harnessSchema.optional(),
     role: z.enum(['user', 'assistant', 'tool', 'status']),
     text: z.string().max(100000),
     state: z.string().max(100),
@@ -101,6 +102,7 @@ export const agentStateSchema = z
             version: z.string(),
             auth: z.enum(['available', 'required', 'unknown']),
             executable: z.string().max(4096).optional(),
+            connected: z.boolean().optional(),
           })
           .strict(),
       )
@@ -118,11 +120,13 @@ export const agentStateSchema = z
             harness: harnessSchema,
             title: z.string().max(300),
             settings: agentSettingsSchema.optional(),
+            harnesses: z.array(harnessSchema).max(2).optional(),
           })
           .strict(),
       )
       .max(100),
     sessionId: id.nullable(),
+    sessionUnavailable: z.boolean().optional(),
     settings: agentSettingsSchema,
     messages: z.array(agentMessageSchema).max(200),
     permissions: z.array(agentPermissionSchema).max(100),
@@ -148,6 +152,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('disconnect'), projectId: id }).strict(),
+  z.object({ type: z.literal('delete-session'), projectId: id, sessionId: id }).strict(),
   z.object({ type: z.literal('session'), projectId: id, sessionId: id.optional() }).strict(),
   z
     .object({

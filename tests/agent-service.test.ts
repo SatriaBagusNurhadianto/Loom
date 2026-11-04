@@ -15,7 +15,7 @@ type Internals = {
 };
 function fixture(adapter: object) {
   const service = Object.create(AgentService.prototype) as Internals;
-  const turn = { view: { startedAt: '2026-11-04T00:00:00.000Z' } };
+  const turn = { view: { startedAt: '2026-11-04T00:00:00.000Z', changes: [] } };
   const changes = {
     running: () => turn,
     unsettledExternal: () => undefined,

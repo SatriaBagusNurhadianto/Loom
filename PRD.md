@@ -219,7 +219,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 - Give the agent access to relevant source files, bibliography, figures, build output, and explicit author instructions through the harness and Loom tools.
 - Project-wide context means relevant content can be accessed and traced across files. It does not promise that every project byte is sent in every request.
 - Allow users to attach selected text, files, and supported images and inspect which explicit attachments accompany a request.
-- Keep project conversations discoverable through the Chats area, with retained session identity and continuation.
+- Keep project conversations discoverable through the Chats area, with retained session identity and continuation. An idle conversation can switch between connected OpenCode and Codex agents, retaining separate native sessions and permissions with shared public context. Offer explicit conversation deletion with confirmation; preserve manuscript files, change recovery and harness-owned history.
 - Label unavailable capabilities and interrupted work clearly. Preserve messages and author input across recoverable failures.
 - Distinguish an unexecuted suggestion from an actual computation or tool result. Do not report an experiment or verification as performed without evidence.
 

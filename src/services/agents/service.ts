@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
+import {
+  readConversations,
+  mergeConversation,
+  nativeSessionKey,
+  type ConversationRef,
+} from './conversations';
 import {
   agentSettingsSchema,
   defaultAgentSettings,
@@ -15,7 +21,13 @@ import { OpenCodeClassicAdapter } from './opencode-classic';
 import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
 
-type SessionRef = { id: string; harness: HarnessKind; title: string; settings?: AgentSettings };
+type SessionRef = ConversationRef;
+type Connection = {
+  adapter: HarnessAdapter;
+  tools: AgentTools;
+  models: AgentState['models'];
+  interrupted: boolean;
+};
 function authorMessages(messages: AgentState['messages']) {
   return messages.map((message) => {
     if (message.role !== 'user') return message;
@@ -36,6 +48,8 @@ function authorMessages(messages: AgentState['messages']) {
 export class AgentService {
   private adapter: HarnessAdapter | null = null;
   private tools: AgentTools | null = null;
+  private connections = new Map<HarnessKind, Connection>();
+  private persisted = '';
   private changes: AgentChanges;
   private projectId = '';
   private generation = 0;
@@ -74,16 +88,116 @@ export class AgentService {
   active() {
     return !!this.state?.running || !!this.changes.unsettled();
   }
-  private persist() {
-    this.projects.store.set(
-      `agent-sessions:${this.projectId}`,
-      JSON.stringify({
-        version: 1,
-        sessions: this.sessions,
-        sessionId: this.state?.sessionId,
-        harness: this.state?.harness,
-      }),
+  private nativeId(id = this.state?.sessionId): string | null {
+    if (!id) return null;
+    const ref = this.sessions?.find((ref) => ref.id === id);
+    return (
+      ref?.nativeSessions?.[this.state!.harness] ??
+      (ref && ref.harness !== this.state!.harness ? null : id)
     );
+  }
+  private publishSessions() {
+    if (!this.state || !this.sessions) return;
+    this.state.sessions = this.sessions.map(({ id, harness, title, settings, nativeSessions }) => ({
+      id,
+      harness,
+      title,
+      settings,
+      harnesses: Object.keys(nativeSessions ?? { [harness]: id }) as HarnessKind[],
+    }));
+  }
+  private persist() {
+    if (!this.sessions) return;
+    this.publishSessions();
+    const data = JSON.stringify({
+      version: 2,
+      sessions: this.sessions,
+      sessionId: this.state?.sessionId,
+      harness: this.state?.harness,
+    });
+    if (this.persisted !== data) {
+      this.projects.store.set(`agent-sessions:${this.projectId}`, data);
+      this.persisted = data;
+    }
+  }
+  private capture(messages: AgentState['messages'], nativeId: string) {
+    const clean = authorMessages(messages);
+    const ref = this.sessions?.find((ref) => ref.id === this.state?.sessionId);
+    if (!ref) {
+      this.state!.messages = clean;
+      return;
+    }
+    this.state!.messages = mergeConversation(ref, this.state!.harness, nativeId, clean);
+    this.persist();
+  }
+  private async activate(kind: HarnessKind) {
+    const connection = this.connections.get(kind)!;
+    const s = this.state!;
+    ++this.generation;
+    this.adapter = connection.adapter;
+    this.tools = connection.tools;
+    s.harness = kind;
+    s.models = connection.models;
+    s.version = connection.adapter.version;
+    s.connection = connection.interrupted ? 'interrupted' : 'connected';
+    s.ownership = connection.adapter.ownership;
+    s.toolsAvailable = s.ownership === 'loom';
+    s.installed = true;
+    s.permissions = [];
+    s.questions = [];
+    const ref = this.sessions.find((ref) => ref.id === s.sessionId);
+    s.settings = ref?.nativeSettings?.[kind] ?? defaultAgentSettings();
+    if (ref) {
+      ref.harness = kind;
+      ref.settings = { ...s.settings };
+    }
+  }
+  private async ensureNative(id: string) {
+    const ref = this.sessions.find((ref) => ref.id === id);
+    if (!ref) throw new Error('This conversation is no longer available.');
+    ref.nativeSessions ??= { [ref.harness]: ref.id };
+    if (!ref.nativeSessions[this.state!.harness]) {
+      const root = (await this.projects.run(async () => this.projects.buildContext(this.projectId)))
+        .root;
+      const nativeId = await this.adapter!.create(root);
+      if (!nativeId) throw new Error('The harness did not return a session identity.');
+      ref.nativeSessions[this.state!.harness] = nativeId;
+    }
+    return ref.nativeSessions[this.state!.harness]!;
+  }
+  private async resumeCurrent() {
+    const s = this.state!;
+    if (!s.sessionId) return;
+    try {
+      await this.ensureNative(s.sessionId);
+      await this.resume(s.sessionId);
+      s.sessionUnavailable = false;
+      s.error = '';
+    } catch (error) {
+      if (this.changes.unsettledExternal()) throw error;
+      s.sessionUnavailable = true;
+      s.permissions = [];
+      s.questions = [];
+      s.error =
+        'The saved conversation is unavailable on this server. Start a new chat to continue; recovery comparisons are retained.';
+    }
+  }
+  private async discardInterrupted(kind: HarnessKind) {
+    const connection = this.connections.get(kind);
+    if (!connection?.interrupted || connection.adapter === this.adapter) return;
+    connection.adapter.onLost = undefined;
+    await connection.adapter.close();
+    await connection.tools.close();
+    this.connections.delete(kind);
+  }
+  private async disconnectAll() {
+    await this.disconnect();
+    for (const connection of this.connections.values()) {
+      connection.adapter.onLost = undefined;
+      await connection.adapter.close();
+      await connection.tools.close();
+    }
+    this.connections.clear();
   }
   private async bind(projectId: string) {
     await this.projects.run(async () => {
@@ -92,37 +206,21 @@ export class AgentService {
     });
     if (this.projectId === projectId) return;
     if (this.active()) throw new Error('Stop the current agent request before changing papers.');
-    await this.disconnect();
+    await this.disconnectAll();
     const raw = JSON.parse(
       this.projects.store.get(`agent-sessions:${projectId}`) ?? '{"version":1,"sessions":[]}',
     );
-    const parsed = z
-      .object({
-        version: z.literal(1),
-        sessions: z
-          .array(
-            z
-              .object({
-                id: z.string().min(1).max(160),
-                harness: harnessSchema,
-                title: z.string().max(300),
-                settings: agentSettingsSchema.optional(),
-              })
-              .strict(),
-          )
-          .max(100),
-        sessionId: z.string().max(160).nullable().optional(),
-        harness: harnessSchema.optional(),
-      })
-      .strict()
-      .safeParse(raw.version === undefined ? { ...raw, version: 1 } : raw);
-    if (!parsed.success)
+    let stored: ReturnType<typeof readConversations>;
+    try {
+      stored = readConversations(raw.version === undefined ? { ...raw, version: 1 } : raw);
+    } catch {
       throw new Error(
         'Agent conversation references need a compatible Loom version. Keep application data to retain recovery.',
       );
+    }
     await this.changes.bind(projectId);
-    const stored = parsed.data;
     this.projectId = projectId;
+    this.persisted = '';
     this.sessions = stored.sessions;
     this.state = {
       projectId,
@@ -141,7 +239,7 @@ export class AgentService {
       settings:
         stored.sessions.find((ref) => ref.id === stored.sessionId)?.settings ??
         defaultAgentSettings(),
-      messages: [],
+      messages: this.sessions.find((ref) => ref.id === stored.sessionId)?.history ?? [],
       permissions: [],
       questions: [],
       turns: this.changes.views(),
@@ -149,6 +247,7 @@ export class AgentService {
       error: '',
       toolsAvailable: false,
     };
+    this.publishSessions();
     const recovered = await this.projects.run(() => this.changes.recoverInterrupted());
     if (!recovered)
       this.state.error =
@@ -202,8 +301,8 @@ export class AgentService {
       if (s?.running && s.sessionId) {
         let idle = false;
         try {
-          await adapter.interrupt(s.sessionId);
-          idle = await this.confirmedIdle(adapter, s.sessionId);
+          await adapter.interrupt(this.nativeId()!);
+          idle = await this.confirmedIdle(adapter, this.nativeId()!);
         } catch {
           /* Owned process closure below is the fallback. */
         }
@@ -218,6 +317,12 @@ export class AgentService {
       // Close/confirmed-idle precedes the final observation so late partial writes are included.
       if (s?.running) await this.projects.run(() => this.changes.finish(outcome));
     }
+    this.connections?.delete(s?.harness ?? 'opencode');
+    if (s)
+      s.providers =
+        s.providers?.map((provider) =>
+          provider.id === s.harness ? { ...provider, connected: false } : provider,
+        ) ?? [];
     this.adapter = null;
     await this.tools?.close();
     this.tools = null;
@@ -252,7 +357,26 @@ export class AgentService {
           );
         s.settings = command.settings;
         const ref = this.sessions.find((ref) => ref.id === s.sessionId);
-        if (ref) ref.settings = { ...s.settings };
+        if (ref) {
+          ref.settings = { ...s.settings };
+          ref.nativeSettings = { ...ref.nativeSettings, [s.harness]: { ...s.settings } };
+        }
+        this.persist();
+        return structuredClone(s);
+      }
+      if (command.type === 'delete-session') {
+        if (this.active())
+          throw new Error('Stop or recover the current request before deleting a conversation.');
+        if (!this.sessions.some((ref) => ref.id === command.sessionId))
+          throw new Error('This conversation is no longer available.');
+        this.sessions = this.sessions.filter((ref) => ref.id !== command.sessionId);
+        if (s.sessionId === command.sessionId) {
+          s.sessionId = null;
+          s.sessionUnavailable = false;
+          s.messages = [];
+          s.permissions = [];
+          s.questions = [];
+        }
         this.persist();
         return structuredClone(s);
       }
@@ -263,14 +387,30 @@ export class AgentService {
       if (command.type === 'connect') {
         if (s.running && s.connection === 'connected')
           throw new Error('Stop the current request before changing agent connections.');
-        await this.disconnect();
+        if (this.active() && s.harness !== command.harness)
+          throw new Error('Stop or recover the current request before switching agents.');
+        if (this.adapter && s.connection === 'connected' && s.sessionId) await this.refresh();
+        const available = this.connections.get(command.harness);
+        if (available && !available.interrupted) {
+          await this.activate(command.harness);
+          await this.resumeCurrent();
+          this.persist();
+          return structuredClone(s);
+        }
+        const previousKind = s.harness;
+        await this.discardInterrupted(command.harness);
+        if (s.harness === command.harness && this.adapter) await this.disconnect();
+        else {
+          this.adapter = null;
+          this.tools = null;
+        }
         if (s.harness !== command.harness) s.settings = defaultAgentSettings();
         s.harness = command.harness;
         s.error = '';
         const context = await this.projects.run(async () =>
           this.projects.buildContext(command.projectId),
         );
-        const generation = ++this.generation;
+        ++this.generation;
         try {
           this.tools = await new AgentTools(this.projects, this.builds, command.projectId).start();
           const adapter =
@@ -303,6 +443,12 @@ export class AgentService {
               await adapter.configureTools(context.root, this.tools.url, this.tools.token);
             await adapter.stream();
           }
+          this.connections.set(command.harness, {
+            adapter,
+            tools: this.tools!,
+            models: s.models,
+            interrupted: false,
+          });
           s.version = adapter.version;
           s.installed = true;
           s.ownership = adapter.ownership;
@@ -321,11 +467,18 @@ export class AgentService {
                   installed: true,
                   version: adapter.version,
                   auth: authentication,
+                  connected: true,
                 }
               : p,
           );
           adapter.onLost = () => {
-            if (generation !== this.generation) return;
+            const connection = this.connections.get(command.harness);
+            if (connection?.adapter !== adapter) return;
+            connection.interrupted = true;
+            s.providers = s.providers.map((provider) =>
+              provider.id === command.harness ? { ...provider, connected: false } : provider,
+            );
+            if (this.adapter !== adapter) return;
             s.connection = 'interrupted';
             s.error =
               'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
@@ -333,25 +486,20 @@ export class AgentService {
             s.questions = [];
             // Do not finalize an unknown native execution merely because its stream failed.
           };
-          if (
-            s.sessionId &&
-            this.sessions.find((r) => r.id === s.sessionId)?.harness === s.harness
-          ) {
-            try {
-              await this.resume(s.sessionId);
-            } catch (error) {
-              if (this.changes.unsettledExternal()) throw error;
-              s.error =
-                'The saved conversation is unavailable on this server. Start a new chat to continue; recovery comparisons are retained.';
-              s.sessionId = null;
-            }
-          } else s.sessionId = null;
+          const currentRef = this.sessions.find((ref) => ref.id === s.sessionId);
+          s.settings = currentRef?.nativeSettings?.[s.harness] ?? defaultAgentSettings();
+          if (currentRef) {
+            currentRef.harness = s.harness;
+            currentRef.settings = { ...s.settings };
+          }
+          await this.resumeCurrent();
           if (command.executable !== undefined)
             this.projects.store.set('agent-runtime:' + command.harness, command.executable);
           this.persist();
           return structuredClone(s);
         } catch (error) {
           await this.disconnect();
+          if (this.connections.has(previousKind)) await this.activate(previousKind);
           s.error = error instanceof Error ? error.message : 'Agent connection failed.';
           throw error;
         }
@@ -362,12 +510,15 @@ export class AgentService {
       if (command.type === 'session') {
         if (s.running) throw new Error('Stop the current request before changing chats.');
         if (command.sessionId) {
-          if (!this.sessions.some((r) => r.id === command.sessionId && r.harness === s.harness))
-            throw new Error('This conversation belongs to another agent. Connect its agent first.');
+          if (!this.sessions.some((r) => r.id === command.sessionId))
+            throw new Error('This conversation is no longer available.');
+          await this.ensureNative(command.sessionId);
           await this.resume(command.sessionId);
-          s.settings =
-            this.sessions.find((ref) => ref.id === command.sessionId)?.settings ??
-            defaultAgentSettings();
+          s.sessionUnavailable = false;
+          const ref = this.sessions.find((ref) => ref.id === command.sessionId)!;
+          s.settings = ref.nativeSettings?.[s.harness] ?? defaultAgentSettings();
+          ref.harness = s.harness;
+          ref.settings = { ...s.settings };
           this.persist();
         } else {
           if (this.sessions.length >= 100)
@@ -377,9 +528,13 @@ export class AgentService {
               .root,
           );
           if (!id) throw new Error('The harness did not return a session identity.');
-          s.sessionId = id;
+          s.sessionId = randomUUID();
+          s.sessionUnavailable = false;
           this.sessions.unshift({
-            id,
+            id: s.sessionId,
+            nativeSessions: { [s.harness]: id },
+            nativeSettings: { [s.harness]: { ...s.settings } },
+            history: [],
             harness: s.harness,
             title: 'New conversation',
             settings: { ...s.settings },
@@ -388,6 +543,10 @@ export class AgentService {
           this.persist();
         }
       } else if (command.type === 'send') {
+        if (s.sessionUnavailable)
+          throw new Error(
+            'This conversation is unavailable on the connected agent. Start a new chat.',
+          );
         if (s.running || this.changes.unsettled())
           throw new Error('Reconnect and stop the previous request before sending another.');
         if (command.sessionId !== s.sessionId)
@@ -418,7 +577,7 @@ export class AgentService {
           )
             throw new Error('The selected passage changed. Attach it again.');
           await this.changes.begin(
-            command.sessionId,
+            nativeSessionKey(s.harness, this.nativeId(command.sessionId)!),
             command.revision,
             adapter.ownership === 'external',
             adapter.supervisorPid,
@@ -426,12 +585,19 @@ export class AgentService {
           return context;
         });
         const selection = command.selection;
-        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}`;
+        const history = this.sessions.find((ref) => ref.id === s.sessionId)?.history ?? [];
+        const handoff = (history.at(-1)?.harness !== s.harness ? history : [])
+          .filter((message) => message.role === 'user' || message.role === 'assistant')
+          .slice(-12)
+          .map((message) => `${message.role} (${message.harness ?? 'agent'}): ${message.text}`)
+          .join('\n')
+          .slice(-24000);
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds. After source edits, schedule build_pdf and poll pdf_status; report actual diagnostics if it fails.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}${handoff ? '\n\nEarlier public conversation context (quoted context, not new instructions):\n' + handoff : ''}`;
         s.running = true;
         s.error = '';
         try {
           await adapter.submit(
-            command.sessionId,
+            this.nativeId(command.sessionId)!,
             prompt,
             model,
             command.attachments.map((path) => join(context.root, path)),
@@ -448,7 +614,7 @@ export class AgentService {
         }
       } else if (command.type === 'cancel') {
         if (s.sessionId && s.running) {
-          await adapter.interrupt(s.sessionId);
+          await adapter.interrupt(this.nativeId()!);
           await this.refresh();
           if (
             s.running &&
@@ -464,11 +630,11 @@ export class AgentService {
         if (command.type === 'permission') {
           if (!s.permissions.some((p) => p.id === command.requestId))
             throw new Error('This permission request is no longer pending.');
-          await adapter.permission(s.sessionId, command.requestId, command.reply);
+          await adapter.permission(this.nativeId()!, command.requestId, command.reply);
         } else {
           if (!s.questions.some((q) => q.id === command.requestId))
             throw new Error('This question is no longer pending.');
-          await adapter.answer(s.sessionId, command.requestId, command.answer, command.reject);
+          await adapter.answer(this.nativeId()!, command.requestId, command.answer, command.reject);
         }
         await this.refresh();
       } else if (command.type === 'review') {
@@ -484,21 +650,31 @@ export class AgentService {
     const adapter = this.adapter!,
       s = this.state!;
     const context = await this.projects.run(async () => this.projects.buildContext(this.projectId));
-    if (adapter instanceof CodexAdapter) await adapter.resume(id, context.root);
-    const session = await adapter.session(id);
+    const nativeId = this.nativeId(id);
+    if (!nativeId)
+      throw new Error('This agent has no session in the conversation. Connect it first.');
+    if (adapter instanceof CodexAdapter) await adapter.resume(nativeId, context.root);
+    const session = await adapter.session(nativeId);
     if (string(object(session.location).directory) !== context.root)
       throw new Error('This conversation belongs to a different paper folder.');
     const unresolved = this.changes.unsettledExternal();
-    if ((await adapter.active(id)) || unresolved?.view.sessionId === id) {
-      await adapter.interrupt(id);
-      if (!(await this.confirmedIdle(adapter, id)))
+    if (
+      (await adapter.active(nativeId)) ||
+      unresolved?.view.sessionId === nativeId ||
+      unresolved?.view.sessionId === nativeSessionKey(s.harness, nativeId)
+    ) {
+      await adapter.interrupt(nativeId);
+      if (!(await this.confirmedIdle(adapter, nativeId)))
         throw new Error('The native request is still stopping. Reconnect again before continuing.');
     }
-    if (unresolved?.view.sessionId === id)
+    if (
+      unresolved?.view.sessionId === nativeId ||
+      unresolved?.view.sessionId === nativeSessionKey(s.harness, nativeId)
+    )
       await this.projects.run(() => this.changes.settleExternal());
-    const messages = authorMessages(await adapter.messages(id));
+    const messages = await adapter.messages(nativeId);
     s.sessionId = id;
-    s.messages = messages;
+    this.capture(messages, nativeId);
     this.persist();
   }
   private async refresh() {
@@ -506,6 +682,7 @@ export class AgentService {
       this.refreshBusy ||
       !this.adapter ||
       !this.state?.sessionId ||
+      this.state.sessionUnavailable ||
       this.state.connection !== 'connected'
     )
       return;
@@ -513,15 +690,16 @@ export class AgentService {
     const generation = this.generation,
       adapter = this.adapter,
       s = this.state,
-      sessionId = s.sessionId!;
+      conversationId = s.sessionId!,
+      sessionId = this.nativeId()!;
     try {
       const [messages, pending, active] = await Promise.all([
         adapter.messages(sessionId),
         adapter.pending(sessionId),
         adapter.active(sessionId),
       ]);
-      if (generation !== this.generation || s.sessionId !== sessionId) return;
-      s.messages = authorMessages(messages);
+      if (generation !== this.generation || s.sessionId !== conversationId) return;
+      this.capture(messages, sessionId);
       s.permissions = pending.permissions.map((p) => ({
         id: string(p.id),
         action: string(p.action),
@@ -568,6 +746,9 @@ export class AgentService {
                 Date.parse(this.changes.running()?.view.startedAt ?? ''));
           if (finished) {
             const outcome = string(session.outcome);
+            const changed = this.changes
+              .running()
+              ?.view.changes.some((change) => /\.(tex|bib|sty|cls)$/i.test(change.path));
             await this.changes.finish(
               outcome === 'succeeded'
                 ? 'succeeded'
@@ -578,12 +759,28 @@ export class AgentService {
                     : 'interrupted',
             );
             s.running = false;
+            if (outcome === 'succeeded' && changed) {
+              const context = this.projects.buildContext(this.projectId);
+              if (
+                context.snapshot.rootId &&
+                context.snapshot.files.every(
+                  (file) => file.deleted || (file.saved && !file.conflict),
+                )
+              )
+                this.builds.request(this.projectId, false);
+            }
           }
         });
       }
       s.turns = this.changes.views();
     } catch {
       if (generation === this.generation) {
+        const connection = this.connections?.get(s.harness);
+        if (connection?.adapter === adapter) connection.interrupted = true;
+        s.providers =
+          s.providers?.map((provider) =>
+            provider.id === s.harness ? { ...provider, connected: false } : provider,
+          ) ?? [];
         s.connection = 'interrupted';
         s.error =
           'The agent connection was interrupted. Reconnect before continuing. Partial work is retained.';
@@ -596,6 +793,6 @@ export class AgentService {
   }
   async close() {
     clearInterval(this.timer);
-    await this.disconnect();
+    await this.disconnectAll();
   }
 }
