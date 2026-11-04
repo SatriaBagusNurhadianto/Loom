@@ -48,20 +48,37 @@ it('observes unchanged files without reading content or replacing the search ind
   expect(index).not.toHaveBeenCalled();
   expect(store.db.prepare('SELECT total_changes() AS n').get()).toEqual(before);
 });
-it('keeps repeated observations of a 1,002-file project free of content I/O and index churn', async () => {
+it('indexes a 1,002-file project on open and preserves initial search through no-op observations', async () => {
   const source = Array.from({ length: 100 }, (_, i) => `% synthetic line ${i}\n`).join('');
   await mkdir(join(root, 'sections'));
   // Bound setup concurrency; this is a synthetic service regression, not a
   // packaged idle-CPU benchmark or a one-second wall-clock observer simulation.
-  for (let start = 0; start < 1001; start += 50) {
+  for (let start = 0; start < 1000; start += 50) {
     await Promise.all(
-      Array.from({ length: Math.min(50, 1001 - start) }, (_, offset) =>
+      Array.from({ length: Math.min(50, 1000 - start) }, (_, offset) =>
         writeFile(join(root, 'sections', `${start + offset}.tex`), source),
       ),
     );
   }
-  await service.refresh();
+  await writeFile(
+    join(root, 'sections', 'large-file.tex'),
+    Array.from({ length: 10_000 }, (_, i) => `% large-file line ${i + 1}\n`).join(''),
+  );
+  // A fresh service/database must index every file on open, before any observer
+  // or explicit refresh and without loading the large document into a renderer.
+  store.close();
+  store = new MetadataStore(join(dir, 'fresh-data'));
+  service = new ProjectService(store);
+  await service.open(root);
   expect(service.snapshot().files).toHaveLength(1002);
+  const large = service.snapshot().files.find((file) => file.path === 'sections/large-file.tex')!;
+  expect(large.loaded).toBe(false);
+  expect(store.hits(root, 'large-file line 9999')).toMatchObject([
+    { fileId: large.id, path: large.path, line: 9999 },
+  ]);
+  expect(
+    (await service.command({ type: 'search', query: 'large-file line 9999' }))?.matches,
+  ).toEqual([large.id]);
   const reads = vi.spyOn(fs, 'readFile');
   const index = vi.spyOn(store, 'index');
   const revision = store.changeCount();
@@ -69,6 +86,9 @@ it('keeps repeated observations of a 1,002-file project free of content I/O and 
   expect(reads).not.toHaveBeenCalled();
   expect(index).not.toHaveBeenCalled();
   expect(store.changeCount()).toBe(revision);
+  expect(
+    (await service.command({ type: 'search', query: 'large-file line 9999' }))?.matches,
+  ).toEqual([large.id]);
 });
 it('invalidates observation reads for same-sized writes, atomic replacements and unchanged-content touches', async () => {
   const path = join(root, 'main.tex');

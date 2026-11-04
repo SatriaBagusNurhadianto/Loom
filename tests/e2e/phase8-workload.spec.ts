@@ -1,6 +1,6 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -10,6 +10,7 @@ test.skip(!workload, 'Set LOOM_PHASE8_PROJECT to a generated Phase 8 workload fo
 let app: ElectronApplication;
 let page: Page;
 let userData: string;
+let runDirectory: string;
 
 function processTree(pid: number): Array<{ pid: number; ppid: number; rssKb: number }> {
   const records = execFileSync('ps', ['-eo', 'pid=,ppid=,rss='], { encoding: 'utf8' })
@@ -78,7 +79,20 @@ function cpuTicks(pid: number): number {
 test('opens and measures the packaged Phase 8 synthetic workload', async () => {
   test.setTimeout(180_000);
   if (!workload) throw new Error('Missing LOOM_PHASE8_PROJECT.');
-  userData = await mkdtemp(join(tmpdir(), 'loom-phase-8-workload-'));
+  const largeFilePath = join(workload, 'sections', 'large-file.tex');
+  const originalLargeFile = await readFile(largeFilePath);
+  expect(
+    originalLargeFile
+      .toString('utf8')
+      .includes('% large-file line 9999: synthetic navigation workload'),
+    'The workload must contain the generated search target before launch; a previous benchmark may have overwritten it.',
+  ).toBe(true);
+  runDirectory = await mkdtemp(join(tmpdir(), 'loom-phase-8-workload-'));
+  userData = join(runDirectory, 'user-data');
+  const projectCopy = join(runDirectory, 'project');
+  // Typing replaces the selected search match and is saved to disk. Always
+  // measure a private copy so repeat runs use identical, untouched inputs.
+  await cp(workload, projectCopy, { recursive: true });
   const executable = process.env.LOOM_E2E_EXECUTABLE ?? resolve('release/linux-unpacked/loom');
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -109,7 +123,7 @@ test('opens and measures the packaged Phase 8 synthetic workload', async () => {
 
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
-  }, workload);
+  }, projectCopy);
   const projectOpenStart = performance.now();
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder', exact: true }).click();
@@ -178,6 +192,10 @@ test('opens and measures the packaged Phase 8 synthetic workload', async () => {
 
   // The saved label acknowledges the filesystem bridge, rather than only editor state.
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk', { timeout: 30_000 });
+  expect((await readFile(largeFilePath)).equals(originalLargeFile)).toBe(true);
+  expect(
+    (await readFile(join(projectCopy, 'sections', 'large-file.tex'))).equals(originalLargeFile),
+  ).toBe(false);
   const postSaveSettleMs = 3_000;
   await page.waitForTimeout(postSaveSettleMs);
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
@@ -222,6 +240,7 @@ test('opens and measures the packaged Phase 8 synthetic workload', async () => {
       projectRefreshIntervalMs: 1_000,
     },
     limitations: [
+      'The supplied fixture is copied to a private temporary project before launch; copying warms filesystem caches and these timings do not measure cold I/O.',
       'The animation-frame delay is a renderer-side typing proxy, not display photon latency.',
       'Bibliography latency includes the UI action, IPC, project refresh, parsing, filtering and rendering; it is not isolated parsing or indexed-search performance.',
       'CPU includes Electron descendants after save acknowledgment and a settling delay; the one-second project refresh remains active. Process exits/starts can affect cumulative tick deltas.',
@@ -241,5 +260,5 @@ test('opens and measures the packaged Phase 8 synthetic workload', async () => {
 
 test.afterEach(async () => {
   if (app) await app.close().catch(() => {});
-  if (userData) await rm(userData, { recursive: true, force: true });
+  if (runDirectory) await rm(runDirectory, { recursive: true, force: true });
 });
