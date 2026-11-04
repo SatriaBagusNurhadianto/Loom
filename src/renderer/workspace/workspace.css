@@ -2319,6 +2319,57 @@ kbd {
   max-height: 65px;
   overflow: auto;
 }
+.agent-image-preview {
+  position: absolute;
+  z-index: 6;
+  top: 64px;
+  right: 16px;
+  width: min(45%, 400px);
+  max-height: 32%;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  box-shadow: 0 8px 24px #0008;
+}
+.agent-image-preview > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.agent-image-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.agent-image-preview img {
+  display: block;
+  object-fit: contain;
+  max-width: 100%;
+  max-height: 20vh;
+  margin: 6px auto 0;
+}
+.agent-image-short-hint {
+  display: none;
+}
+@media (max-height: 650px) {
+  .agent-image-short-hint {
+    display: block;
+  }
+  .source-column:has(.agent-image-preview) .agent-workspace-panel.expanded {
+    height: auto;
+  }
+  .source-column:has(.agent-image-preview) .agent-conversation,
+  .source-column:has(.agent-image-preview) .agent-panel-grip {
+    display: none;
+  }
+  .agent-image-preview {
+    max-height: 38%;
+  }
+}
 .agent-attachments button {
   min-width: 0;
   max-width: 100%;

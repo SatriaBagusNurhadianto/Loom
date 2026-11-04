@@ -753,12 +753,14 @@ test('image attachment explains unsupported model and preserves the draft at a s
 
 test('pasting an image saves an ordinary project asset and keeps clipboard text', async () => {
   await connect();
+  await dimensions(720, 540);
+  const imageBytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
   const input = page.getByRole('textbox', { name: 'Ask about your paper' });
   await input.fill('Draft ');
-  const allowsTextPaste = await input.evaluate((element) => {
+  const allowsTextPaste = await input.evaluate((element, bytes) => {
     const transfer = new DataTransfer();
     transfer.items.add(
-      new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0])], 'board.png', {
+      new File([new Uint8Array(bytes)], 'board.png', {
         type: 'image/png',
       }),
     );
@@ -766,15 +768,33 @@ test('pasting an image saves an ordinary project asset and keeps clipboard text'
     return element.dispatchEvent(
       new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
     );
-  });
+  }, Array.from(imageBytes));
   expect(allowsTextPaste).toBe(true);
   const attachment = page.getByRole('button', { name: /Remove attached file loom-paste-.*\.png/ });
   await expect(attachment).toBeVisible();
   const name = (await attachment.getAttribute('aria-label'))!.replace('Remove attached file ', '');
-  expect(await readFile(join(root, name))).toEqual(
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
-  );
+  expect(await readFile(join(root, name))).toEqual(imageBytes);
   await expect(input).toHaveValue('Draft ');
+  await page.getByRole('button', { name: `View ${name}` }).click();
+  const image = page.getByRole('img', { name: `Current project image: ${name}` });
+  await expect(image).toBeVisible();
+  await expect
+    .poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth))
+    .toBe(720);
+  await expect(
+    page.getByText('Current project file; it may have changed since it was sent.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Show conversation' }).click();
+  await expect(input).toBeVisible();
+  await expect(page.locator('.cm-editor')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send to agent' })).toBeVisible();
+  await expect(page.getByText(/This model does not report image support/)).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-image-preview-small.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Close image' }).click();
+  await expect(image).toHaveCount(0);
 });
 
 test('agent messages render supported Markdown as safe native elements', async () => {

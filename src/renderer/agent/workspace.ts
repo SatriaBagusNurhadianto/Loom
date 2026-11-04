@@ -17,6 +17,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     [modelKey, setModelKeyValue] = createSignal(''),
     [open, setOpen] = createSignal(false),
     [attachments, setAttachments] = createSignal<string[]>([]),
+    [imagePreview, setImagePreview] = createSignal<{ path: string; url: string } | null>(null),
+    [recentImages, setRecentImages] = createSignal<string[]>([]),
     [selection, setSelection] = createSignal<{ path: string; text: string } | null>(null),
     [submitting, setSubmitting] = createSignal(false);
   let generation = 0,
@@ -24,7 +26,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     polling = false,
     sequence = 0,
     accepted = 0,
-    cancelAfterSend = false;
+    cancelAfterSend = false,
+    imageSequence = 0;
   const [runtimePaths, setRuntimePaths] = createSignal<Record<string, string>>({});
   function runtimePath(kind: HarnessKind) {
     const draft = runtimePaths()[kind];
@@ -149,6 +152,9 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setState(null);
       setError('');
       setAttachments([]);
+      setImagePreview(null);
+      setRecentImages([]);
+      ++imageSequence;
       setSelection(null);
       setOpen(false);
       setBusy(false);
@@ -198,7 +204,11 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const projectId = projects.project()?.id;
     if (!projectId) return false;
     const result = await act({ type: 'session', projectId });
-    if (result) setOpen(true);
+    if (result) {
+      setOpen(true);
+      setRecentImages([]);
+      closeImage();
+    }
     return !!result;
   }
   async function selectChat(sessionId: string) {
@@ -211,6 +221,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const result = await act({ type: 'session', projectId, sessionId });
     if (result) {
       setOpen(true);
+      setRecentImages([]);
+      closeImage();
       return true;
     }
     return false;
@@ -271,6 +283,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       });
       if (sent) {
         if (draft().trim() === prompt) setDraft('');
+        const images = attachments().filter((path) => imageMime(path));
+        if (images.length) setRecentImages(images);
         setAttachments([]);
         setSelection(null);
       }
@@ -310,6 +324,32 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setAttachments(paths);
       setError('');
     }
+  }
+  async function showImage(path: string) {
+    const projectId = projects.project()?.id;
+    const current = generation;
+    const requestId = ++imageSequence;
+    if (!projectId || !window.loom) return;
+    const result = await window.loom.project({ type: 'preview-image', projectId, path });
+    if (
+      current !== generation ||
+      requestId !== imageSequence ||
+      projects.project()?.id !== projectId
+    )
+      return;
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    const preview = result.value?.imagePreview;
+    if (preview) {
+      setImagePreview({ path: preview.path, url: `data:${preview.mime};base64,${preview.data}` });
+      setError('');
+    }
+  }
+  function closeImage() {
+    ++imageSequence;
+    setImagePreview(null);
   }
   async function pasteImage(file: File) {
     const projectId = projects.project()?.id;
@@ -469,6 +509,10 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     open,
     setOpen,
     attachments,
+    imagePreview,
+    closeImage,
+    recentImages,
+    showImage,
     pasteImage,
     setAttachments,
     selection,

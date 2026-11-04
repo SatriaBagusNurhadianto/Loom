@@ -12,6 +12,7 @@ import {
   AgentComposer,
   AgentConnections,
   AgentConversation,
+  AgentImagePreview,
 } from '../agent/AgentSurface';
 import { createLatexWorkspace } from '../latex/workspace';
 import { BuildDialog } from '../latex/BuildDialog';
@@ -888,6 +889,7 @@ export function Workspace() {
                 </span>
               </Show>
             </div>
+            <AgentImagePreview agent={agent} />
             <div
               class="agent-workspace-panel"
               classList={{ expanded: agent.open() }}

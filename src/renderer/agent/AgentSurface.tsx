@@ -568,6 +568,29 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
     </Show>
   );
 }
+export function AgentImagePreview(props: { agent: AgentWorkspace }) {
+  const a = props.agent;
+  return (
+    <Show when={a.imagePreview()}>
+      {(preview) => (
+        <div class="agent-image-preview" aria-label="Project image preview">
+          <div>
+            <strong>Project image</strong>
+            <span title={preview().path}>{preview().path}</span>
+            <button class="text-button" onClick={a.closeImage}>
+              Close image
+            </button>
+          </div>
+          <small>Current project file; it may have changed since it was sent.</small>
+          <Show when={a.open()}>
+            <small class="agent-image-short-hint">Close image to return to the conversation.</small>
+          </Show>
+          <img src={preview().url} alt={`Current project image: ${preview().path}`} />
+        </div>
+      )}
+    </Show>
+  );
+}
 export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
   const a = props.agent;
   let input!: HTMLTextAreaElement;
@@ -608,13 +631,23 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           <div class="agent-attachments">
             <For each={a.attachments()}>
               {(path) => (
-                <button
-                  title={`Remove attached file ${path}`}
-                  aria-label={`Remove attached file ${path}`}
-                  onClick={() => a.setAttachments((old) => old.filter((p) => p !== path))}
-                >
-                  {path} ×
-                </button>
+                <>
+                  <Show when={imageMime(path)}>
+                    <button
+                      title={`View project image ${path}`}
+                      onClick={() => void a.showImage(path)}
+                    >
+                      View {path}
+                    </button>
+                  </Show>
+                  <button
+                    title={`Remove attached file ${path}`}
+                    aria-label={`Remove attached file ${path}`}
+                    onClick={() => a.setAttachments((old) => old.filter((p) => p !== path))}
+                  >
+                    {path} ×
+                  </button>
+                </>
               )}
             </For>
             <Show when={a.selection()}>
@@ -673,6 +706,20 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           </button>
         </div>
       </div>
+      <Show when={a.recentImages().length}>
+        <div class="agent-attachments" aria-label="Recent project images">
+          <For each={a.recentImages()}>
+            {(path) => (
+              <button
+                title={`View current project image ${path}`}
+                onClick={() => void a.showImage(path)}
+              >
+                Compare {path}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
       <Show
         when={a.attachments().some((path) => imageMime(path)) && a.model() && !a.model()?.images}
       >

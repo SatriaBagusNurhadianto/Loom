@@ -50,6 +50,19 @@ describe('ordinary projects and persistence', () => {
     };
     await service.command(command);
     expect(await readFile(join(root, 'paste.png'))).toEqual(bytes);
+    const preview = await service.command({
+      type: 'preview-image',
+      projectId: command.projectId,
+      path: command.path,
+    });
+    expect(preview?.imagePreview).toEqual({
+      path: 'paste.png',
+      mime: 'image/png',
+      data: bytes.toString('base64'),
+    });
+    await expect(
+      service.command({ type: 'preview-image', projectId: 'wrong', path: command.path }),
+    ).rejects.toThrow('paper changed');
     await expect(service.command(command)).rejects.toThrow();
     await expect(
       service.command({

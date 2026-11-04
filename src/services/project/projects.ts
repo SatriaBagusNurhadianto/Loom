@@ -8,7 +8,7 @@ import { relativePath, type ProjectCommand, type ProjectSnapshot } from '../../c
 import { MetadataStore } from './store';
 import { reconcile, textChanges } from './reconcile';
 import { imageMime } from '../../domain/images';
-import { imageBytesMatch } from '../agents/images';
+import { imageBytesMatch, validateImage } from '../agents/images';
 type RecordFile = {
   id: string;
   path: string;
@@ -495,6 +495,36 @@ export class ProjectService {
       this.persist();
     }
     await this.refresh();
+    if (command.type === 'preview-image') {
+      if (this.project.id !== command.projectId) throw new Error('The open paper changed.');
+      const file = this.project.files.find((f) => f.path === command.path && !f.deleted);
+      if (!file) throw new Error('This image is no longer in the paper.');
+      const mime = imageMime(command.path);
+      if (!mime || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime))
+        throw new Error('Unsupported image format.');
+      await validateImage(this.root, command.path);
+      const handle = await fs.open(await this.safe(command.path), 'r');
+      let bytes: Buffer;
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.size > 10 * 1024 * 1024)
+          throw new Error('This image is too large to preview.');
+        bytes = Buffer.alloc(stat.size);
+        const read = await handle.read(bytes, 0, bytes.length, 0);
+        if (read.bytesRead !== bytes.length || !imageBytesMatch(mime, bytes))
+          throw new Error('This image changed while opening. Try again.');
+      } finally {
+        await handle.close();
+      }
+      return {
+        ...this.snapshot(),
+        imagePreview: {
+          path: command.path,
+          mime: mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+          data: bytes.toString('base64'),
+        },
+      };
+    }
     if (command.type === 'search') {
       const hits = this.store.hits(this.root, command.query);
       return {

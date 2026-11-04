@@ -189,9 +189,15 @@ port.on('message', (event: { data: unknown }) => {
         const rawCommand = event.data as { command?: { type?: string } };
         if (
           recoveryError &&
-          !['current', 'load', 'refresh', 'search', 'sync', 'preferences'].includes(
-            rawCommand.command?.type ?? '',
-          )
+          ![
+            'current',
+            'load',
+            'refresh',
+            'search',
+            'sync',
+            'preferences',
+            'preview-image',
+          ].includes(rawCommand.command?.type ?? '')
         )
           throw new Error(recoveryError);
         if (
