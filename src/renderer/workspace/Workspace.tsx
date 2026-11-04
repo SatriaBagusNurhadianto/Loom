@@ -1399,7 +1399,7 @@ export function Workspace() {
                 class="secondary-button"
                 onClick={() =>
                   prepareScientificRequest(
-                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations instead of guessing. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
+                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations and ask me to clarify before inserting them. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
                     agent.attachments().some((path) => imageMime(path))
                       ? 'Request prepared. Review the draft and attached image before sending.'
                       : 'Request prepared. Attach an image and review the draft before sending.',

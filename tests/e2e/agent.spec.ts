@@ -959,6 +959,7 @@ test('native computation activity exposes the reported command and result', asyn
   await page.keyboard.press('Enter');
   await expect(details).toContainText('python -c "print(2 + 2)"');
   await expect(details).toContainText('4');
+  await expect(details).toContainText('Files read by this command may not be shown');
   await expect(details.locator('pre').last()).toBeInViewport();
   await page.screenshot({
     path: resolve('artifacts/phase-6-computation-small.png'),

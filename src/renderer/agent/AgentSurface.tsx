@@ -283,6 +283,10 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                         }}
                       >
                         <summary>Native command details</summary>
+                        <small>
+                          Files read by this command may not be shown. Ask the agent to identify the
+                          inputs used.
+                        </small>
                         <strong>Command</strong>
                         <pre>{execution().command}</pre>
                         <strong>
@@ -628,7 +632,8 @@ export function AgentImagePreview(props: { agent: AgentWorkspace }) {
             <small>
               {preview().submitted
                 ? 'Saved with this request for comparison.'
-                : 'Current project file; it may have changed since it was sent.'}
+                : 'Current project file; it may have changed since it was sent.'}{' '}
+              A successful build does not verify the interpretation.
             </small>
             <div class="agent-image-preview-toolbar">
               <button

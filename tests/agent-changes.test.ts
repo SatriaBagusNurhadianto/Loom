@@ -89,6 +89,36 @@ it('refuses overlapping newer writing and preserves disk and checkpoints', async
   ).rejects.toThrow('overlaps');
   expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('human');
 });
+it('preserves a newer scientific correction and the source image when reverting an overlapping agent edit', async () => {
+  const image = await readFile('tests/fixtures/whiteboard-diagram.png');
+  const baseline = '\\begin{equation} E = mc^2 \\end{equation}\n';
+  await writeFile(join(root, 'main.tex'), baseline);
+  await writeFile(join(root, 'board.png'), image);
+  await projects.refresh();
+  await changes.begin(
+    'session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    ['board.png'],
+  );
+  await writeFile(join(root, 'main.tex'), '\\begin{equation} E = m v^2 \\end{equation}\n');
+  await changes.finish('succeeded');
+  const turn = changes.views()[0];
+  expect(turn.changes[0]).toMatchObject({ path: 'main.tex', before: baseline });
+  const authorCorrection = '\\begin{equation} E = m c^2 / 2 \\end{equation}\n';
+  await writeFile(join(root, 'main.tex'), authorCorrection);
+  await projects.refresh();
+  await expect(
+    changes.review(turn.id, 'main.tex', 'revert', projects.snapshot().sourceRevision!),
+  ).rejects.toThrow('overlaps');
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe(authorCorrection);
+  expect(await readFile(join(root, 'board.png'))).toEqual(image);
+  expect((await changes.submittedImage(turn.id, 'board.png', 'conversation')).data).toBe(
+    image.toString('base64'),
+  );
+});
 it('restores created, deleted and binary files without discarding unrelated files', async () => {
   await writeFile(join(root, 'asset.bin'), Buffer.from([0, 1, 2]));
   await projects.refresh();
