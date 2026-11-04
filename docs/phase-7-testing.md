@@ -8,6 +8,7 @@ The automated coverage uses temporary synthetic manuscripts and local repositori
 npm run check
 npx playwright test tests/e2e/git.spec.ts
 npm run test:e2e
+npm run package
 ```
 
 `tests/git-service.test.ts` uses real temporary Git repositories to check repository detection, staged/worktree diffs, untracked and deleted tracked paths, literal wildcard filenames, nested-project path mapping, selective staging, reviewed-index commits and hook changes, private/generated-path rejection, branch changes, first publication, mirror/force protection, clone, unborn unstage, and add/add plus delete/modify conflicts. `tests/source-export.test.ts` checks the preflight, ZIP contents, exclusions, expanded and incompressible compressed-size limits, warning bounds and atomic destination safety. The staged path-list test exceeds the normal subprocess output cap and confirms private paths cannot hide after truncation.
@@ -15,6 +16,10 @@ npm run test:e2e
 The Git Electron suite runs the actual sandboxed desktop and utility service against two synthetic author clones and a local bare remote. It checks keyboard-accessible selective stage and reviewed commits, branch creation and first push, preflight warnings and path lists, a source ZIP that excludes a synthetic `.env`, clone from the initial project chooser through the native folder picker, pull/merge conflict stages, explicit ours/theirs review, editing and resolving a conflict, and push/pull exchange. When a machine LaTeX toolchain is installed, the export case extracts the ZIP and compiles it with `latexmk -norc -pdf -interaction=nonstopmode -halt-on-error -no-shell-escape`.
 
 The app's Git integration uses native Git, its configured credential helper, or SSH agent. No Git credentials are copied into a Loom project or archive. For a read-only live access check, run `git ls-remote origin HEAD`; this confirms remote authentication and advertised refs but does not exercise a remote push. Do not use the real project remote to test push. If a live write round-trip is needed, create a disposable private repository and test branch with an authorized account, then remove the repository and branch after verification.
+
+## Packaged smoke
+
+After `npm run package`, use an isolated user-data directory and a disposable local Git repository with a synthetic LaTeX file. Launch `release/linux-unpacked/loom`, open the project, check repository status, stage the edit, open the staged diff, and commit through the reviewed-commit flow. Confirm the native Git log contains only the smoke commit. The recorded Phase 7 smoke exercised the packaged renderer, preload, utility process, project storage and native Git service; the native folder picker returned the synthetic project path through the Electron test harness. It did not write to the configured GitHub remote.
 
 ## Manual review
 
