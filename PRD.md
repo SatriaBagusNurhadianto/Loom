@@ -202,6 +202,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 ### FR-05 — External harness connection
 
 - The initial selectable harnesses are OpenCode through its native structured local server/SDK and Codex through its app-server protocol. The user expanded Phase 4 to both on 4 November 2026, using T3 Code provider settings as inspiration. Further harnesses use explicit protocol adapters; model execution stays harness-owned.
+- Reconnect the paper’s last successfully connected Loom-owned harness after application reopen, preserving its native conversation and model/settings choices. Explicit Disconnect keeps it offline; external server credentials remain transient and attachment remains explicit. Reconnection must never resend a model request.
 - Discover installation and configuration state, show setup guidance, and provide connect/disconnect/reconnect actions. Provider settings separate connection status, the native model catalog and optional runtime configuration.
 - Run the local agent in the intended project context; show that project identity in the conversation.
 - Reuse the harness's supported authentication and configured models. An API key grants model access through the harness; it does not create a new Loom-owned agent runtime.

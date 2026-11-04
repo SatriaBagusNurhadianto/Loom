@@ -600,6 +600,11 @@ export function AgentConnections(props: {
                 </Show>
               </section>
             </div>
+            <p class="agent-reconnect-note">
+              {connected() && a.state()?.ownership === 'external'
+                ? 'Existing servers require their connection details again after reopening Loom.'
+                : 'Loom reconnects this paper’s last connected local agent when you reopen it. Disconnect to keep it offline.'}
+            </p>
             <div class="agent-connection-actions">
               <Show
                 when={connected()}

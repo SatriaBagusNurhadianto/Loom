@@ -898,3 +898,12 @@ dialog:has(.agent-connections) .modal-body {
     border-color: ButtonText;
   }
 }
+
+.agent-reconnect-note {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 20px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
