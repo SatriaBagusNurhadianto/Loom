@@ -25,9 +25,31 @@ The focused guides include commands and synthetic fixture details. The broad reg
 
 ### Current run — 5 November 2026
 
-A focused integrated Electron sweep passed **27 tests**: agent interruption/permission/overlap and image cases (13), research/citation/Zotero cases (4), Git/export (7), and desktop recovery (3). It used synthetic harnesses, a local Zotero fixture, and local Git repositories; no provider inference, credential-dependent call, or remote push occurred. The previously recorded full-suite-order References Escape/focus assertion failure was not included in this focused sweep; its isolated rerun passed. See [project status](../project_status.md) for the current Phase 8 limits and pending reviews.
+A focused integrated Electron sweep passed **27 tests**: agent interruption/permission/overlap and image cases (13), research/citation/Zotero cases (4), Git/export (7), and desktop recovery (3). It used synthetic harnesses, a local Zotero fixture, and local Git repositories; no provider inference, credential-dependent call, or remote push occurred. Subsequent packaged full-suite runs exposed a test synchronization issue around stale-source recovery; the test now waits for the operation to finish before asserting Escape closes the dialog and restores focus. The final independent packaged run passed as recorded below. See [project status](../project_status.md) for the current Phase 8 limits.
 
-Additional focused persistence review passed 33 deterministic cases, 6 desktop recovery/IME-adjacent cases, 3 agent recovery cases, and 11 build-path cases. A new real-Electron restart case for a project root containing spaces and non-ASCII characters passed 1/1. Packaging checks built both the unpacked app and AppImage; two focused scenarios passed from each in extract-and-run mode. Normal AppImage launch and installation remain unverified because the host lacks `libfuse.so.2`. At that checkpoint no large-project performance measurements or physical IME check had been completed; the focused workload rerun is recorded below.
+Additional focused persistence review passed 33 deterministic cases, 6 desktop recovery/IME-adjacent cases, 3 agent recovery cases, and 11 build-path cases. A new real-Electron restart case for a project root containing spaces and non-ASCII characters passed 1/1. Packaging checks built both the unpacked app and AppImage; two focused scenarios passed from each in extract-and-run mode. Normal AppImage launch and installation remain unverified because the host lacks `libfuse.so.2`. The large-project performance rerun is recorded below; browser-generated composition checks do not verify a physical IME.
+
+### Final packaged Electron and local TeX suites — 5 November 2026
+
+Independent Luna High verification passed the full suite against `release/linux-unpacked/loom`:
+
+```bash
+LOOM_E2E_EXECUTABLE="$PWD/release/linux-unpacked/loom" \
+LOOM_AGENT_PACKAGED=1 \
+npx playwright test
+```
+
+Result: **62 passed, 13 skipped, 0 failed** (75 total, 2.2 minutes). The agent suite uses its own `LOOM_AGENT_PACKAGED` selector; both selectors were set so all Electron suites exercised the packaged app. The skips were the opt-in Phase 8 workload, local TeX cases, and live/authorized provider checks. No failure traces were produced. The synchronized References Escape regression also passed 20 consecutive packaged repetitions.
+
+The authorized local TeX toolchain was available (`~/.TinyTeX`, latexmk 4.88, Tex Live 2026, TexLab 5.26.0). Against the same packaged app:
+
+```bash
+LOOM_TEST_TEX=1 \
+LOOM_E2E_EXECUTABLE="$PWD/release/linux-unpacked/loom" \
+npx playwright test tests/e2e/latex.spec.ts
+```
+
+Result: **9 passed, 2 skipped** in 52.3 seconds. The passing cases exercised sample edits and rebuilds, PDF navigation/export, failed/stale output recovery, TexLab completion/definition/diagnostics, real process cancellation, save acknowledgment, polling and keyboard behavior. The skips were the intentionally unavailable-tool scenario and a second local-paper scenario gated to a different authorization path. This verifies local compilation, not live-provider research or the Phase 8 workload's build/stream concurrency.
 
 ## Performance workload and reporting
 
