@@ -90,6 +90,8 @@ Host: Linux `7.2.3-arch1-3`, AMD Ryzen 9 9955HX (16 cores/32 threads), 30 GiB RA
 
 Focused checks passed: `npm run typecheck`; `npx prettier --check tests/e2e/phase8-workload.spec.ts scripts/phase-8-workload.mjs docs/phase-8-testing.md package.json project_status.md`; `npx playwright test tests/e2e/phase8-workload.spec.ts --list` (1 test); `git diff --check`. No broad suite, new package build, physical IME or live-provider run was performed for this unit.
 
+Independent Luna High verification then ran the same packaged benchmark three times against `.cache/phase-8-focused-benchmark`; all three passed. Launch-to-ready measured 279.7/284.4/293.1 ms, project open 1,698.9/1,730.1/1,680.6 ms, project search 399.2/908.1/949.3 ms, 10,000-line open 985.3/449.0/378.8 ms, bibliography search 1,753.9/1,256.8/1,947.5 ms, and typing p95 5.4/4.7/4.9 ms. The supplied fixture's `large-file.tex` had the same SHA-256 before and after (`ec24f8d3fcadc4ee7489ecb330444b01c6e0ce01f2474d9adf78c9be118e153c`), 10,000 lines, and 538,883 bytes. [`phase-8-workload-metrics.json`](../artifacts/phase-8-workload-metrics.json) contains the final run's detailed process and memory metrics; all three test results are summarized above and in `project_status.md`. These runs validate repeatable fixture isolation and successful searches; they do not establish controlled cold-start latency, CPU improvement, or memory growth.
+
 ## Manual compatibility and security review
 
 - Enter Unicode using a physical IME (including composition and candidate confirmation), then save, close, reopen, search, and compile the source. Browser-dispatched composition events are not physical IME verification.
