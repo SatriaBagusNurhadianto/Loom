@@ -95,7 +95,7 @@
 - [x] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK and Codex through its native app-server (user scope decision, 4 November 2026).
 - [x] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
 - [x] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
-- [x] Support sessions, model selection, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
+- [x] Support sessions, searchable model selection, native per-chat reasoning/permission choices, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
 - [x] Expose appropriate Loom project/build tools through a supported integration surface.
 - [x] Capture pre-turn baselines and group native agent writes by change set.
 - [x] Show direct edits, diffs, keep/revert controls, and truthful post-write review semantics.

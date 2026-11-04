@@ -23,6 +23,7 @@ let sessions: Record<
   }
 >;
 let modelsAvailable = true;
+let includeSecondaryModel = false;
 let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
 let requests: string[], streams: ServerResponse[], pendingTimers: ReturnType<typeof setTimeout>[];
 async function dimensions(width: number, height: number) {
@@ -53,6 +54,7 @@ test.beforeEach(async () => {
   await writeFile(join(root, 'references.bib'), '@article{synthetic,title={Synthetic study}}\n');
   sessions = {};
   modelsAvailable = true;
+  includeSecondaryModel = false;
   requests = [];
   requestBodies = [];
   streams = [];
@@ -98,6 +100,18 @@ test.beforeEach(async () => {
                 capabilities: { tools: true, input: ['text'] },
                 variants: [{ id: 'low' }, { id: 'high' }],
               },
+              ...(includeSecondaryModel
+                ? [
+                    {
+                      id: 'fixture-second',
+                      providerID: 'synthetic',
+                      name: 'Synthetic second model',
+                      enabled: true,
+                      type: 'chat',
+                      capabilities: { tools: true, input: ['text'] },
+                    },
+                  ]
+                : []),
             ]
           : [],
       };
@@ -381,6 +395,7 @@ test('partial cancellation, retained draft and project chat continuation after r
   await expect(page.getByRole('button', { name: /Perform a partial operation/ })).toBeVisible();
 });
 test('provider settings, source and composer remain usable at 720 by 540 with keyboard access', async () => {
+  includeSecondaryModel = true;
   await connect();
   await dimensions(720, 540);
   await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
@@ -394,12 +409,29 @@ test('provider settings, source and composer remain usable at 720 by 540 with ke
   });
   await page.keyboard.press('Escape');
   await expect(dialog).not.toBeVisible();
+  await page.getByRole('button', { name: 'Reasoning', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Reasoning', exact: true })
+    .getByRole('button', { name: 'High', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');
   await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
   await expect(picker.getByRole('textbox', { name: 'Search models' })).toBeFocused();
-  await picker.getByRole('textbox', { name: 'Search models' }).press('ArrowDown');
+  await picker.getByRole('textbox', { name: 'Search models' }).press('ArrowUp');
   await page.keyboard.press('Enter');
   await expect(picker).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose agent model', exact: true })).toContainText(
+    'Synthetic second model',
+  );
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('Default');
+  await expect(page.getByRole('button', { name: 'Choose agent model', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
+  await picker.getByRole('textbox', { name: 'Search models' }).press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Choose agent model', exact: true })).toContainText(
+    'Synthetic research model',
+  );
   await page.getByRole('textbox', { name: 'Ask about your paper' }).focus();
   await page.keyboard.type('A question at a smaller window.');
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
@@ -429,6 +461,7 @@ test('native reasoning and permission controls persist with the chat and reach t
   const reasoning = page.getByRole('dialog', { name: 'Reasoning', exact: true });
   await reasoning.getByRole('button', { name: 'High', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');
+  await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'Permissions', exact: true }).click();
   await page.screenshot({
     path: resolve('artifacts/phase-4-permission-menu.png'),
@@ -438,6 +471,7 @@ test('native reasoning and permission controls persist with the chat and reach t
     .getByRole('dialog', { name: 'Permissions', exact: true })
     .getByRole('button', { name: /^Full access/ })
     .click();
+  await expect(page.getByRole('button', { name: 'Permissions', exact: true })).toBeFocused();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
     .fill('Perform a partial operation.');

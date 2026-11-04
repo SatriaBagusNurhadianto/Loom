@@ -93,7 +93,12 @@ function ChoicePopover(props: {
                 ? 0
                 : event.key === 'End'
                   ? choices.length - 1
-                  : (index + (event.key === 'ArrowDown' ? 1 : choices.length - 1)) % choices.length;
+                  : index < 0
+                    ? event.key === 'ArrowDown'
+                      ? 0
+                      : choices.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : choices.length - 1)) %
+                      choices.length;
             choices[next]?.focus();
           }
         }}
@@ -261,8 +266,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                             a.model() && modelIdentity(a.model()!) === modelIdentity(model)
                           }
                           onClick={() => {
-                            a.setModelKey(modelIdentity(model));
-                            close();
+                            void a.setModelKey(modelIdentity(model)).then(() => close());
                           }}
                         >
                           <span>{model.name}</span>
@@ -317,10 +321,10 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
               <p class="agent-menu-heading">Reasoning</p>
               <button
                 data-choice
+                disabled={disabled()}
                 aria-pressed={!a.settings().reasoning}
                 onClick={() => {
-                  void a.setSettings({ ...a.settings(), reasoning: '' });
-                  close();
+                  void a.setSettings({ ...a.settings(), reasoning: '' }).then(() => close());
                 }}
               >
                 <span>Default</span>
@@ -334,10 +338,12 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 {(effort) => (
                   <button
                     data-choice
+                    disabled={disabled()}
                     aria-pressed={a.settings().reasoning === effort}
                     onClick={() => {
-                      void a.setSettings({ ...a.settings(), reasoning: effort });
-                      close();
+                      void a
+                        .setSettings({ ...a.settings(), reasoning: effort })
+                        .then(() => close());
                     }}
                   >
                     <span>{effortLabel(effort)}</span>
@@ -363,10 +369,12 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 {(entry) => (
                   <button
                     data-choice
+                    disabled={disabled()}
                     aria-pressed={mode().id === entry.id}
                     onClick={() => {
-                      void a.setSettings({ ...a.settings(), permissionMode: entry.id });
-                      close();
+                      void a
+                        .setSettings({ ...a.settings(), permissionMode: entry.id })
+                        .then(() => close());
                     }}
                   >
                     <Icon name={entry.icon} size={18} />

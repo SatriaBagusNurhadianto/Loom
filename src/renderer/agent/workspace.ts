@@ -59,11 +59,11 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       );
     }
   }
-  function setModelKey(value: string) {
+  async function setModelKey(value: string) {
     setModelKeyValue(value);
     const chosen = state()?.models.find((m) => `${m.providerId}:${m.id}` === value);
-    if (settings().reasoning && !(chosen?.reasoningEfforts ?? []).includes(settings().reasoning))
-      void setSettings({ ...settings(), reasoning: '' });
+    const clearReasoning =
+      settings().reasoning && !(chosen?.reasoningEfforts ?? []).includes(settings().reasoning);
     try {
       window.localStorage.setItem(
         `loom:agent-model:${projects.project()?.id}:${state()?.harness}`,
@@ -72,6 +72,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     } catch {
       /* Selection still works for this session. */
     }
+    if (clearReasoning) await setSettings({ ...settings(), reasoning: '' });
   }
   const harnessIdentity = createMemo(() =>
     state()?.connection === 'connected' ? `${state()?.projectId}:${state()?.harness}` : '',
