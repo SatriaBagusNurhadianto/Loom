@@ -114,17 +114,19 @@
 
 **Prerequisites:** Phases 2–4 complete.
 
-- [ ] Parse/index bibliography records while preserving original and unknown fields.
-- [ ] Search local bibliography by metadata/key/DOI and show missing/duplicate/incomplete/unused record states.
-- [ ] Add arXiv search with provenance, metadata, identifiers, source links, cancellation and failure handling.
-- [ ] Support manuscript-context queries and inspectable supporting abstracts/passages where available.
-- [ ] Implement supported read/search Zotero connection and explicit record import.
-- [ ] Preview entries and resolve key/identifier collisions before grouped citation+bibliography insertion.
-- [ ] Let the agent revise surrounding discussion using selected sources with traceable evidence.
+- [x] Parse/index bibliography records while preserving original and unknown fields.
+- [x] Search local bibliography by metadata/key/DOI and show missing/duplicate/incomplete/unused record states.
+- [x] Add arXiv search with provenance, metadata, identifiers, source links, cancellation and failure handling.
+- [x] Support manuscript-context queries and inspectable supporting abstracts/passages where available.
+- [x] Implement supported read/search Zotero connection and explicit record import.
+- [x] Preview entries and resolve key/identifier collisions before grouped citation+bibliography insertion.
+- [x] Let the agent revise surrounding discussion using selected sources with traceable evidence.
 
 **Verification:** Use provider fixtures for empty/partial/rate-limited/failing responses and synthetic BibTeX data. Run real-source and authorized Zotero checks when available. Validate repeated imports, duplicate detection, source links, and successful compilation with inserted citations.
 
 **Exit:** The author can locate and inspect a source, import it, cite it, and trace the manuscript revision to evidence. Missing network/library access and abstract-only evidence are represented accurately.
+
+**Recorded evidence:** [Phase 5 acceptance](project_status.md#phase-5-acceptance-and-remaining-limits--4-november-2026), [testing](docs/phase-5-testing.md), and [Terra review](docs/phase-5-review.md). Real arXiv retrieval/citation/compilation and OpenCode evidence-backed revision/revert passed. Zotero is implemented through its supported read-only local API and verified with a synthetic GET-only fixture; no actual Zotero installation was available.
 
 ## Phase 6 — Scientific content and whiteboard conversion
 
