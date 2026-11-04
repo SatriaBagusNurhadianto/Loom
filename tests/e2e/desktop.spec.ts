@@ -126,7 +126,9 @@ test('real isolated Electron boundary and a restartable utility process', async 
       'onCloseRequest',
       'onServiceEvent',
       'openSetup',
+      'openSource',
       'project',
+      'research',
       'restartService',
     ],
     require: 'undefined',
@@ -172,6 +174,7 @@ async function showLayoutReference() {
   await page.getByRole('button', { name: 'Load read-only example', exact: true }).click();
 }
 test('a killed utility process reports failure and recovers without losing the workspace', async () => {
+  await dimensions(1440, 900);
   const pid = await readyPid();
   await showLayoutReference();
   process.kill(pid, 'SIGKILL');

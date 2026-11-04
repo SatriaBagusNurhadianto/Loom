@@ -1,5 +1,5 @@
 import type { Reference } from '../../contracts/research';
-import { makeBibtex, parseBibtex } from './bibtex';
+import { makeBibtex, parseBibtex } from '../../domain/bibliography';
 const decode = (s: string) =>
   s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -117,14 +117,21 @@ export async function retrieve(
       ? new URL('https://export.arxiv.org/api/query')
       : new URL('http://localhost:23119/api/users/0/items/top');
   if (provider === 'arxiv') {
-    url.searchParams.set(
-      'search_query',
-      query
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((word) => 'all:' + JSON.stringify(word))
-        .join(' AND '),
-    );
+    const identifier = query
+      .trim()
+      .replace(/^https?:\/\/(?:export\.)?arxiv\.org\/(?:abs|pdf)\//i, '')
+      .replace(/\.pdf$/, '');
+    if (/^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/i.test(identifier))
+      url.searchParams.set('id_list', identifier);
+    else
+      url.searchParams.set(
+        'search_query',
+        query
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((word) => 'all:' + JSON.stringify(word))
+          .join(' AND '),
+      );
     url.searchParams.set('max_results', '30');
   } else {
     url.searchParams.set('q', query);

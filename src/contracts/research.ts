@@ -41,6 +41,8 @@ export const researchCommandSchema = z.discriminatedUnion('type', [
         .max(8 * 1024 * 1024)
         .nullable(),
       record: referenceSchema,
+      reuseTitle: z.boolean().optional(),
+      differentTitle: z.boolean().optional(),
       key: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9:._+/-]{0,199}$/),
       command: z.enum(['cite', 'citep', 'citet', 'autocite', 'parencite', 'textcite']),
     })
@@ -49,7 +51,7 @@ export const researchCommandSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('recovery'),
       projectId: z.string().max(80),
-      action: z.enum(['inspect', 'finish', 'undo']),
+      action: z.enum(['inspect', 'finish', 'undo', 'keep']),
     })
     .strict(),
 ]);
@@ -61,6 +63,20 @@ export const researchValueSchema = z
     snapshot: projectSnapshotSchema.nullable(),
     message: z.string().max(2000),
     recovery: z.boolean(),
+    resources: z.array(relativePath).max(2000).optional(),
+    recoveryFiles: z
+      .array(
+        z
+          .object({
+            path: relativePath,
+            before: z.string().nullable(),
+            after: z.string(),
+            current: z.string().nullable(),
+          })
+          .strict(),
+      )
+      .max(3)
+      .optional(),
   })
   .strict();
 export type ResearchValue = z.infer<typeof researchValueSchema>;

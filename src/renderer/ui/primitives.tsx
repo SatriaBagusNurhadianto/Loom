@@ -9,6 +9,7 @@ export function IconButton(props: {
 }) {
   return (
     <button
+      type="button"
       class="icon-button"
       title={props.label}
       aria-label={props.label}

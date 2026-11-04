@@ -1395,7 +1395,8 @@ kbd {
   flex-direction: column;
   gap: 8px;
 }
-.form-field input {
+.form-field input,
+.form-field select {
   width: 100%;
   min-width: 0;
   padding: 11px 12px;

@@ -107,3 +107,44 @@ it.each(['none', 'overlap', 'compatible'])(
     }
   },
 );
+
+it('does not dispatch a canceled research query after a queued document operation', async () => {
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve)),
+    started = new Promise<void>((resolve) => (entered = resolve));
+  const research = vi.fn();
+  vi.stubGlobal('window', {
+    loom: {
+      project: async () => {
+        entered();
+        await gate;
+        return { ok: true, value: null };
+      },
+      research,
+      onServiceEvent: () => () => {},
+      onCloseRequest: () => () => {},
+    },
+  });
+  const workspace = createRoot((dispose) => {
+    cleanup = dispose;
+    return createProjectWorkspace(() => {});
+  });
+  const queued = workspace.command({ type: 'current' });
+  await started;
+  let current = true;
+  const pending = workspace.research(
+    {
+      type: 'search',
+      projectId: 'paper',
+      requestId: 'canceled',
+      provider: 'arxiv',
+      query: 'private claim',
+    },
+    () => current,
+  );
+  current = false;
+  release();
+  await queued;
+  await pending;
+  expect(research).not.toHaveBeenCalled();
+});

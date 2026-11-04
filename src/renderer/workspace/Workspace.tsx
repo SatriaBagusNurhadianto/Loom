@@ -1,3 +1,4 @@
+import { References } from '../references/References';
 import {
   AgentChanges,
   AgentDiff,
@@ -63,6 +64,7 @@ export function Workspace() {
   const agent = createAgentWorkspace(projects, setNotice);
   const [chatHeight, setChatHeight] = createSignal(68);
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
+  const [referencesOpen, setReferencesOpen] = createSignal(false);
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
   const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
   const [reviewSelection, setReviewSelection] = createSignal<ChangeSelection | null>(null);
@@ -699,6 +701,13 @@ export function Workspace() {
                       : 'Create PDF'}
                 </button>
               </Show>
+              <Show when={projects.project()}>
+                <IconButton
+                  label="References"
+                  icon="search"
+                  onClick={() => setReferencesOpen(true)}
+                />
+              </Show>
               <button class="tools-button" onClick={() => setDialog('tools')}>
                 Tools <Icon name="tools" />
               </button>
@@ -1108,6 +1117,13 @@ export function Workspace() {
         }}
       />
 
+      <References
+        open={referencesOpen()}
+        onClose={() => setReferencesOpen(false)}
+        projects={projects}
+        agent={agent}
+        report={setNotice}
+      />
       <BuildDialog
         open={dialog() === 'build'}
         onClose={() => setDialog(null)}
@@ -1327,6 +1343,21 @@ export function Workspace() {
           <button class="primary-button" onClick={() => setDialog(null)}>
             Back to workspace
           </button>
+        </Show>
+        <Show when={dialog() === 'tools' && projects.project()}>
+          <section class="dialog-section">
+            <h3>Research</h3>
+            <p>Search project references, arXiv and your local Zotero library.</p>
+            <button
+              class="secondary-button"
+              onClick={() => {
+                setDialog(null);
+                setReferencesOpen(true);
+              }}
+            >
+              References
+            </button>
+          </section>
         </Show>
         <Show when={dialog() === 'tools' && projects.project()}>
           <div class="settings-section">

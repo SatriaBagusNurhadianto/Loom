@@ -1,4 +1,4 @@
-import type { Reference } from '../../contracts/research';
+import type { Reference } from '../contracts/research';
 export type BibEntry = {
   type: string;
   key: string;
@@ -166,15 +166,71 @@ export function identifiers(record: Reference) {
   const entry = parseBibtex(record.bibtex).entries[0];
   return [
     record.doi ? 'doi:' + normalizeDoi(record.doi) : '',
-    entry?.fields.eprint ? 'arxiv:' + normalizeArxiv(entry.fields.eprint) : '',
+    entry?.fields.eprint &&
+    /^(?:arxiv)$/i.test(entry.fields.archiveprefix ?? entry.fields.eprinttype ?? '') &&
+    /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/\d{7})(?:v\d+)?$/i.test(entry.fields.eprint)
+      ? 'arxiv:' + normalizeArxiv(entry.fields.eprint)
+      : '',
     /arxiv\.org\/abs\//.test(record.url) ? 'arxiv:' + normalizeArxiv(record.url) : '',
   ].filter(Boolean);
 }
-export const sameRecord = (a: Reference, b: Reference) =>
-  identifiers(a).some((id) => identifiers(b).includes(id)) ||
-  (!!a.title &&
-    a.title.toLowerCase().replace(/[{}\s\W]/g, '') ===
-      b.title.toLowerCase().replace(/[{}\s\W]/g, ''));
+export const normalizedTitle = (s: string) =>
+  s
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+export const identityMatch = (a: Reference, b: Reference) =>
+  (a.provider === 'local' && b.provider === 'local' && a.id === b.id) ||
+  identifiers(a).some((id) => identifiers(b).includes(id));
+export const sameRecord = (a: Reference, b: Reference) => {
+  if (identityMatch(a, b)) return true;
+  if (identifiers(a).length && identifiers(b).length) return false;
+  return !!normalizedTitle(a.title) && normalizedTitle(a.title) === normalizedTitle(b.title);
+};
+/** Literal TeX dependency graph, using the same project-root working directory as builds. */
+export function manuscriptResources(
+  files: Array<{ id: string; path: string; text: string | null }>,
+  rootId: string | null,
+) {
+  const root = files.find((f) => f.id === rootId),
+    resources = new Set<string>(),
+    reachable = new Set<string>(),
+    texts: string[] = [];
+  const normalize = (path: string, extension: string) => {
+    if (path.trim().startsWith('/') || path.includes('\\')) return '';
+    const parts: string[] = [];
+    for (const part of path.trim().split('/')) {
+      if (part === '.' || !part) continue;
+      if (part === '..') {
+        if (!parts.length) return '';
+        parts.pop();
+      } else parts.push(part);
+    }
+    const name = parts.join('/');
+    return /^[\p{L}\p{N} _./+-]+$/u.test(name)
+      ? name + (name.endsWith(extension) ? '' : extension)
+      : '';
+  };
+  const walk = (file: typeof root) => {
+    if (!file || reachable.has(file.path)) return;
+    reachable.add(file.path);
+    const text = (file.text ?? '').replace(/(?<!\\)%[^\n]*/g, '');
+    texts.push(text);
+    for (const m of text.matchAll(
+      /\\(?:addbibresource(?:\[[^\]]*\])?|bibliography)\s*\{([^}]+)\}/g,
+    ))
+      for (const value of m[1].split(',')) {
+        const path = normalize(value, '.bib');
+        if (path) resources.add(path);
+      }
+    for (const m of text.matchAll(/\\(?:input|include)\s*\{([^}]+)\}/g)) {
+      const path = normalize(m[1], '.tex');
+      walk(files.find((f) => f.path === path));
+    }
+  };
+  walk(root);
+  return { resources: [...resources], reachable: [...reachable], text: texts.join('\n') };
+}
 export function bibliography(files: Array<{ path: string; text: string | null }>) {
   const records: Reference[] = [],
     warnings: string[] = [];

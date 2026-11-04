@@ -1,6 +1,16 @@
-import type { ResearchCommand, ResearchValue } from '../../contracts/research';
+import {
+  referenceSchema,
+  type ResearchCommand,
+  type ResearchValue,
+} from '../../contracts/research';
 import { ProjectService } from '../project/projects';
-import { bibliography, parseBibtex, sameRecord } from './bibtex';
+import {
+  bibliography,
+  parseBibtex,
+  sameRecord,
+  manuscriptResources,
+  identityMatch,
+} from '../../domain/bibliography';
 import { retrieve } from './providers';
 type Journal = { changes: Array<{ path: string; before: string | null; after: string }> };
 export class ResearchService {
@@ -14,48 +24,87 @@ export class ResearchService {
   private empty(): ResearchValue {
     return { records: [], warnings: [], snapshot: null, message: '', recovery: false };
   }
+  private bounded(result: { records: ResearchValue['records']; warnings: string[] }) {
+    const records: ResearchValue['records'] = [];
+    let omitted = 0;
+    for (const r of result.records) {
+      const parsed = referenceSchema.safeParse(r);
+      if (parsed.success && records.length < 5000) records.push(parsed.data);
+      else omitted++;
+    }
+    const warnings = result.warnings.slice(0, 499).map((w) => w.slice(0, 1000));
+    if (omitted || result.warnings.length > 499)
+      warnings.push(
+        `${omitted} records omitted because of size or result limits. Narrow the query; original files remain unchanged.`,
+      );
+    return { records, warnings };
+  }
+  private recoveryVersions(
+    pending: string | null,
+    files: Array<{ path: string; text: string | null }>,
+  ) {
+    return pending
+      ? (JSON.parse(pending) as Journal).changes.map((c) => ({
+          ...c,
+          current: files.find((f) => f.path === c.path)?.text ?? null,
+        }))
+      : [];
+  }
   async command(command: ResearchCommand): Promise<ResearchValue> {
     if (command.type === 'cancel') {
       this.searches.get(command.requestId)?.abort();
       return this.empty();
     }
     if (command.type === 'search') {
-      await this.projects.run(async () => {
-        await this.projects.current();
-        this.projects.buildContext(command.projectId);
-      });
-      if (command.provider === 'local')
-        return this.projects.run(async () => {
-          await this.projects.refresh();
-          const context = this.projects.buildContext(command.projectId);
-          const result = bibliography(context.files);
-          const query = command.query.toLowerCase().trim();
-          return {
-            ...this.empty(),
-            ...result,
-            records: result.records.filter((r) =>
-              [r.key, r.title, r.authors, r.year, r.doi].join(' ').toLowerCase().includes(query),
-            ),
-            recovery: !!this.projects.store.get('citation:' + command.projectId),
-          };
-        });
-      if (this.searches.size >= 4) throw new Error('A search is still stopping. Retry shortly.');
-      if (command.provider === 'arxiv') {
-        if (Date.now() - this.lastArxiv < 3000)
-          throw new Error('Wait three seconds between arXiv searches.');
-        this.lastArxiv = Date.now();
-      }
+      if (this.searches.size >= 4 || this.searches.has(command.requestId))
+        throw new Error('A search is still stopping. Retry shortly.');
       const controller = new AbortController();
       this.searches.set(command.requestId, controller);
       const timer = setTimeout(() => controller.abort(), 18000);
       try {
+        await this.projects.run(async () => {
+          await this.projects.current();
+          this.projects.buildContext(command.projectId);
+        });
+        if (controller.signal.aborted) throw new Error('Search canceled or timed out.');
+        if (command.provider === 'local')
+          return this.projects.run(async () => {
+            await this.projects.refresh();
+            const context = this.projects.buildContext(command.projectId);
+            const result = bibliography(context.files);
+            const query = command.query.toLowerCase().trim();
+            return {
+              ...this.empty(),
+              ...this.bounded({
+                ...result,
+                records: result.records.filter((r) =>
+                  [r.key, r.title, r.authors, r.year, r.doi]
+                    .join(' ')
+                    .toLowerCase()
+                    .includes(query),
+                ),
+              }),
+              resources: manuscriptResources(context.files, context.snapshot.rootId).resources,
+              recoveryFiles: this.recoveryVersions(
+                this.projects.store.get('citation:' + command.projectId),
+                context.files,
+              ),
+              recovery: !!this.projects.store.get('citation:' + command.projectId),
+            };
+          });
+
+        if (command.provider === 'arxiv') {
+          if (Date.now() - this.lastArxiv < 3000)
+            throw new Error('Wait three seconds between arXiv searches.');
+          this.lastArxiv = Date.now();
+        }
         const result = await retrieve(
           command.provider,
           command.query,
           controller.signal,
           this.fetcher,
         );
-        return { ...this.empty(), ...result };
+        return { ...this.empty(), ...this.bounded(result) };
       } finally {
         clearTimeout(timer);
         this.searches.delete(command.requestId);
@@ -72,23 +121,33 @@ export class ResearchService {
           return {
             ...this.empty(),
             recovery: !!pending,
+            recoveryFiles: this.recoveryVersions(pending, context.files),
             message: pending
               ? 'Citation insertion was interrupted. Finish or undo the saved group before inserting another citation.'
               : '',
           };
         if (this.active()) throw new Error('Stop the agent before recovering a citation group.');
-        if (pending)
+        if (pending && command.action !== 'keep')
           await this.apply(
             JSON.parse(pending) as Journal,
             command.projectId,
             command.action === 'undo',
+          );
+        if (pending && command.action === 'keep')
+          this.projects.store.set(
+            'citation-history:' + command.projectId + ':' + Date.now(),
+            pending,
           );
         this.projects.store.set(journalKey, '');
         return {
           ...this.empty(),
           snapshot: this.projects.snapshot(),
           message:
-            command.action === 'undo' ? 'Citation group undone.' : 'Citation group finished.',
+            command.action === 'undo'
+              ? 'Citation group undone.'
+              : command.action === 'keep'
+                ? 'Current files kept. Review citations and compile the paper.'
+                : 'Citation group finished.',
         };
       }
       if (this.active()) throw new Error('Stop the agent before inserting a citation.');
@@ -117,25 +176,32 @@ export class ResearchService {
       const local = bibliography(context.files);
       if (local.warnings.some((w) => w.includes('Unparsed')))
         throw new Error('Repair unparsed bibliography entries before importing.');
-      const matches = local.records.filter((r) => sameRecord(r, command.record));
+      const definitive = local.records.filter((r) => identityMatch(r, command.record));
+      const matches = definitive.length
+        ? definitive
+        : command.differentTitle
+          ? []
+          : local.records.filter((r) => sameRecord(r, command.record));
       if (matches.length > 1)
         throw new Error(
           'Multiple existing records match this source. Resolve duplicate records in the bibliography first.',
         );
       const existing = matches[0];
+      if (existing && !identityMatch(existing, command.record) && !command.reuseTitle)
+        throw new Error(
+          'A record has the same title. Confirm that it is the same source before reusing its key.',
+        );
       if (existing && existing.key !== command.key)
         throw new Error(`This source already exists as ${existing.key}. Use its existing key.`);
       if (local.records.some((r) => r.key === command.key && r !== existing))
         throw new Error('That citation key belongs to another record. Choose a unique key.');
       const actualBib = existing?.path ?? command.bibPath;
-      const tex = context.files
-        .filter((f) => f.path.endsWith('.tex'))
-        .map((f) => f.text ?? '')
-        .join('\n')
-        .replace(/(?<!\\)%[^\n]*/g, '');
-      const resources = [
-        ...tex.matchAll(/\\(?:addbibresource(?:\[[^\]]*\])?|bibliography)\s*\{([^}]+)\}/g),
-      ].flatMap((m) => m[1].split(',').map((p) => p.trim().replace(/\.bib$/, '') + '.bib'));
+      const graph = manuscriptResources(context.files, context.snapshot.rootId),
+        resources = graph.resources;
+      if (!graph.reachable.includes(command.sourcePath))
+        throw new Error(
+          'This source is not reachable from the selected main document through literal input/include commands. Select the main document or add a supported include before citing.',
+        );
       if (!resources.includes(actualBib))
         throw new Error(
           `The manuscript does not declare ${actualBib}. Add \\addbibresource{${actualBib}} for biblatex or \\bibliography{${actualBib.replace(/\.bib$/, '')}} for BibTeX, then retry.`,
@@ -182,7 +248,7 @@ export class ResearchService {
       const value = current.get(c.path)?.toString('utf8') ?? null;
       if (value !== c.before && value !== c.after)
         throw new Error(
-          'A citation-group file has newer edits. Preserve them and restore the saved versions manually before retrying group recovery.',
+          'A citation-group file has newer edits. Inspect the saved versions below. Finish/Undo requires those versions; Keep current files preserves your newer work and releases this group.',
         );
     }
     for (const c of undo ? [...journal.changes].reverse() : journal.changes) {

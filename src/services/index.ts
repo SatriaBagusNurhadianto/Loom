@@ -75,26 +75,26 @@ port.on('message', (event: { data: unknown }) => {
         if (error && command.type !== 'search' && command.type !== 'cancel') throw new Error(error);
         return research.command(command);
       })
-      .then(
-        (value) =>
-          port.postMessage({
-            type: 'research-result',
-            id,
-            result: researchResultSchema.parse({ ok: true, value }),
-          }),
-        (error) =>
-          port.postMessage({
-            type: 'research-result',
-            id,
-            result: {
-              ok: false,
-              error: {
-                code: 'RESEARCH_ERROR',
-                message: error instanceof Error ? error.message : 'Reference operation failed.',
-                retryable: true,
-              },
+      .then((value) =>
+        port.postMessage({
+          type: 'research-result',
+          id,
+          result: researchResultSchema.parse({ ok: true, value }),
+        }),
+      )
+      .catch((error) =>
+        port.postMessage({
+          type: 'research-result',
+          id,
+          result: {
+            ok: false,
+            error: {
+              code: 'RESEARCH_ERROR',
+              message: error instanceof Error ? error.message : 'Reference operation failed.',
+              retryable: true,
             },
-          }),
+          },
+        }),
       );
     return;
   }

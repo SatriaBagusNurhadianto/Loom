@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { MetadataStore } from '../src/services/project/store';
 import { ProjectService } from '../src/services/project/projects';
 import { ResearchService } from '../src/services/research/service';
-import { bibliography, parseBibtex } from '../src/services/research/bibtex';
+import { bibliography, parseBibtex } from '../src/domain/bibliography';
 import { arxivRecords, retrieve, zoteroRecords } from '../src/services/research/providers';
 const bib =
   '@article{old, title={A {Nested} Title}, author={Author}, year=2024, doi={10.1/OLD}, unknown={keep {all} fields}}';
@@ -188,4 +188,147 @@ describe('grouped citation persistence', () => {
       'Stop the agent',
     );
   });
+});
+
+it('does not equate distinct Unicode titles or conflicting identifiers', async () => {
+  const { sameRecord } = await import('../src/domain/bibliography');
+  const a = { ...arxivRecords(atom).records[0], title: '研究甲', doi: '' },
+    b = { ...a, title: '研究乙', url: '', bibtex: '@misc{b,title={研究乙}}' };
+  expect(sameRecord(a, b)).toBe(false);
+  expect(
+    sameRecord(
+      { ...a, doi: '10.0000/a' },
+      { ...a, doi: '10.0000/b', url: '', bibtex: '@misc{b,title={研究甲}}' },
+    ),
+  ).toBe(false);
+});
+it('follows the selected main document graph and normalizes literal resource paths', async () => {
+  const { manuscriptResources } = await import('../src/domain/bibliography');
+  const files = [
+    { id: 'root', path: 'main.tex', text: '\\input{sections/intro}\\bibliography{./refs}' },
+    { id: 'chapter', path: 'sections/intro.tex', text: '\\addbibresource{other.bib}' },
+    { id: 'unrelated', path: 'unrelated.tex', text: '\\bibliography{unused}' },
+  ];
+  expect(manuscriptResources(files, 'root').resources).toEqual(['refs.bib', 'other.bib']);
+  const { research, projects, id } = await setup();
+  await writeFile(join(dir, 'paper', 'unused.tex'), '\\bibliography{disconnected}');
+  await projects.refresh();
+  await expect(
+    research.command({ ...citation(id), bibPath: 'disconnected.bib', bibText: null }),
+  ).rejects.toThrow('does not declare');
+});
+it('reports oversized records as partial results and keeps ordinary files unchanged', async () => {
+  const { research, root, id } = await setup();
+  const oversized = '@misc{large,title={' + 'x'.repeat(210000) + '}}';
+  await writeFile(join(root, 'big.bib'), oversized);
+  const result = await research.command({
+    type: 'search',
+    projectId: id,
+    provider: 'local',
+    query: '',
+    requestId: 'large',
+  });
+  expect(result.records).toHaveLength(1);
+  expect(result.warnings.join(' ')).toContain('1 records omitted');
+  expect(await readFile(join(root, 'big.bib'), 'utf8')).toBe(oversized);
+});
+it('allows inspection and an explicit keep-current resolution after overlapping newer work', async () => {
+  const { projects, research, root, id } = await setup();
+  const original = projects.agentRestore.bind(projects);
+  let writes = 0;
+  vi.spyOn(projects, 'agentRestore').mockImplementation(async (...args) => {
+    if (++writes === 2) throw new Error('Interrupted');
+    return original(...args);
+  });
+  await expect(research.command(citation(id))).rejects.toThrow();
+  vi.restoreAllMocks();
+  await writeFile(join(root, 'main.tex'), source + 'newer');
+  const inspected = await research.command({ type: 'recovery', projectId: id, action: 'inspect' });
+  expect(inspected.recoveryFiles?.[1].before).toBe(source);
+  expect(inspected.recoveryFiles?.[1].current).toBe(source + 'newer');
+  await research.command({ type: 'recovery', projectId: id, action: 'keep' });
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe(source + 'newer');
+  expect(
+    (await research.command({ type: 'recovery', projectId: id, action: 'inspect' })).recovery,
+  ).toBe(false);
+});
+it('cancels before a queued project check can send a remote query', async () => {
+  const { projects, id } = await setup();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const blocked = projects.run(() => gate);
+  const fetcher = vi.fn();
+  const research = new ResearchService(projects, () => false, fetcher);
+  const pending = research.command({
+    type: 'search',
+    projectId: id,
+    requestId: 'queued',
+    provider: 'arxiv',
+    query: 'private claim',
+  });
+  const rejected = expect(pending).rejects.toThrow('canceled');
+  await research.command({ type: 'cancel', requestId: 'queued' });
+  release();
+  await blocked;
+  await rejected;
+  expect(fetcher).not.toHaveBeenCalled();
+});
+it('indexes and searches 5,000 synthetic bibliography records within the initial search budget', async () => {
+  const { research, root, id } = await setup();
+  const large = Array.from(
+    { length: 5000 },
+    (_, i) => `@misc{key${i},title={Paper ${i}},author={Writer},year={2024},doi={10.0000/${i}}}`,
+  ).join('\n');
+  await writeFile(join(root, 'refs.bib'), large);
+  const start = performance.now();
+  const result = await research.command({
+    type: 'search',
+    projectId: id,
+    requestId: 'many',
+    provider: 'local',
+    query: 'Paper 4999',
+  });
+  expect(result.records).toHaveLength(1);
+  expect(performance.now() - start).toBeLessThan(1000);
+});
+it('keeps non-arXiv eprint identifiers separate from actual arXiv records', async () => {
+  const { identifiers, sameRecord } = await import('../src/domain/bibliography');
+  const arxiv = arxivRecords(atom).records[0];
+  const other = {
+    ...arxiv,
+    id: 'other',
+    url: '',
+    title: 'Distinct paper',
+    bibtex: '@misc{other,title={Distinct paper},eprint={2401.12345v2},archivePrefix={SSRN}}',
+  };
+  expect(identifiers(other)).toEqual([]);
+  expect(sameRecord(arxiv, other)).toBe(false);
+});
+it('allows explicit distinct-source import for a title-only collision', async () => {
+  const { research, root, id } = await setup();
+  const noDoi = bib.replace(', doi={10.1/OLD}', '');
+  await writeFile(join(root, 'refs.bib'), noDoi);
+  const incoming = { ...arxivRecords(atom).records[0], title: 'A {Nested} Title' };
+  incoming.bibtex = incoming.bibtex.replace('title = {A \\& B}', 'title = {A {Nested} Title}');
+  await expect(
+    research.command({ ...citation(id), bibText: noDoi, record: incoming }),
+  ).rejects.toThrow('Confirm');
+  await research.command({
+    ...citation(id),
+    bibText: noDoi,
+    record: incoming,
+    differentTitle: true,
+  });
+  const result = await readFile(join(root, 'refs.bib'), 'utf8');
+  expect(result.startsWith(noDoi)).toBe(true);
+  expect(result).toContain('@misc{Doe2024,');
+  const currentSource = await readFile(join(root, 'main.tex'), 'utf8');
+  const repeated = await research.command({
+    ...citation(id),
+    record: incoming,
+    sourceText: currentSource,
+    bibText: result,
+  });
+  expect(repeated.message).toContain('existing');
+  expect(await readFile(join(root, 'refs.bib'), 'utf8')).toBe(result);
 });

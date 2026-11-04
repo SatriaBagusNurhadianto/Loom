@@ -1,0 +1,128 @@
+.references {
+  display: grid;
+  gap: var(--space-2);
+}
+.reference-providers,
+.reference-search {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.reference-providers button[aria-pressed='true'] {
+  background: var(--surface-hover);
+  border-color: var(--focus);
+}
+.reference-search .search-field {
+  flex: 1;
+  min-width: 170px;
+}
+.reference-status {
+  min-height: 1.4em;
+  margin: 0;
+}
+.reference-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.reference-results {
+  max-height: 240px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+}
+.reference-result {
+  display: grid;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-editor);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.reference-result:hover {
+  background: var(--surface-hover);
+}
+.reference-result:active,
+.reference-result[aria-pressed='true'] {
+  background: var(--surface-raised);
+  border-color: var(--focus);
+}
+.reference-result:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.reference-result span,
+.reference-result small {
+  color: var(--text-muted);
+}
+.reference-detail {
+  display: grid;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.reference-detail h3,
+.reference-detail p {
+  margin: 0;
+}
+.reference-detail blockquote {
+  margin: 0;
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-4);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.reference-detail pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-source);
+  font-size: 0.85em;
+  max-height: 200px;
+  overflow: auto;
+}
+.reference-evidence {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.reference-recovery {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+}
+dialog:has(.references) {
+  width: 820px;
+}
+.reference-detail blockquote {
+  max-height: 200px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+@media (min-width: 900px) {
+  .reference-layout:has(.reference-detail) {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .reference-layout:has(.reference-detail) .reference-results {
+    max-height: 490px;
+  }
+  .reference-detail {
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
+.reference-saved-version {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--font-source);
+}
