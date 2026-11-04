@@ -373,3 +373,8 @@ Root inspected generated running-Electron screenshots at 1440×900 and 720×540 
 - `npm run package` passed. The rebuilt sandboxed Linux executable passed four packaged scenarios: native-fixture revision/revert with compatible newer writing, 720×540 bulk keep, 720×540 bulk undo/cancel with stable diff navigation, and refusal to overwrite genuine overlapping source. Existing conflicts remain available for deliberate resolution; the prior clean-rewrite fix prevents new false budget-only conflicts. Next: author feedback using the rebuilt application; Phase 5 is unchanged and not started.
 
 - Final packaged PDF regression also passed with the persistent real TeX installation: rendering, selectable text, page/zoom controls, SyncTeX mapping and native export (1/1).
+
+## Agent PDF tool error reporting — 4 November 2026
+
+- Authenticated MCP tool failures now return structured `isError` content with the actual saved-paper/build recovery reason. Invalid arguments give schema guidance; expected tool errors no longer collapse into an opaque HTTP 400 transport failure. Malformed protocol requests and endpoint authentication remain rejected.
+- Added opt-in real-TeX TikZ coverage: an external source edit followed by `build_pdf` captures the edited bytes, produces a successful PDF with DIAGRAMMARKER, and associates it with the current source revision. `LOOM_LATEX_LIVE=1 npx vitest run tests/agent-tools-tikz.test.ts` passed; the synthetic diagram was rasterized for inspection. The original screenshot's generic tool failure was not reproduced on the working native path; this correction makes future failures actionable.

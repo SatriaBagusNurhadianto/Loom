@@ -39,9 +39,10 @@ it('exposes authenticated bounded project/build MCP tools without a model execut
       .result.content[0].text;
     expect(structure).toContain('Synthetic section');
     expect((await call('tools/call', { name: 'pdf_status', arguments: {} })).status).toBe(200);
-    expect(
-      (await call('tools/call', { name: 'build_pdf', arguments: { path: '../secret' } })).status,
-    ).toBe(400);
+    const bad = await call('tools/call', { name: 'build_pdf', arguments: { path: '../secret' } });
+    expect(bad.status).toBe(200);
+    expect(bad.data.result.isError).toBe(true);
+    expect(bad.data.result.content[0].text).toContain('arguments');
     if (process.env.LOOM_LATEX_LIVE === '1') {
       const response = await call('tools/call', { name: 'build_pdf', arguments: {} });
       expect(response.status).toBe(200);

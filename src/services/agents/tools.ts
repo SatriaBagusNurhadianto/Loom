@@ -38,6 +38,8 @@ export class AgentTools {
       }
       let size = 0;
       const chunks: Buffer[] = [];
+      let callId: string | number | undefined;
+      let toolCall = false;
       try {
         for await (const chunk of req) {
           size += chunk.length;
@@ -45,6 +47,8 @@ export class AgentTools {
           chunks.push(chunk);
         }
         const call = rpc.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        callId = call.id;
+        toolCall = call.method === 'tools/call';
         if (call.id === undefined) {
           res.writeHead(202).end();
           return;
@@ -112,12 +116,26 @@ export class AgentTools {
         res
           .writeHead(200, { 'Content-Type': 'application/json' })
           .end(JSON.stringify({ jsonrpc: '2.0', id: call.id, result }));
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' }).end(
-          JSON.stringify({
-            error: 'Loom tool request failed. Check the open paper, save state and tool arguments.',
-          }),
-        );
+      } catch (error) {
+        const message =
+          error instanceof z.ZodError
+            ? 'Invalid tool arguments. Use the tool’s published input schema; paper tools accept no paths or commands.'
+            : error instanceof Error
+              ? error.message.slice(0, 1000)
+              : 'The paper tool could not complete. Check saved source and PDF diagnostics.';
+        res
+          .writeHead(toolCall && callId !== undefined ? 200 : 400, {
+            'Content-Type': 'application/json',
+          })
+          .end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: callId ?? null,
+              ...(toolCall && callId !== undefined
+                ? { result: { isError: true, content: [{ type: 'text', text: message }] } }
+                : { error: { code: -32602, message } }),
+            }),
+          );
       }
     });
     await new Promise<void>((resolve, reject) => {
