@@ -38,6 +38,7 @@ import { Icon } from '../ui/Icon';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
 import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
+import { imageMime } from '../../domain/images';
 
 declare global {
   interface Window {
@@ -116,6 +117,31 @@ export function Workspace() {
   const [example, setExample] = createSignal(false);
   const [sampleHint, setSampleHint] = createSignal(false);
   const [dialog, setDialog] = createSignal<Dialog>(null);
+  function prepareScientificRequest(instruction: string, notice: string) {
+    const draft = [agent.draft(), instruction].filter(Boolean).join('\n\n');
+    if (draft.length > 50000) {
+      setNotice('The assistant draft is full. Shorten it before adding a scientific request.');
+      return;
+    }
+    const file = projects.file();
+    const caret = file ? projects.caret(file.id) : undefined;
+    let selectionNotice = '';
+    if (caret && caret.anchor !== caret.head) {
+      if (agent.selection())
+        selectionNotice =
+          ' The previously attached passage was retained; the current selection was not attached.';
+      else if (!agent.attachSelection())
+        selectionNotice =
+          ' The current selection could not be attached; check the assistant message.';
+    }
+    agent.setDraft(draft);
+    agent.setOpen(true);
+    setDialog(null);
+    setNotice(notice + selectionNotice);
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+    );
+  }
   const chooseMain = latex.mainChoiceRequired;
   const setChooseMain = latex.setMainChoiceRequired;
   const [availability, setAvailability] = createSignal({ title: '', detail: '' });
@@ -1359,6 +1385,52 @@ export function Workspace() {
             >
               References
             </button>
+          </section>
+        </Show>
+        <Show when={dialog() === 'tools' && projects.project()}>
+          <section class="dialog-section scientific-tools">
+            <h3>Scientific content</h3>
+            <p>
+              Prepare a request for the agent. Review and edit it before sending; selected source
+              text is attached when available unless a passage is already attached.
+            </p>
+            <div class="button-row">
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations instead of guessing. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
+                    agent.attachments().some((path) => imageMime(path))
+                      ? 'Request prepared. Review the draft and attached image before sending.'
+                      : 'Request prepared. Attach an image and review the draft before sending.',
+                  )
+                }
+              >
+                Convert image
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Help revise the equation or notation in manuscript context. Ask me for the old and new notation and the intended scope if I have not specified them. Preserve unrelated writing and make changes inspectable.',
+                    'Notation request added to the assistant draft. Review it before sending.',
+                  )
+                }
+              >
+                Revise notation
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Help create or revise the requested table or figure, caption and label in editable LaTeX. Ask for missing details rather than inventing data. Preserve existing assets and use project-relative paths.',
+                    'Table or figure request added to the assistant draft. Review it before sending.',
+                  )
+                }
+              >
+                Table or figure
+              </button>
+            </div>
           </section>
         </Show>
         <Show when={dialog() === 'tools' && projects.project()}>

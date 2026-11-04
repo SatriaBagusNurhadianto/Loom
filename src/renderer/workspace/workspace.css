@@ -2461,6 +2461,9 @@ kbd {
   font-size: 12px;
   max-width: 100%;
 }
+.scientific-tools {
+  margin-top: 20px;
+}
 .agent-execution summary {
   cursor: pointer;
   color: var(--text-primary);

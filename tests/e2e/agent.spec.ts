@@ -876,6 +876,35 @@ test('native computation activity exposes the reported command and result', asyn
   await expect(page.getByText('Tool activity · completed')).toBeInViewport();
 });
 
+test('scientific request templates preserve the draft and selected source', async () => {
+  await dimensions(720, 540);
+  const input = page.getByRole('textbox', { name: 'Ask about your paper' });
+  await input.fill('My existing note.');
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+a');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
+  await expect(dialog.getByRole('heading', { name: 'Scientific content' })).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-scientific-tools-small.png'),
+    animations: 'disabled',
+  });
+  await dialog.getByRole('button', { name: 'Convert image' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue(/My existing note\.[\s\S]*Convert the attached image/);
+  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+  await expect(input).toBeFocused();
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Shift+End');
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Revise notation' }).click();
+  await expect(page.getByText(/previously attached passage was retained/)).toBeVisible();
+  await expect(input).toHaveValue(
+    /My existing note\.[\s\S]*Convert the attached image[\s\S]*Help revise the equation/,
+  );
+});
+
 test('agent messages render supported Markdown as safe native elements', async () => {
   await connect();
   await page
