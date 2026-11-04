@@ -36,7 +36,10 @@ export function GitWorkspace(props: {
   const [preflight, setPreflight] = createSignal<SourcePreflight | null>(null);
   const [buildState, setBuildState] = createSignal<BuildState | null>(null);
   const [buildStatusUnavailable, setBuildStatusUnavailable] = createSignal(false);
-  const id = () => props.projectId();
+  // Project polling replaces the snapshot even when its ID is unchanged. Only
+  // a different project should retrigger the dialog's opening refresh effect;
+  // otherwise a background poll can disable a button between down and up.
+  const id = createMemo(() => props.projectId());
   createEffect(() => {
     const firstRemote = status()?.remotes[0];
     if (!pushRemote() && firstRemote) setPushRemote(firstRemote);
@@ -112,8 +115,10 @@ export function GitWorkspace(props: {
     });
     setBusy(false);
     if (id() !== projectId) return;
+    // A conflicted pull returns an error after changing the index/worktree.
+    // Refresh explicitly rather than relying on project snapshot polling.
+    await refresh();
     if (!result.ok) setError(result.error.message);
-    else await refresh();
   };
   const commit = async () => {
     const projectId = id(),

@@ -332,10 +332,31 @@ test('finishes an ours-only merge through explicit review at a small window', as
   await conflict.getByRole('button', { name: 'Resolve using ours', exact: true }).click();
   const review = dialog.getByRole('button', { name: 'Review merge completion' });
   await expect(review).toBeEnabled();
-  await review.click();
+  // A project inventory refresh must not disable this control during a click.
+  // Hold the pointer while a real filesystem change reaches the renderer.
+  await review.scrollIntoViewIfNeeded();
+  const point = await review.boundingBox();
+  if (!point) throw new Error('Merge review button has no bounds');
+  await page.mouse.move(point.x + point.width / 2, point.y + point.height / 2);
+  await page.mouse.down();
+  await review.evaluate((button) => {
+    button.setAttribute('data-disabled-during-click', 'false');
+    const observer = new MutationObserver((changes) => {
+      if (changes.some((change) => change.attributeName === 'disabled'))
+        button.setAttribute('data-disabled-during-click', 'true');
+    });
+    observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
+    button.addEventListener('mouseup', () => observer.disconnect(), { once: true });
+  });
+  await writeFile(join(root, 'main.tex'), 'ours refreshed\n');
+  await expect(page.locator('.cm-content')).toContainText('ours refreshed');
+  await expect(review).toHaveAttribute('data-disabled-during-click', 'false');
+  await page.mouse.up();
   await expect(dialog).toContainText(
     'creates the merge commit without changes to the current tree content',
   );
+  await writeFile(join(root, 'main.tex'), 'ours\n');
+  await expect(page.locator('.cm-content')).toHaveText('ours');
   await dialog.getByLabel('Commit message', { exact: true }).fill('finish ours merge');
   await dialog.getByRole('button', { name: 'Finish merge', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'artifacts/phase-7-merge-review-small.png' });
