@@ -1206,6 +1206,50 @@ test('agent messages render supported Markdown as safe native elements', async (
   });
 });
 
+test('message copy reports clipboard failures and confirms successful copies', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+
+  const assistantMessage = page.locator('.agent-message-harness').last();
+  const copyButton = assistantMessage.getByRole('button', { name: 'Copy message' });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  await copyButton.click();
+  await expect(page.getByRole('alert')).toContainText(/could not copy/i);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('Clipboard write rejected.');
+        },
+      },
+    });
+  });
+  await assistantMessage.getByRole('button', { name: 'Copy message' }).click();
+  await expect(page.getByRole('alert')).toContainText(/could not copy/i);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as any).__loomCopiedText = value;
+        },
+      },
+    });
+  });
+  await assistantMessage.getByRole('button', { name: 'Copy message' }).click();
+  await expect(assistantMessage.getByRole('button', { name: 'Message copied' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__loomCopiedText)).toContain('Research update');
+});
+
 test('Chats deletion can be cancelled and remains deleted after an Electron restart', async () => {
   const title = 'A conversation for deletion.';
   await connect();

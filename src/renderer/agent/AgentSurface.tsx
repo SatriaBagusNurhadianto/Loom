@@ -133,6 +133,23 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
   const a = props.agent;
   let scroller!: HTMLDivElement;
   const [copyError, setCopyError] = createSignal('');
+  const [copiedMessage, setCopiedMessage] = createSignal('');
+  let copyFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(copyFeedbackTimer));
+  const copyMessage = async (id: string, text: string) => {
+    try {
+      const clipboard = navigator.clipboard;
+      if (!clipboard?.writeText) throw new Error('Clipboard access is unavailable.');
+      await clipboard.writeText(text);
+      setCopyError('');
+      setCopiedMessage(id);
+      clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = setTimeout(() => setCopiedMessage(''), 1800);
+    } catch {
+      setCopiedMessage('');
+      setCopyError('Could not copy this message. Select its text and copy it instead.');
+    }
+  };
   const [follow, setFollow] = createSignal(true),
     [questionErrors, setQuestionErrors] = createSignal<
       Record<string, { message: string; fieldId: string }>
@@ -328,18 +345,13 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                   </Show>
                   <Show when={message.role === 'assistant' || message.role === 'user'}>
                     <IconButton
-                      icon="copy"
-                      label="Copy message"
-                      onClick={() => {
-                        void navigator.clipboard
-                          .writeText(message.text)
-                          .catch(() =>
-                            setCopyError(
-                              'Could not copy this message. Select its text and copy it instead.',
-                            ),
-                          );
-                      }}
+                      icon={copiedMessage() === message.id ? 'check' : 'copy'}
+                      label={copiedMessage() === message.id ? 'Message copied' : 'Copy message'}
+                      onClick={() => void copyMessage(message.id, message.text)}
                     />
+                    <span class="agent-copy-status" role="status" aria-live="polite">
+                      {copiedMessage() === message.id ? 'Copied' : ''}
+                    </span>
                   </Show>
                 </div>
               )}

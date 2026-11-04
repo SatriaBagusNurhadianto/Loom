@@ -469,3 +469,9 @@ Next concrete task: read Phase 6 prerequisites/FR-10 and add supported image inp
 - Regression evidence: the new interruption UI test failed before the fix on the misleading running label and initially exposed the clipped recovery area at 720×540; after the composer banner change, its viewport/recovery/partial-work checks pass. Added coverage for an SSE stream closing during initial connect, external-server recovery, and a pending status refresh completing after connection loss. Inspected `artifacts/phase-6-connection-interrupted-small.png`.
 - Verification: `npm run check` passed (160 deterministic tests, 31 optional cases skipped, production bundles). `npx playwright test tests/e2e/agent.spec.ts` passed 24 scenarios; the authorized live-provider case was skipped. No live external-provider reconnect is claimed.
 - Phase 6 remains in progress; its scientific-content acceptance work is tracked above and in [phases.md](phases.md).
+
+### Phase 6 chat image and copy controls — 4 November 2026
+
+- Submitted image thumbnails remain attached to their originating user messages across conversation reload and restart. The message copy control now catches unavailable/rejected clipboard writes and announces successful copies with a brief check state.
+- The copy regression test reproduced the missing-clipboard failure before the fix. The final Electron test covers missing clipboard support, rejected writes and successful text transfer. `npm run check` passed (163 tests, 31 optional cases skipped); the full agent Electron suite passed 29 tests with one authorized live-provider check skipped.
+- Phase 6 remains in progress; see the outstanding scientific-content and computation-input acceptance work above.
