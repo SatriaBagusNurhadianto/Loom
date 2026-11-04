@@ -113,10 +113,10 @@ Record each check in `project_status.md` with command or procedure, exact result
 
 ## Synchronized compilation/stream typing check
 
-Run this alone, with no competing benchmark/build activity:
+Run this on Linux with the packaged-app selector, alone with no competing benchmark/build activity:
 
 ```bash
-LOOM_AGENT_PACKAGED=1 LOOM_PHASE8_PROJECT="$PWD/.cache/phase-8-focused-benchmark" LOOM_TEST_TEX=1 LOOM_E2E_EXECUTABLE="$PWD/release/linux-unpacked/loom" npx playwright test tests/e2e/agent.spec.ts -g 'packaged large project stays editable during compilation and streamed agent output'
+LOOM_AGENT_PACKAGED=1 LOOM_PHASE8_PROJECT="$PWD/.cache/phase-8-focused-benchmark" LOOM_TEST_TEX=1 npx playwright test tests/e2e/agent.spec.ts -g 'packaged large project stays editable during compilation and streamed agent output'
 ```
 
 The test copies the fixture into its disposable project, then inserts a test-only synchronization loop immediately after `\begin{document}`. The real native TeX engine repeatedly typesets a small box until the test releases it after all 50 keydown-to-animation-frame samples and the resource snapshot. A marker in the disposable build output proves the engine reached the loop before sampling. The Stop control must still be visible immediately after typing; early completion still fails. The original paper then compiles normally, with the release file available to subsequent latexmk passes. The gate is released in `finally` on failure too; normal test teardown must still close Electron and all supervised tools before deleting the temporary directory. Independently inspect process cleanup after Playwright exits.
@@ -128,7 +128,15 @@ Schema-v2 evidence overwrites `artifacts/phase-8-concurrency-metrics.json` with 
 A small optional native regression checks the gate itself without Electron or the large paper:
 
 ```bash
-PATH="$HOME/.TinyTeX/bin/x86_64-linux:$PATH" LOOM_TEST_TEX=1 npx vitest run tests/phase8-compile-gate.test.ts
+LOOM_TEST_TEX=1 npx vitest run tests/phase8-compile-gate.test.ts
 ```
 
-It checks ambiguous-source rejection, native gate readiness, release through the output directory under restrictive TeX input/output settings, PDF completion and child cleanup. This does not replace the packaged workload/teardown verification.
+It uses Loom's configured tool detection and checks ambiguous-source rejection, native latexmk gate readiness, release through the output directory under restrictive TeX input/output settings, PDF completion and child cleanup. This does not replace the packaged workload/teardown verification.
+
+### Completed takeover verification — 5 November 2026
+
+The packaged compile/stream check passed **1/1 (17.0 seconds)** after correcting native stdout/stderr transport. The complete compiler log exposed pdfTeX's `fflush() failed (Resource temporarily unavailable)` in the earlier failing run: native tools had inherited the Node supervisor's nonblocking output descriptors. Dedicated child pipes now forward output with backpressure and drain before supervisor exit. The native-output regression fails on the former implementation and passes on the fix, alongside the two owner-loss cleanup regressions.
+
+The E2E now detects terminal failure/stopped/interrupted build states immediately instead of waiting 180 seconds for success. A hard link preserves the full compiler log before a failed snapshot is discarded; the log is attached to the run. The test requires the Linux packaged selector. Its native gate regression now exercises latexmk with SyncTeX and Loom's tool environment, rather than only a direct one-pass pdfLaTeX invocation.
+
+The successful artifact has `status: passed`: 50 samples over 5,027.3 ms with both compiler and synthetic stream active; frame-delay p50/p95/max **6.6/9.7/14.0 ms**. Full request-to-ready observation was **11,740.8 ms**, including the artificial synchronization gate. The UI correctly reported **Changes not in PDF** after typing modified the live source. Sampled process-tree CPU was **340.74% of one core**, PSS **1,433.97 MiB**, and summed RSS **2,138.55 MiB**. These are shaped-load observations with the existing limitations above. The fixture's `main.tex` hash was unchanged. Packaged real-TeX cancellation/utility-crash recovery also passed **1/1 (4.2 seconds)**; no related application/compiler/TexLab processes remained after the tests. See project status for package hashes and remaining release gates.

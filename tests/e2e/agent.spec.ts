@@ -1,7 +1,7 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { cp, mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { cp, link, mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { cpus, release, tmpdir, totalmem } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
@@ -1312,8 +1312,11 @@ test('native computation activity exposes the reported command and result', asyn
 test('packaged large project stays editable during compilation and streamed agent output', async ({}, testInfo) => {
   const workload = process.env.LOOM_PHASE8_PROJECT;
   test.skip(
-    !workload || process.env.LOOM_TEST_TEX !== '1',
-    'Set LOOM_PHASE8_PROJECT and LOOM_TEST_TEX=1 for the packaged compile/stream workload.',
+    !workload ||
+      process.env.LOOM_TEST_TEX !== '1' ||
+      process.env.LOOM_AGENT_PACKAGED !== '1' ||
+      process.platform !== 'linux',
+    'Set LOOM_PHASE8_PROJECT, LOOM_AGENT_PACKAGED=1 and LOOM_TEST_TEX=1 on Linux for the packaged compile/stream workload.',
   );
   test.setTimeout(240_000);
   if (!workload) throw new Error('Missing LOOM_PHASE8_PROJECT.');
@@ -1347,6 +1350,7 @@ test('packaged large project stays editable during compilation and streamed agen
   const originalMain = await readFile(join(workload, 'main.tex'));
   metrics.fixtureMainSha256Before = createHash('sha256').update(originalMain).digest('hex');
   let gateOutput: string | undefined;
+  const compilerLog = join(directory, 'concurrency-compiler.log');
   try {
     // Copy generated files into this test's private paper; never mutate the input fixture.
     await cp(workload, root, { recursive: true });
@@ -1381,14 +1385,15 @@ test('packaged large project stays editable during compilation and streamed agen
         { timeout: 30_000 },
       )
       .toBe(true);
+    // Retain the full native log even when Loom removes a failed build snapshot.
+    await link(join(gateOutput!, 'main.log'), compilerLog);
     const gateReadyObservedAt = performance.now();
     metrics.compileRequestToGateReadyObservedMs = gateReadyObservedAt - compileStart;
     const completion = page
       .waitForFunction(
         () =>
-          /^(PDF ready|Changes not in PDF)$/.test(
-            (document.querySelector('.build-status')?.textContent ?? '').trim(),
-          ),
+          !document.querySelector('button.pdf-stop') &&
+          (document.querySelector('.build-status')?.textContent ?? '').trim() !== 'Creating PDF…',
         undefined,
         { timeout: 180_000 },
       )
@@ -1499,11 +1504,13 @@ test('packaged large project stays editable during compilation and streamed agen
     ).toBe(true);
 
     const buildStatus = page.locator('.build-status');
-    await expect(buildStatus).toHaveText(/PDF ready|Changes not in PDF/, { timeout: 180_000 });
     const completed = await completion;
     if ('error' in completed) throw new Error(completed.error);
     metrics.buildRequestToReadyObservedMs = completed.observedAt - compileStart;
     metrics.postBuildStatus = await buildStatus.textContent();
+    expect(metrics.postBuildStatus, 'Native compilation must succeed after gate release.').toMatch(
+      /^(PDF ready|Changes not in PDF)$/,
+    );
     metrics.status = 'passed';
   } catch (error) {
     metrics.status = 'failed';
@@ -1514,6 +1521,15 @@ test('packaged large project stays editable during compilation and streamed agen
     // Electron and its supervised tools before removing the disposable directory.
     if (gateOutput)
       await writeFile(join(gateOutput, compileGateRelease), 'release\n').catch(() => {});
+    const nativeLog = await readFile(compilerLog).catch(() => null);
+    if (nativeLog) {
+      const logPath = testInfo.outputPath('phase-8-native-compiler.log');
+      await writeFile(logPath, nativeLog);
+      await testInfo.attach('phase-8-native-compiler-log', {
+        path: logPath,
+        contentType: 'text/plain',
+      });
+    }
     const after = await readFile(join(workload, 'main.tex'));
     metrics.fixtureMainSha256After = createHash('sha256').update(after).digest('hex');
     metrics.fixtureMainUnchanged = after.equals(originalMain);
