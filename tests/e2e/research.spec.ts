@@ -151,11 +151,43 @@ test('stale source is rejected with no bibliography overwrite and Escape returns
     join(root, 'main.tex'),
     source.replace('A synthetic claim.', 'A newer human claim.'),
   );
+  // Hold recovery inspection after the real service result so Escape reaches the busy boundary.
+  await app.evaluate(({ ipcMain }) => {
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>>;
+      }
+    )._invokeHandlers;
+    const original = handlers.get('loom:research:command')!;
+    ipcMain.removeHandler('loom:research:command');
+    ipcMain.handle('loom:research:command', async (event, command) => {
+      const result = await original(event, command);
+      if (command.type === 'recovery' && command.action === 'inspect')
+        await new Promise<void>((resolve) => {
+          ipcMain.once('loom:test:release-reference-recovery', () => resolve());
+        });
+      return result;
+    });
+  });
   await page.getByRole('button', { name: 'Insert citation', exact: true }).click();
   await expect(page.locator('.references .inline-error')).toContainText('source changed');
   expect(await readFile(join(root, 'refs.bib'), 'utf8')).toBe(bib);
+  const dialog = page.getByRole('dialog', { name: 'References', exact: true });
+  await expect
+    .poll(() =>
+      app.evaluate(({ ipcMain }) => ipcMain.listenerCount('loom:test:release-reference-recovery')),
+    )
+    .toBe(1);
+  await expect(dialog.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await app.evaluate(({ ipcMain }) => ipcMain.emit('loom:test:release-reference-recovery'));
+  // The error is rendered before recovery inspection finishes. Wait for the close guard to clear.
+  await expect(dialog.getByRole('button', { name: 'Insert citation', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
   await expect(page.getByRole('button', { name: 'References', exact: true })).toBeFocused();
+  expect(await readFile(join(root, 'refs.bib'), 'utf8')).toBe(bib);
 });
 
 test('local Zotero fixture imports an explicit record and preserves its original fields', async () => {
