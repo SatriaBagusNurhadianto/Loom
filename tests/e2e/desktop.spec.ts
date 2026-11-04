@@ -1134,7 +1134,11 @@ test('beta workspace actions stay compact, discoverable and keyboard accessible'
     const overflow = page.getByRole('button', { name: 'More workspace actions' });
     await overflow.focus();
     await overflow.press('ArrowDown');
-    await page.getByRole('menuitem', { name: 'Scientific tools' }).press('Enter');
+    const scientificTools = page.getByRole('menuitem', { name: 'Scientific tools' });
+    await expect(scientificTools).toBeFocused();
+    await dimensions(width - 10, width === 720 ? 540 : 900);
+    await expect(scientificTools).toBeFocused();
+    await scientificTools.press('Enter');
     const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
     await expect(dialog).toBeVisible();
     await page.screenshot({ path: `artifacts/beta-tools-${width}.png`, animations: 'disabled' });
