@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, writeFile, rename, rm, symlink } from 'node:fs/promises';
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as Y from 'yjs';
@@ -39,6 +40,116 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
+  it('imports a pasted image exclusively and preserves existing files on invalid or repeated input', async () => {
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const command = {
+      type: 'import-image' as const,
+      projectId: service.snapshot().id,
+      path: 'paste.png',
+      data: bytes.toString('base64'),
+    };
+    await service.command(command);
+    expect(await readFile(join(root, 'paste.png'))).toEqual(bytes);
+    const preview = await service.command({
+      type: 'preview-image',
+      projectId: command.projectId,
+      path: command.path,
+    });
+    expect(preview?.imagePreview).toEqual({
+      path: 'paste.png',
+      mime: 'image/png',
+      data: bytes.toString('base64'),
+    });
+    await expect(
+      service.command({ type: 'preview-image', projectId: 'wrong', path: command.path }),
+    ).rejects.toThrow('paper changed');
+    await expect(service.command(command)).rejects.toThrow();
+    await expect(
+      service.command({
+        ...command,
+        path: 'other.png',
+        data: Buffer.from('wrong image').toString('base64'),
+      }),
+    ).rejects.toThrow('Choose a PNG');
+    await expect(service.command({ ...command, projectId: 'wrong' })).rejects.toThrow(
+      'paper changed',
+    );
+    expect(await readFile(join(root, 'paste.png'))).toEqual(bytes);
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+  });
+  it('does not publish a partial pasted image when the final link fails', async () => {
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    vi.spyOn(fs, 'link').mockRejectedValueOnce(new Error('simulated interruption'));
+    await expect(
+      service.command({
+        type: 'import-image',
+        projectId: service.snapshot().id,
+        path: 'paste.png',
+        data: bytes.toString('base64'),
+      }),
+    ).rejects.toThrow('simulated interruption');
+    await expect(readFile(join(root, 'paste.png'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+  });
+  it('copies a selected external image without overwriting the source or project assets', async () => {
+    const bytes = await readFile('tests/fixtures/whiteboard-equation.png');
+    const source = join(dir, 'outside.png');
+    await writeFile(source, bytes);
+    await writeFile(join(root, 'existing.png'), bytes);
+    const projectId = service.snapshot().id;
+    await service.importExternalImage(projectId, source, 'imported.png');
+    expect(await readFile(join(root, 'imported.png'))).toEqual(bytes);
+    expect(await readFile(source)).toEqual(bytes);
+    await expect(service.importExternalImage(projectId, source, 'existing.png')).rejects.toThrow();
+    await expect(service.importExternalImage('wrong', source, 'other.png')).rejects.toThrow(
+      'paper changed',
+    );
+    await writeFile(source, 'not an image');
+    await expect(service.importExternalImage(projectId, source, 'other.png')).rejects.toThrow(
+      'Choose a PNG',
+    );
+    expect(await readFile(join(root, 'existing.png'))).toEqual(bytes);
+  });
+  it('accepts a large external rewrite without a conflict when the author has no unsaved edits', async () => {
+    const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
+    const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');
+    await writeFile(join(root, 'large.tex'), baseline);
+    await service.refresh();
+    const id = service.snapshot().files.find((f) => f.path === 'large.tex')!.id;
+    await service.command({ type: 'load', fileId: id });
+    await writeFile(join(root, 'large.tex'), external);
+    await service.refresh();
+    const file = service.snapshot().files.find((f) => f.id === id)!;
+    expect(file.conflict).toBe(false);
+    expect(file.text === external && file.baseline === external && file.saved).toBe(true);
+  });
+  it('retains concurrent author text when complex external changes exceed the merge budget', async () => {
+    const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
+    const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');
+    await writeFile(join(root, 'large.tex'), baseline);
+    await service.refresh();
+    const id = service.snapshot().files.find((f) => f.path === 'large.tex')!.id;
+    await service.command({ type: 'load', fileId: id });
+    const f = service.snapshot().files.find((file) => file.id === id)!;
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, Uint8Array.from(f.update));
+    doc.getText('source').insert(0, 'author text\n');
+    await writeFile(join(root, 'large.tex'), external);
+    await service.command({
+      type: 'sync',
+      fileId: id,
+      update: Array.from(Y.encodeStateAsUpdate(doc)),
+      baseline: f.baseline,
+      text: 'author text\n' + baseline,
+    });
+    expect(service.snapshot().files.find((file) => file.id === id)).toMatchObject({
+      conflict: true,
+      text: 'author text\n' + baseline,
+      baseline,
+      disk: external,
+    });
+    expect(await readFile(join(root, 'large.tex'), 'utf8')).toBe(external);
+  });
   it('changes build freshness for unresolved disk overlaps and missing files without discarding recovery text', async () => {
     const command = await edit('local\nbeta\ngamma\n');
     await writeFile(join(root, 'main.tex'), 'external\nbeta\ngamma\n');

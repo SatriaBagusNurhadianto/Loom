@@ -1,3 +1,5 @@
+import { researchCommandSchema } from '../contracts/research';
+import { agentCommandSchema } from '../contracts/agent';
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
 import { writePdfExport } from './pdf-export';
 import {
@@ -15,16 +17,19 @@ import {
   utilityProcess,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { join } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   channels,
   emptyRequestSchema,
   failure,
+  attachmentChoiceSchema,
   type Result,
   type ServiceStatus,
 } from '../contracts/desktop';
 import { ServiceController } from './service-controller';
+import { imageMime } from '../domain/images';
 
 let window: BrowserWindow | undefined;
 let closeAllowed = false;
@@ -155,9 +160,20 @@ void app.whenReady().then(() => {
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid project command.', false);
     return service.project(command.data);
   });
+  ipcMain.handle(channels.agent, (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot access agents.', false);
+    const input = agentCommandSchema.safeParse(payload);
+    return input.success
+      ? service.agent(input.data)
+      : failure('INVALID_REQUEST', 'Invalid agent command.', false);
+  });
   ipcMain.handle(channels.setup, async (event, guide: unknown) => {
     if (!trustedSender(event)) return;
-    if (guide === 'tex') await shell.openExternal('https://www.latex-project.org/get/');
+    if (guide === 'opencode') await shell.openExternal('https://opencode.ai/docs/');
+    else if (guide === 'codex')
+      await shell.openExternal('https://developers.openai.com/codex/cli/');
+    else if (guide === 'tex') await shell.openExternal('https://www.latex-project.org/get/');
     else if (guide === 'texlab')
       await shell.openExternal('https://github.com/latex-lsp/texlab#installation');
   });
@@ -167,6 +183,23 @@ void app.whenReady().then(() => {
     const command = latexCommandSchema.safeParse(payload);
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid LaTeX command.', false);
     return service.latex(command.data);
+  });
+  ipcMain.handle(channels.research, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot access references.', false);
+    const command = researchCommandSchema.safeParse(payload);
+    if (!command.success) return failure('INVALID_REQUEST', 'Invalid reference request.', false);
+    return service.research(command.data);
+  });
+  ipcMain.handle(channels.openSource, async (event, payload: unknown) => {
+    if (!trustedSender(event) || typeof payload !== 'string' || payload.length > 2000) return;
+    try {
+      const url = new URL(payload);
+      if (url.protocol === 'https:' && !url.username && !url.password)
+        await shell.openExternal(url.href);
+    } catch {
+      /* Untrusted record URL. */
+    }
   });
   ipcMain.handle(channels.exportPdf, async (event, payload: unknown) => {
     if (!trustedSender(event))
@@ -227,6 +260,126 @@ void app.whenReady().then(() => {
     }
   });
   let choosing = false;
+  ipcMain.handle(channels.chooseAttachments, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot select attachments.', false);
+    const input = attachmentChoiceSchema.safeParse(payload);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid attachment choice.', false);
+    if (choosing) return failure('BUSY', 'A file selector is already open.');
+    choosing = true;
+    try {
+      const current = await service.project({ type: 'current' });
+      const location = service.projectLocation;
+      if (
+        !current.ok ||
+        !current.value ||
+        !location ||
+        current.value.id !== input.data.projectId ||
+        location.projectId !== input.data.projectId
+      )
+        return failure('INVALID_REQUEST', 'Open a paper before attaching files.', false);
+      const selected = await dialog.showOpenDialog(window!, {
+        title: 'Attach paper files or import images',
+        buttonLabel: 'Attach',
+        defaultPath: location.path,
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: 'Paper files and images',
+            extensions: [
+              'tex',
+              'bib',
+              'txt',
+              'md',
+              'csv',
+              'tsv',
+              'json',
+              'sty',
+              'cls',
+              'png',
+              'jpg',
+              'jpeg',
+              'webp',
+              'gif',
+            ],
+          },
+        ],
+      });
+      if (selected.canceled) return { ok: true, value: { cancelled: true, paths: [] } };
+      const selectedPaths = [...new Set(selected.filePaths)];
+      if (selectedPaths.length > (input.data.limit ?? 20))
+        return failure(
+          'INVALID_REQUEST',
+          'The selection exceeds the remaining attachment limit.',
+          false,
+        );
+      const choices = selectedPaths.map((source) => {
+        const rel = relative(location.path, source);
+        const outside = !rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel);
+        return { source, outside, path: rel.split(sep).join('/') };
+      });
+      if (
+        choices.some((choice) => {
+          if (!isAbsolute(choice.source)) return true;
+          if (choice.outside) return !imageMime(choice.source);
+          return !current.value!.files.some(
+            (file) =>
+              file.path === choice.path &&
+              !file.deleted &&
+              (file.diskKind === 'text' || (file.diskKind === 'binary' && imageMime(choice.path))),
+          );
+        })
+      )
+        return failure(
+          'INVALID_REQUEST',
+          'Choose text files inside this paper folder or supported images.',
+          false,
+        );
+      const paths: string[] = [],
+        imported: string[] = [];
+      for (const choice of choices) {
+        if (!choice.outside) {
+          paths.push(choice.path);
+          continue;
+        }
+        const extension = extname(choice.source).slice(1).toLowerCase();
+        const label =
+          Array.from(
+            basename(choice.source, extname(choice.source)).replace(/[^\p{L}\p{N}_-]+/gu, '-'),
+          )
+            .slice(0, 36)
+            .join('')
+            .replace(/^-+|-+$/g, '') || 'image';
+        const path = `loom-import-${randomUUID().replace(/-/g, '').slice(0, 12)}-${label}.${extension}`;
+        const result = await service.project({
+          type: 'native-import-image',
+          projectId: input.data.projectId,
+          source: choice.source,
+          path,
+        });
+        if (!result.ok) {
+          const saved = imported.length
+            ? ` Already copied: ${imported.slice(0, 3).join(', ')}${imported.length > 3 ? ` and ${imported.length - 3} more` : ''}.`
+            : '';
+          return failure(
+            'INVALID_REQUEST',
+            `Could not finish importing an image. Check its format, size and the open paper; check whether ${path} was copied.${saved}`,
+            false,
+          );
+        }
+        paths.push(path);
+        imported.push(path);
+      }
+      return { ok: true, value: { cancelled: false, paths, imported: imported.length } };
+    } catch {
+      return failure(
+        'INVALID_REQUEST',
+        'The file selector could not open. Try attaching files again.',
+      );
+    } finally {
+      choosing = false;
+    }
+  });
   ipcMain.handle(channels.chooseFile, async (event, payload: unknown) => {
     if (!trustedSender(event))
       return failure('FORBIDDEN', 'This window cannot create project files.', false);

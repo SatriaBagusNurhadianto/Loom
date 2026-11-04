@@ -1,8 +1,8 @@
 # First desktop build plan
 
-**Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, additional harnesses, voice, or visual prose editing.
+**Scope:** The first public desktop release defined in [PRD.md](PRD.md), through its M6 pilot milestone. This plan does not include accounts, cloud synchronization, live collaboration, hosted compilation, harnesses beyond OpenCode/Codex, voice, or visual prose editing.
 
-**Current state:** Phases 1–3 implemented and verified on Linux x86_64. Phase 4 has not started. Actual progress and verification belong in [project_status.md](project_status.md).
+**Current state:** Phases 1–4 implemented and verified on Linux x86_64. Next: Phase 5 literature and Zotero. Actual progress and verification belong in [project_status.md](project_status.md).
 
 ## How to execute this plan
 
@@ -86,25 +86,27 @@
 
 **Recorded exit evidence:** 82 deterministic checks, 19 default Electron regression/missing-tool cases, eight real native TeX/TexLab checks, nine live Electron LaTeX/PDF scenarios, actual process cancellation/utility interruption/no-orphan verification, packaged sandboxed render/map/export smoke, Prism/narrow inspection, strict UI/DESIGN checks and iterative GPT-6.1 Terra review. Six synthetic sample folders, built-in editable sample actions and an isolated launcher are provided. The researcher UX correction and targeted Terra review are recorded in [the UX review](docs/phase-3-ux-review.md). Independent review's one app-startup failure and successful focused rerun are explicitly recorded. See [status](project_status.md), [testing](docs/phase-3-testing.md) and [review](docs/phase-3-review.md). Installed/cross-platform/performance acceptance remains Phase 8.
 
-## Phase 4 — OpenCode agent and safe change review
+## Phase 4 — Selectable agent harnesses and safe change review
 
 **PRD coverage:** FR-05, FR-06, FR-07.
 
 **Prerequisites:** Phases 2–3 complete.
 
-- [ ] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK.
-- [ ] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
-- [ ] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
-- [ ] Support sessions, model selection, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
-- [ ] Expose appropriate Loom project/build tools through a supported integration surface.
-- [ ] Capture pre-turn baselines and group native agent writes by change set.
-- [ ] Show direct edits, diffs, keep/revert controls, and truthful post-write review semantics.
-- [ ] Preserve newer edits and partial multi-file work across cancellation/failure/reconnect.
-- [ ] Persist session references and expose project chats through the reference UI.
+- [x] Define the harness adapter/capability/event contract and implement OpenCode through its structured server/SDK and Codex through its native app-server (user scope decision, 4 November 2026).
+- [x] Detect installation/version/authentication state and provide setup/connect/disconnect/reconnect flows.
+- [x] Manage private local endpoints and distinguish Loom-owned from user-owned processes.
+- [x] Support sessions, searchable model selection, native per-chat reasoning/permission choices, relevant manuscript context, attachments, streaming, cancellation, questions, and permission prompts.
+- [x] Expose appropriate Loom project/build tools through a supported integration surface.
+- [x] Capture pre-turn baselines and group native agent writes by change set.
+- [x] Show direct edits, diffs, keep/revert controls, and truthful post-write review semantics.
+- [x] Preserve newer edits and partial multi-file work across cancellation/failure/reconnect.
+- [x] Persist session references and expose project chats through the reference UI.
 
 **Verification:** Cover adapter events with fixtures and perform a live authorized OpenCode smoke check when available. Inspect project context, questions/permissions, tool execution, cancellation, reconnect, agent/human overlapping edits, partial writes, and safe revert. Do not equate a mock response with a live integration.
 
 **Exit:** An author completes a project-aware agent revision, sees the changes without copy/paste, compiles, reviews, and recovers safely. No custom model/tool execution loop has been introduced.
+
+**Recorded evidence:** the later [native execution/settings corrections](project_status.md#phase-4-native-execution-and-settings-correction--4-november-2026) supersede affected connection/testing details in [Phase 4 final acceptance](project_status.md#phase-4-final-acceptance--4-november-2026), [setup/testing](docs/phase-4-testing.md), and [review/research](docs/phase-4-review.md).
 
 ## Phase 5 — Literature, bibliography, and Zotero
 
@@ -112,17 +114,19 @@
 
 **Prerequisites:** Phases 2–4 complete.
 
-- [ ] Parse/index bibliography records while preserving original and unknown fields.
-- [ ] Search local bibliography by metadata/key/DOI and show missing/duplicate/incomplete/unused record states.
-- [ ] Add arXiv search with provenance, metadata, identifiers, source links, cancellation and failure handling.
-- [ ] Support manuscript-context queries and inspectable supporting abstracts/passages where available.
-- [ ] Implement supported read/search Zotero connection and explicit record import.
-- [ ] Preview entries and resolve key/identifier collisions before grouped citation+bibliography insertion.
-- [ ] Let the agent revise surrounding discussion using selected sources with traceable evidence.
+- [x] Parse/index bibliography records while preserving original and unknown fields.
+- [x] Search local bibliography by metadata/key/DOI and show missing/duplicate/incomplete/unused record states.
+- [x] Add arXiv search with provenance, metadata, identifiers, source links, cancellation and failure handling.
+- [x] Support manuscript-context queries and inspectable supporting abstracts/passages where available.
+- [x] Implement supported read/search Zotero connection and explicit record import.
+- [x] Preview entries and resolve key/identifier collisions before grouped citation+bibliography insertion.
+- [x] Let the agent revise surrounding discussion using selected sources with traceable evidence.
 
 **Verification:** Use provider fixtures for empty/partial/rate-limited/failing responses and synthetic BibTeX data. Run real-source and authorized Zotero checks when available. Validate repeated imports, duplicate detection, source links, and successful compilation with inserted citations.
 
 **Exit:** The author can locate and inspect a source, import it, cite it, and trace the manuscript revision to evidence. Missing network/library access and abstract-only evidence are represented accurately.
+
+**Recorded evidence:** [Phase 5 acceptance](project_status.md#phase-5-acceptance-and-remaining-limits--4-november-2026), [testing](docs/phase-5-testing.md), and [Terra review](docs/phase-5-review.md). Real arXiv retrieval/citation/compilation and OpenCode evidence-backed revision/revert passed. Zotero is implemented through its supported read-only local API and verified with a synthetic GET-only fixture; no actual Zotero installation was available.
 
 ## Phase 6 — Scientific content and whiteboard conversion
 
@@ -130,7 +134,7 @@
 
 **Prerequisites:** Phase 4 complete; Phase 5 required for citation-related operations.
 
-- [ ] Support image attachment/paste with capability detection and model-switch guidance.
+- [x] Support image attachment/paste with capability detection and model-switch guidance.
 - [ ] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
 - [ ] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
 - [ ] Preserve existing assets and use project-relative paths for new content.

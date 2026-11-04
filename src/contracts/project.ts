@@ -27,6 +27,15 @@ export const projectCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('load'), fileId: id }).strict(),
   z.object({ type: z.literal('search'), query: z.string().max(500) }).strict(),
   z.object({ type: z.literal('create'), path: relativePath }).strict(),
+  z.object({ type: z.literal('preview-image'), projectId: id, path: relativePath }).strict(),
+  z
+    .object({
+      type: z.literal('import-image'),
+      projectId: id,
+      path: relativePath,
+      data: z.string().max(14_000_000),
+    })
+    .strict(),
   z.object({ type: z.literal('rename'), fileId: id, path: relativePath }).strict(),
   z.object({ type: z.literal('delete'), fileId: id }).strict(),
   z.object({ type: z.literal('restore'), fileId: id }).strict(),
@@ -92,6 +101,14 @@ export const projectSnapshotSchema = z
     sourceRevision: z.string().optional(),
     matches: z.array(id).optional(),
     hits: z.array(searchHitSchema).max(200).optional(),
+    imagePreview: z
+      .object({
+        path: relativePath,
+        mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+        data: z.string().max(14_000_000),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>;

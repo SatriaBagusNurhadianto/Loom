@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "root": "main.tex",
+  "settings": {
+    "engine": "pdflatex",
+    "bibliography": "auto",
+    "recipe": "latexmk",
+    "autoBuild": true,
+    "delayMs": 750
+  }
+}

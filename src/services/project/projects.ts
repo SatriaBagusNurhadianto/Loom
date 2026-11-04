@@ -1,5 +1,5 @@
 import { portableBuildSchema, type BuildSettings } from '../../contracts/latex';
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
@@ -7,6 +7,8 @@ import { unzipSync } from 'fflate';
 import { relativePath, type ProjectCommand, type ProjectSnapshot } from '../../contracts/project';
 import { MetadataStore } from './store';
 import { reconcile, textChanges } from './reconcile';
+import { imageMime } from '../../domain/images';
+import { imageBytesMatch, validateImage } from '../agents/images';
 type RecordFile = {
   id: string;
   path: string;
@@ -34,7 +36,9 @@ type Project = {
 };
 const hash = (text: string | Uint8Array) => createHash('sha256').update(text).digest('hex');
 const MAX_FILE = 8 * 1024 * 1024;
+const DIFF_BUDGET = { timeout: 20, maxEditLength: 1000 };
 export class ProjectService {
+  onHumanWrite?: (path: string) => void;
   private root = '';
   private loadedId = '';
   private project: Project | null = null;
@@ -58,15 +62,32 @@ export class ProjectService {
     }
     return doc;
   }
-  private setText(file: RecordFile, text: string): void {
+  private setText(file: RecordFile, text: string, explicit = false): boolean {
     const doc = this.doc(file);
     const live = doc.getText('source');
     const old = live.toString();
     if (old === text) {
       file.state = Array.from(Y.encodeStateAsUpdate(doc));
-      return;
+      return true;
     }
-    const changes = textChanges(old, text).sort((a, b) => b.from - a.from);
+    let changes: ReturnType<typeof textChanges>;
+    try {
+      // Empty documents need no diff. A deliberate resolution or a clean incoming
+      // replacement may patch its changed span when a detailed diff is too costly.
+      changes = old === '' ? [{ from: 0, to: 0, text }] : textChanges(old, text, DIFF_BUDGET);
+    } catch {
+      if (!explicit) return false;
+      let start = 0,
+        endOld = old.length,
+        endNew = text.length;
+      while (start < endOld && start < endNew && old[start] === text[start]) start++;
+      while (endOld > start && endNew > start && old[endOld - 1] === text[endNew - 1]) {
+        endOld--;
+        endNew--;
+      }
+      changes = [{ from: start, to: endOld, text: text.slice(start, endNew) }];
+    }
+    changes.sort((a, b) => b.from - a.from);
     doc.transact(() => {
       for (const change of changes) {
         live.delete(change.from, change.to - change.from);
@@ -74,6 +95,7 @@ export class ProjectService {
       }
     }, 'filesystem');
     file.state = Array.from(Y.encodeStateAsUpdate(doc));
+    return true;
   }
   private async safe(path: string): Promise<string> {
     relativePath.parse(path);
@@ -233,6 +255,68 @@ export class ProjectService {
       throw new Error('Choose a location inside the open project folder.');
     return this.command({ type: 'create', path: relative(this.root, target).split(sep).join('/') });
   }
+  private async saveImage(projectId: string, path: string, bytes: Buffer) {
+    if (this.project?.id !== projectId)
+      throw new Error('The open paper changed. Choose the image again.');
+    const mime = imageMime(path);
+    if (!mime || bytes.length > 10 * 1024 * 1024 || !imageBytesMatch(mime, bytes))
+      throw new Error('Choose a PNG, JPEG, GIF or WebP image of at most 10 MiB.');
+    const target = await this.safe(path);
+    if (dirname(target) !== this.root)
+      throw new Error('Imported images must be saved in the paper folder.');
+    const temporary = join(this.root, `.loom-save-${randomUUID()}`);
+    let file: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      file = await fs.open(temporary, 'wx');
+      await file.writeFile(bytes);
+      await file.sync();
+      await file.close();
+      file = undefined;
+      await fs.link(temporary, target);
+      const directory = await fs.open(this.root, 'r');
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } finally {
+      await file?.close();
+      await fs.rm(temporary, { force: true });
+    }
+    await this.refresh();
+    return this.snapshot();
+  }
+  async importExternalImage(projectId: string, source: string, path: string) {
+    await this.current();
+    if (this.project?.id !== projectId)
+      throw new Error('The open paper changed. Choose the image again.');
+    const mime = imageMime(source);
+    if (!mime || imageMime(path) !== mime) throw new Error('Choose a supported image file.');
+    const file = await fs.open(source, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const before = await file.stat();
+      if (!before.isFile() || before.size > 10 * 1024 * 1024)
+        throw new Error('Choose an image of at most 10 MiB.');
+      const buffer = Buffer.alloc(before.size + 1);
+      let offset = 0;
+      while (offset < buffer.length) {
+        const read = await file.read(buffer, offset, buffer.length - offset, offset);
+        if (!read.bytesRead) break;
+        offset += read.bytesRead;
+      }
+      const after = await file.stat();
+      if (
+        offset !== before.size ||
+        after.size !== before.size ||
+        after.mtimeMs !== before.mtimeMs ||
+        after.ctimeMs !== before.ctimeMs
+      )
+        throw new Error('The selected image changed while it was being copied. Choose it again.');
+      return await this.saveImage(projectId, path, buffer.subarray(0, offset));
+    } finally {
+      await file.close();
+    }
+  }
   async create(path: string): Promise<ProjectSnapshot> {
     await fs.mkdir(path, { recursive: false });
     await fs.writeFile(
@@ -330,12 +414,15 @@ export class ProjectService {
         if (local === found.text) file.conflict = false;
         continue;
       }
-      const merged = reconcile(file.baseline ?? '', local, found.text);
+      const merged = reconcile(file.baseline ?? '', local, found.text, DIFF_BUDGET);
       if (merged === null) {
         file.conflict = true;
         continue;
       }
-      this.setText(file, merged);
+      if (!this.setText(file, merged, local === file.baseline)) {
+        file.conflict = true;
+        continue;
+      }
       file.baseline = found.text;
       file.conflict = false;
     }
@@ -395,6 +482,7 @@ export class ProjectService {
       this.persist();
       return;
     }
+    this.onHumanWrite?.(file.path);
     this.persist();
     const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
     try {
@@ -453,9 +541,14 @@ export class ProjectService {
       if (!file || file.binary) throw new Error('Text file is unavailable.');
       Y.applyUpdate(this.doc(file), Uint8Array.from(command.update));
       if (command.baseline !== file.baseline && command.text !== command.baseline) {
-        const merged = reconcile(command.baseline ?? '', command.text, file.baseline ?? '');
-        this.setText(file, merged ?? command.text);
-        if (merged === null) {
+        const merged = reconcile(
+          command.baseline ?? '',
+          command.text,
+          file.baseline ?? '',
+          DIFF_BUDGET,
+        );
+        const applied = this.setText(file, merged ?? command.text);
+        if (merged === null || !applied) {
           file.conflict = true;
           file.disk = file.baseline;
         }
@@ -464,6 +557,36 @@ export class ProjectService {
       this.persist();
     }
     await this.refresh();
+    if (command.type === 'preview-image') {
+      if (this.project.id !== command.projectId) throw new Error('The open paper changed.');
+      const file = this.project.files.find((f) => f.path === command.path && !f.deleted);
+      if (!file) throw new Error('This image is no longer in the paper.');
+      const mime = imageMime(command.path);
+      if (!mime || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mime))
+        throw new Error('Unsupported image format.');
+      await validateImage(this.root, command.path);
+      const handle = await fs.open(await this.safe(command.path), 'r');
+      let bytes: Buffer;
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.size > 10 * 1024 * 1024)
+          throw new Error('This image is too large to preview.');
+        bytes = Buffer.alloc(stat.size);
+        const read = await handle.read(bytes, 0, bytes.length, 0);
+        if (read.bytesRead !== bytes.length || !imageBytesMatch(mime, bytes))
+          throw new Error('This image changed while opening. Try again.');
+      } finally {
+        await handle.close();
+      }
+      return {
+        ...this.snapshot(),
+        imagePreview: {
+          path: command.path,
+          mime: mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+          data: bytes.toString('base64'),
+        },
+      };
+    }
     if (command.type === 'search') {
       const hits = this.store.hits(this.root, command.query);
       return {
@@ -477,7 +600,9 @@ export class ProjectService {
       this.persist();
       return this.snapshot();
     }
-    if (command.type === 'create') {
+    if (command.type === 'import-image') {
+      return this.saveImage(command.projectId, command.path, Buffer.from(command.data, 'base64'));
+    } else if (command.type === 'create') {
       const path = await this.safe(command.path);
       await fs.mkdir(dirname(path), { recursive: true });
       await fs.writeFile(path, '', { flag: 'wx' });
@@ -534,7 +659,7 @@ export class ProjectService {
           } else if (file.disk === null) {
             file.deleted = true;
           } else {
-            this.setText(file, file.disk);
+            this.setText(file, file.disk, true);
             file.baseline = file.disk;
           }
         } else {
@@ -598,7 +723,8 @@ export class ProjectService {
     if (!file || file.binary || file.conflict)
       throw new Error('Resolve external changes to loom.build.json before saving settings.');
     // Use the same checkpointed, fingerprint-checked atomic write as manuscript text.
-    this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n');
+    if (!this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n'))
+      throw new Error('Build configuration is too complex to update safely. Edit it manually.');
     this.persist();
     await this.save(file);
     if (file.conflict)
@@ -627,6 +753,113 @@ export class ProjectService {
           text: f.binary ? null : this.doc(f).getText('source').toString(),
         })),
     };
+  }
+  /** Internal agent recovery boundary. Call only within run(), after renderer flush. */
+  async agentFiles(projectId: string): Promise<Map<string, Buffer>> {
+    await this.refresh();
+    const context = this.buildContext(projectId);
+    const result = new Map<string, Buffer>();
+    let total = 0;
+    for (const file of context.files) {
+      if (file.diskKind === 'missing') continue;
+      const target = await this.safe(file.path);
+      const stat = await fs.stat(target);
+      total += stat.size;
+      if (total > 128 * 1024 * 1024)
+        throw new Error('Agent recovery supports papers up to 128 MiB.');
+      result.set(file.path, await fs.readFile(target));
+    }
+    return result;
+  }
+  async agentRestore(
+    projectId: string,
+    path: string,
+    expected: Buffer | null,
+    desired: Buffer | null,
+  ): Promise<void> {
+    this.buildContext(projectId);
+    const target = await this.safe(path);
+    let current: Buffer | null = null;
+    try {
+      current = await fs.readFile(target);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (
+      (current === null) !== (expected === null) ||
+      (current && expected && !current.equals(expected))
+    )
+      throw new Error('This file changed again. Review its latest version before reverting.');
+    const file =
+      this.project!.files.find((f) => f.path === path && !f.deleted) ??
+      this.project!.files.find((f) => f.path === path);
+    if (
+      file &&
+      ((file.conflict &&
+        !(
+          expected === null &&
+          file.diskKind === 'missing' &&
+          this.doc(file).getText('source').toString() === file.baseline
+        )) ||
+        (!file.binary && this.doc(file).getText('source').toString() !== file.baseline))
+    )
+      throw new Error('Review or save your newer writing before reverting this file.');
+    if (desired === null) {
+      if (file) {
+        file.recovery = Array.from(current!);
+        this.persist();
+      }
+      await fs.unlink(target);
+      if (file) {
+        file.deleted = true;
+        file.conflict = false;
+        if (this.project!.rootId === file.id) this.project!.rootId = null;
+        this.persist();
+      }
+    } else {
+      await fs.mkdir(dirname(target), { recursive: true });
+      if (!current) await fs.writeFile(target, desired, { flag: 'wx' });
+      else {
+        const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
+        try {
+          const handle = await fs.open(temp, 'wx', 0o600);
+          try {
+            await handle.writeFile(desired);
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          const latest = await fs.readFile(target);
+          if (!latest.equals(current))
+            throw new Error('This file changed again. Review before reverting.');
+          await fs.rename(temp, target);
+          const directory = await fs.open(dirname(target), 'r');
+          try {
+            await directory.sync();
+          } finally {
+            await directory.close();
+          }
+        } finally {
+          await fs.rm(temp, { force: true });
+        }
+      }
+      if (file) {
+        let text: string | null = null;
+        try {
+          const decoded = new TextDecoder('utf-8', { fatal: true }).decode(desired);
+          if (!decoded.includes('\0')) text = decoded;
+        } catch {
+          /* Binary recovery. */
+        }
+        file.binary = text === null;
+        file.baseline = text;
+        file.conflict = false;
+        file.deleted = false;
+        if (text !== null) this.setText(file, text, true);
+        this.persist();
+      }
+    }
+    await this.refresh();
   }
   snapshot(): ProjectSnapshot {
     const p = this.project!;

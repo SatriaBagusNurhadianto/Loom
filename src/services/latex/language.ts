@@ -10,7 +10,7 @@ import type {
   StructureItem,
 } from '../../contracts/latex';
 import type { BuildInput } from './builds';
-import { findExecutable, spawnOwnedTool } from './tools';
+import { findLatexExecutable, latexEnvironment, spawnOwnedTool } from './tools';
 import { relativePath } from '../../contracts/project';
 const position = z.object({
   line: z.number().int().nonnegative(),
@@ -200,14 +200,14 @@ export class TexlabClient {
     if (this.child) return;
     const generation = this.generation;
     this.starting = (async () => {
-      const executable = await findExecutable('texlab');
+      const executable = await findLatexExecutable('texlab');
       if (!executable)
         throw new Error(
-          'TexLab is not installed. Install texlab, restart Loom and retry. Source editing remains available.',
+          'TexLab is not installed. Install texlab and retry. Source editing remains available.',
         );
       if (generation !== this.generation)
         throw new Error('Project changed while connecting TexLab.');
-      const child = spawnOwnedTool(executable, [], context.root);
+      const child = spawnOwnedTool(executable, [], context.root, latexEnvironment());
       this.child = child;
       this.failure = '';
       child.stdout.on('data', (chunk: Buffer) => {

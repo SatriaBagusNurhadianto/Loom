@@ -1,5 +1,5 @@
 import { access, cp, mkdir, readdir } from 'node:fs/promises';
-import { join, resolve, delimiter } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 const root = resolve(import.meta.dirname, '..');
@@ -21,30 +21,7 @@ for (const entry of await readdir(join(root, 'examples', 'phase-3'), { withFileT
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.ELECTRON_RENDERER_URL;
-// Development-only convenience for this task's independently downloaded test tools.
-// The product itself only detects the environment it was launched with.
-const tools = env.LOOM_PHASE3_TOOLS ?? '/tmp/loom-phase3-tools';
-try {
-  await access(join(tools, '.TinyTeX', 'bin', 'x86_64-linux', 'latexmk'));
-  env.PATH = [
-    join(tools, '.TinyTeX', 'bin', 'x86_64-linux'),
-    join(tools, 'texlab'),
-    env.PATH ?? '',
-  ].join(delimiter);
-  try {
-    await access(join(tools, 'compat', 'usr', 'lib', 'libcrypt.so.1'));
-    env.LD_LIBRARY_PATH = [join(tools, 'compat', 'usr', 'lib'), env.LD_LIBRARY_PATH]
-      .filter(Boolean)
-      .join(delimiter);
-  } catch {
-    /* Use system compatibility libraries. */
-  }
-  console.log(
-    `Using the temporary verification toolchain in ${tools}. It is not bundled with Loom and may disappear after reboot.`,
-  );
-} catch {
-  console.log('Using TeX/TexLab from PATH. Missing tools have setup guidance in Build and LaTeX.');
-}
+console.log('Using installed PDF tools from PATH or the persistent user-local Loom toolchain.');
 console.log(
   `In Loom, choose Try a sample paper (in Projects if a project is already open).\nEdit a sentence, choose Update PDF, then Download PDF.\nOptional developer sample folders: ${destination}. Existing copies are preserved.\nThis run uses a separate profile in .cache/phase-3-profile.\nStop with Ctrl C.`,
 );

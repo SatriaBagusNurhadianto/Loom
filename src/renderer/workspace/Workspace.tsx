@@ -1,3 +1,19 @@
+import { References } from '../references/References';
+import {
+  AgentChanges,
+  AgentDiff,
+  pendingChanges,
+  selectedChange,
+  type ChangeSelection,
+} from '../agent/AgentChanges';
+import { createAgentWorkspace } from '../agent/workspace';
+import {
+  AgentChats,
+  AgentComposer,
+  AgentConnections,
+  AgentConversation,
+  AgentImagePreview,
+} from '../agent/AgentSurface';
 import { createLatexWorkspace } from '../latex/workspace';
 import { BuildDialog } from '../latex/BuildDialog';
 import { BuildFeedback } from '../latex/BuildFeedback';
@@ -22,6 +38,7 @@ import { Icon } from '../ui/Icon';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
 import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
+import { imageMime } from '../../domain/images';
 
 declare global {
   interface Window {
@@ -46,6 +63,51 @@ export function Workspace() {
   });
   const projects = createProjectWorkspace(setNotice);
   const latex = createLatexWorkspace(projects, setNotice);
+  const agent = createAgentWorkspace(projects, setNotice);
+  const [chatHeight, setChatHeight] = createSignal(68);
+  const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
+  const [referencesOpen, setReferencesOpen] = createSignal(false);
+  const [connectionsOpen, setConnectionsOpen] = createSignal(false);
+  const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
+  const [reviewSelection, setReviewSelection] = createSignal<ChangeSelection | null>(null);
+  const [undoChanges, setUndoChanges] = createSignal<ChangeSelection[] | null>(null);
+  const reviewChange = () => selectedChange(agent, reviewSelection());
+  const selectReview = (selection: ChangeSelection) => {
+    if (!reviewSelection()) setChatBeforeReview(chatHeight());
+    setReviewSelection(selection);
+    agent.setOpen(true);
+    setChatHeight(45);
+    const file = projects
+      .project()
+      ?.files.find((file) => file.path === selection.path && !file.deleted);
+    if (file) void projects.select(file.id);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.agent-source-diff')?.focus());
+  };
+  const openReview = () => {
+    const entry = pendingChanges(agent).at(-1);
+    if (entry) selectReview({ turnId: entry.turnId, path: entry.change.path });
+  };
+  const reviewProject = createMemo(() => projects.project()?.id);
+  createEffect(() => {
+    reviewProject();
+    setReviewSelection(null);
+    setUndoChanges(null);
+  });
+  const closeReview = () => {
+    if (chatBeforeReview() !== null) setChatHeight(chatBeforeReview()!);
+    setChatBeforeReview(null);
+    setReviewSelection(null);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.cm-content')?.focus());
+  };
+  const keepReview = async () => {
+    const target = reviewSelection();
+    if (target && (await agent.review(target.turnId, target.path, 'keep'))) closeReview();
+  };
+  const agentConnect = () => setConnectionsOpen(true);
+  const newChat = () => {
+    if (agent.state()?.connection === 'connected') void agent.newChat();
+    else agentConnect();
+  };
   const [pdfPosition, setPdfPosition] = createSignal({ page: 1, zoom: 1, scroll: 0 });
   const pdfProjectIdentity = createMemo(() => projects.project()?.id);
   createEffect(() => {
@@ -55,6 +117,31 @@ export function Workspace() {
   const [example, setExample] = createSignal(false);
   const [sampleHint, setSampleHint] = createSignal(false);
   const [dialog, setDialog] = createSignal<Dialog>(null);
+  function prepareScientificRequest(instruction: string, notice: string) {
+    const draft = [agent.draft(), instruction].filter(Boolean).join('\n\n');
+    if (draft.length > 50000) {
+      setNotice('The assistant draft is full. Shorten it before adding a scientific request.');
+      return;
+    }
+    const file = projects.file();
+    const caret = file ? projects.caret(file.id) : undefined;
+    let selectionNotice = '';
+    if (caret && caret.anchor !== caret.head) {
+      if (agent.selection())
+        selectionNotice =
+          ' The previously attached passage was retained; the current selection was not attached.';
+      else if (!agent.attachSelection())
+        selectionNotice =
+          ' The current selection could not be attached; check the assistant message.';
+    }
+    agent.setDraft(draft);
+    agent.setOpen(true);
+    setDialog(null);
+    setNotice(notice + selectionNotice);
+    requestAnimationFrame(() =>
+      document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+    );
+  }
   const chooseMain = latex.mainChoiceRequired;
   const setChooseMain = latex.setMainChoiceRequired;
   const [availability, setAvailability] = createSignal({ title: '', detail: '' });
@@ -371,6 +458,7 @@ export function Workspace() {
                     classList={{ selected: layout().tab === 'files' }}
                     onClick={() => update({ tab: 'files' })}
                   >
+                    <Icon name="folder" size={15} />
                     Files
                   </button>
                   <button
@@ -378,6 +466,7 @@ export function Workspace() {
                     classList={{ selected: layout().tab === 'chats' }}
                     onClick={() => update({ tab: 'chats' })}
                   >
+                    <Icon name="chat" size={15} />
                     Chats
                   </button>
                 </div>
@@ -403,7 +492,7 @@ export function Workspace() {
                     else
                       showUnavailable(
                         'Agent conversations',
-                        'OpenCode sessions, models, and conversations arrive in Phase 4. No agent is connected.',
+                        'Open a paper folder, then connect OpenCode or Codex to start a conversation.',
                       );
                   }}
                 />
@@ -437,7 +526,7 @@ export function Workspace() {
                     <div class="sidebar-empty">
                       <Icon name="chat" />
                       <p>No conversations yet</p>
-                      <span>Connect an agent in Phase 4.</span>
+                      <span>Open a paper folder to start a conversation.</span>
                     </div>
                   }
                 >
@@ -491,6 +580,8 @@ export function Workspace() {
               <ProjectPanel
                 latex={latex}
                 workspace={projects}
+                chats={<AgentChats agent={agent} onConnect={agentConnect} />}
+                onNewChat={newChat}
                 tab={layout().tab}
                 onTabChange={(tab) => update({ tab })}
                 onSettings={() => setDialog('projects')}
@@ -637,6 +728,13 @@ export function Workspace() {
                       : 'Create PDF'}
                 </button>
               </Show>
+              <Show when={projects.project()}>
+                <IconButton
+                  label="References"
+                  icon="bookOpen"
+                  onClick={() => setReferencesOpen(true)}
+                />
+              </Show>
               <button class="tools-button" onClick={() => setDialog('tools')}>
                 Tools <Icon name="tools" />
               </button>
@@ -704,81 +802,96 @@ export function Workspace() {
               </div>
             </Show>
             <div class="source-content">
-              <Show
-                when={projects.project()}
-                fallback={
-                  <>
-                    <Show
-                      when={example()}
-                      fallback={
-                        <EmptyState icon="file" title="A place for your next paper">
-                          <p>Your source, assistant, and PDF, together.</p>
-                          <p>Open your paper’s folder, or try an editable sample.</p>
-                          <button class="primary-button" onClick={() => setDialog('projects')}>
-                            Open or create project
-                          </button>
-                          <button
-                            class="secondary-button"
-                            disabled={projects.pending()}
-                            onClick={() => void openProject('sample', true)}
-                          >
-                            {projects.pending() ? 'Opening sample…' : 'Try a sample paper'}
-                          </button>
-                        </EmptyState>
-                      }
-                    >
-                      <div
-                        class="code-view"
-                        role="region"
-                        aria-label="Read-only LaTeX example"
-                        tabIndex={0}
-                      >
-                        <For each={exampleSource.split('\n')}>
-                          {(line, i) => (
-                            <div class="code-line" id={`line-${i()}`}>
-                              <span class="line-number" aria-hidden="true">
-                                {i() + 1}
-                              </span>
-                              <code>
-                                <For each={tokenize(line)}>
-                                  {(token) => <span class={token.kind}>{token.text}</span>}
-                                </For>
-                                {line === '' ? ' ' : ''}
-                              </code>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </>
-                }
-              >
+              <Show when={reviewChange()}>
+                {(change) => (
+                  <AgentDiff
+                    change={change()}
+                    onClose={closeReview}
+                    onKeep={() => void keepReview()}
+                    onUndo={() => setUndoChanges([reviewSelection()!])}
+                    disabled={agent.busy() || !!agent.state()?.running}
+                  />
+                )}
+              </Show>
+              <div class="source-editing" hidden={!!reviewChange()}>
                 <Show
-                  when={projects.file()}
+                  when={projects.project()}
                   fallback={
-                    <EmptyState icon="file" title="Your project is ready">
-                      <p>Choose + in Files to create your first source file.</p>
-                      <button class="secondary-button" onClick={() => void projects.newFile()}>
-                        New file
-                      </button>
-                    </EmptyState>
+                    <>
+                      <Show
+                        when={example()}
+                        fallback={
+                          <EmptyState icon="file" title="A place for your next paper">
+                            <p>Your source, assistant, and PDF, together.</p>
+                            <p>Open your paper’s folder, or try an editable sample.</p>
+                            <button class="primary-button" onClick={() => setDialog('projects')}>
+                              Open or create project
+                            </button>
+                            <button
+                              class="secondary-button"
+                              disabled={projects.pending()}
+                              onClick={() => void openProject('sample', true)}
+                            >
+                              {projects.pending() ? 'Opening sample…' : 'Try a sample paper'}
+                            </button>
+                          </EmptyState>
+                        }
+                      >
+                        <div
+                          class="code-view"
+                          role="region"
+                          aria-label="Read-only LaTeX example"
+                          tabIndex={0}
+                        >
+                          <For each={exampleSource.split('\n')}>
+                            {(line, i) => (
+                              <div class="code-line" id={`line-${i()}`}>
+                                <span class="line-number" aria-hidden="true">
+                                  {i() + 1}
+                                </span>
+                                <code>
+                                  <For each={tokenize(line)}>
+                                    {(token) => <span class={token.kind}>{token.text}</span>}
+                                  </For>
+                                  {line === '' ? ' ' : ''}
+                                </code>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </>
                   }
                 >
                   <Show
-                    when={projects.file()?.text !== null}
+                    when={projects.file()}
                     fallback={
-                      <EmptyState icon="file" title="Project asset">
-                        <p>This asset stays in its original format. Text editing is unavailable.</p>
+                      <EmptyState icon="file" title="Your project is ready">
+                        <p>Choose + in Files to create your first source file.</p>
+                        <button class="secondary-button" onClick={() => void projects.newFile()}>
+                          New file
+                        </button>
                       </EmptyState>
                     }
                   >
-                    <Show when={projects.loading()}>
-                      <p role="status">Loading source and recovery state…</p>
+                    <Show
+                      when={projects.file()?.text !== null}
+                      fallback={
+                        <EmptyState icon="file" title="Project asset">
+                          <p>
+                            This asset stays in its original format. Text editing is unavailable.
+                          </p>
+                        </EmptyState>
+                      }
+                    >
+                      <Show when={projects.loading()}>
+                        <p role="status">Loading source and recovery state…</p>
+                      </Show>
+                      <SourceEditor workspace={projects} latex={latex} />
                     </Show>
-                    <SourceEditor workspace={projects} latex={latex} />
                   </Show>
                 </Show>
-              </Show>
+              </div>
             </div>
             <div class="editor-statusbar">
               <span class="readonly-label" role="status">
@@ -802,65 +915,49 @@ export function Workspace() {
                 </span>
               </Show>
             </div>
-            <div class="composer-area">
-              <div class="composer">
+            <AgentImagePreview agent={agent} />
+            <div
+              class="agent-workspace-panel"
+              classList={{ expanded: agent.open() }}
+              style={{ '--chat-height': `${chatHeight()}%` }}
+            >
+              <Show when={agent.open()}>
                 <button
-                  class="composer-placeholder"
-                  onClick={() =>
-                    showUnavailable(
-                      'Agent not connected',
-                      'OpenCode connection and supported model selection arrive in Phase 4. Your local files are ready for editing. No prompt is sent.',
-                    )
+                  class="agent-panel-grip"
+                  aria-label="Resize conversation"
+                  title="Drag to resize · Arrow keys to adjust"
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      resizeChat(chatHeight() + (event.key === 'ArrowUp' ? 4 : -4));
+                    }
+                  }}
+                  onClick={(event) => {
+                    if (event.detail === 0) resizeChat(chatHeight() + 4);
+                  }}
+                  onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                  onPointerMove={(event) => {
+                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const bounds = event.currentTarget
+                      .closest('.source-column')!
+                      .getBoundingClientRect();
+                    resizeChat(((bounds.bottom - event.clientY) / bounds.height) * 100);
+                  }}
+                  onPointerUp={(event) =>
+                    event.currentTarget.releasePointerCapture(event.pointerId)
                   }
-                >
-                  Ask about your paper…
-                </button>
-                <div class="composer-actions">
-                  <IconButton
-                    label="Attachments — availability"
-                    icon="plus"
-                    onClick={() =>
-                      showUnavailable(
-                        'Attachments',
-                        'Images and scientific-content assistance arrive in Phase 6, after the agent integration.',
-                      )
-                    }
-                  />
-                  <button
-                    class="model-button"
-                    onClick={() =>
-                      showUnavailable(
-                        'Agent not connected',
-                        'OpenCode connection and supported model selection arrive in Phase 4. No prompt is sent from this foundation preview.',
-                      )
-                    }
-                  >
-                    No agent connected <Icon name="down" size={15} />
-                  </button>
-                  <button
-                    class="send-button"
-                    title="Sending requires the Phase 4 agent integration"
-                    disabled
-                    aria-label="Send unavailable — agent integration in Phase 4"
-                  >
-                    <Icon name="arrow" size={22} />
-                  </button>
-                </div>
-              </div>
-              <div class="composer-caption">
-                <span>
-                  {example()
-                    ? 'Synthetic example · no files on disk'
-                    : 'Source stays in your project folder'}
-                </span>
-                <button class="status-button" onClick={() => setDialog('service')}>
-                  <span class="status-dot" classList={{ ready: service().state === 'ready' }} />
-                  {service().state === 'ready'
-                    ? 'Service ready'
-                    : service().state === 'starting'
-                      ? 'Service starting'
-                      : 'Service unavailable'}
-                </button>
+                />
+              </Show>
+              <AgentConversation agent={agent} />
+              <AgentChanges
+                agent={agent}
+                onSelect={selectReview}
+                onClose={closeReview}
+                undo={undoChanges()}
+                onUndoChange={setUndoChanges}
+              />
+              <div class="composer-area">
+                <AgentComposer agent={agent} onConnect={agentConnect} />
               </div>
             </div>
           </main>
@@ -1005,22 +1102,56 @@ export function Workspace() {
           </section>
         </Show>
       </div>
-      <Show when={notice()}>
-        <div
-          class="notice"
-          role="status"
-          onPointerEnter={() => setNoticePaused(true)}
-          onPointerLeave={() => setNoticePaused(false)}
-          onFocusIn={() => setNoticePaused(true)}
-          onFocusOut={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-              setNoticePaused(false);
-          }}
-        >
-          <span>{notice()}</span>
-          <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
+      <footer class="workspace-statusbar">
+        <span class="workspace-origin">
+          {example()
+            ? 'Synthetic example · no files on disk'
+            : 'Source stays in your project folder'}
+        </span>
+        <div class="notice-slot">
+          <Show when={notice()}>
+            <div
+              class="notice"
+              role="status"
+              onPointerEnter={() => setNoticePaused(true)}
+              onPointerLeave={() => setNoticePaused(false)}
+              onFocusIn={() => setNoticePaused(true)}
+              onFocusOut={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                  setNoticePaused(false);
+              }}
+            >
+              <span>{notice()}</span>
+              <IconButton label="Dismiss notification" icon="close" onClick={() => setNotice('')} />
+            </div>
+          </Show>
         </div>
-      </Show>
+        <button class="status-button" onClick={() => setDialog('service')}>
+          <span class="status-dot" classList={{ ready: service().state === 'ready' }} />
+          {service().state === 'ready'
+            ? 'Local service ready'
+            : service().state === 'starting'
+              ? 'Local service starting'
+              : 'Local service unavailable'}
+        </button>
+      </footer>
+      <AgentConnections
+        agent={agent}
+        open={connectionsOpen()}
+        onClose={() => setConnectionsOpen(false)}
+        onOpenProject={() => {
+          setConnectionsOpen(false);
+          setDialog('projects');
+        }}
+      />
+
+      <References
+        open={referencesOpen()}
+        onClose={() => setReferencesOpen(false)}
+        projects={projects}
+        agent={agent}
+        report={setNotice}
+      />
       <BuildDialog
         open={dialog() === 'build'}
         onClose={() => setDialog(null)}
@@ -1032,7 +1163,12 @@ export function Workspace() {
         onOpenPaperFolder={() => void openProject('main-folder', true)}
         onFiles={() => setDialog('files')}
       />
-      <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
+      <Modal
+        open={dialog() === 'projects'}
+        title="Projects"
+        icon="folder"
+        onClose={() => setDialog(null)}
+      >
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
           <p>The workspace example is read-only. Open or create a project to edit files.</p>
@@ -1175,7 +1311,12 @@ export function Workspace() {
           </details>
         </Show>
       </Modal>
-      <Modal open={dialog() === 'files'} title="Project files" onClose={() => setDialog(null)}>
+      <Modal
+        open={dialog() === 'files'}
+        title="Project files"
+        icon="folder"
+        onClose={() => setDialog(null)}
+      >
         <div class="navigator-heading">
           <span>{projects.project()?.name}</span>
           <button class="text-button" onClick={() => setDialog('projects')}>
@@ -1187,6 +1328,20 @@ export function Workspace() {
             <ProjectPanel
               latex={latex}
               workspace={projects}
+              chats={
+                <AgentChats
+                  agent={agent}
+                  onConnect={() => {
+                    setDialog(null);
+                    agentConnect();
+                  }}
+                  onSelect={() => setDialog(null)}
+                />
+              }
+              onNewChat={() => {
+                setDialog(null);
+                newChat();
+              }}
               onNavigate={() => setDialog(null)}
               onSettings={() => setDialog('projects')}
             />
@@ -1216,6 +1371,67 @@ export function Workspace() {
           <button class="primary-button" onClick={() => setDialog(null)}>
             Back to workspace
           </button>
+        </Show>
+        <Show when={dialog() === 'tools' && projects.project()}>
+          <section class="dialog-section">
+            <h3>Research</h3>
+            <p>Search project references, arXiv and your local Zotero library.</p>
+            <button
+              class="secondary-button"
+              onClick={() => {
+                setDialog(null);
+                setReferencesOpen(true);
+              }}
+            >
+              References
+            </button>
+          </section>
+        </Show>
+        <Show when={dialog() === 'tools' && projects.project()}>
+          <section class="dialog-section scientific-tools">
+            <h3>Scientific content</h3>
+            <p>
+              Prepare a request for the agent. Review and edit it before sending; selected source
+              text is attached when available unless a passage is already attached.
+            </p>
+            <div class="button-row">
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations instead of guessing. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
+                    agent.attachments().some((path) => imageMime(path))
+                      ? 'Request prepared. Review the draft and attached image before sending.'
+                      : 'Request prepared. Attach an image and review the draft before sending.',
+                  )
+                }
+              >
+                Convert image
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Help revise the equation or notation in manuscript context. Ask me for the old and new notation and the intended scope if I have not specified them. Preserve unrelated writing and make changes inspectable.',
+                    'Notation request added to the assistant draft. Review it before sending.',
+                  )
+                }
+              >
+                Revise notation
+              </button>
+              <button
+                class="secondary-button"
+                onClick={() =>
+                  prepareScientificRequest(
+                    'Help create or revise the requested table or figure, caption and label in editable LaTeX. Ask for missing details rather than inventing data. Preserve existing assets and use project-relative paths.',
+                    'Table or figure request added to the assistant draft. Review it before sending.',
+                  )
+                }
+              >
+                Table or figure
+              </button>
+            </div>
+          </section>
         </Show>
         <Show when={dialog() === 'tools' && projects.project()}>
           <div class="settings-section">
@@ -1266,6 +1482,29 @@ export function Workspace() {
           </div>
         </Show>
         <Show when={dialog() === 'tools' || dialog() === 'settings'}>
+          <section class="dialog-section">
+            <h3>Agent</h3>
+            <p>Use OpenCode or Codex with this paper.</p>
+            <button
+              class="secondary-button"
+              onClick={() => {
+                setDialog(null);
+                agentConnect();
+              }}
+            >
+              Manage connections…
+            </button>
+            <button
+              class="text-button"
+              onClick={() => {
+                setDialog(null);
+                openReview();
+              }}
+              disabled={!pendingChanges(agent).length}
+            >
+              Merge Changes
+            </button>
+          </section>
           <p class="muted">Phase 2 · local projects</p>
           <div class="settings-section">
             <h3>View</h3>
@@ -1427,8 +1666,8 @@ export function Workspace() {
             </button>
           </div>
           <p class="help-text">
-            Restarting only restarts Loom’s foundation service. It does not open a project or run
-            external tools.
+            Restarting interrupts Loom-managed builds and agents. Your saved paper and recovery
+            records remain; reconnect an agent to continue.
           </p>
         </Show>
       </Modal>

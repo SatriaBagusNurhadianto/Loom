@@ -1,0 +1,95 @@
+# Phase 4 testing
+
+Loom connects installed agent harnesses rather than implementing another model/tool execution loop. OpenCode and Codex run their own authentication, model access, execution, permissions and native history. Linux x86_64 is the exercised desktop target. Use synthetic or explicitly authorized papers for provider checks: requests, attachments and files the agent reads can leave the machine through the configured model.
+
+## Try a revision
+
+1. Run `npm run dev` and open a paper folder, or use the editable sample paper described in [Phase 3 testing](phase-3-testing.md). Ordinary editing needs no agent account.
+2. In the bottom-center composer choose **Connect agent**. Select OpenCode or Codex. **Setup guide** opens official instructions. Install/sign in through that harness first if necessary, then Connect. Supported native protocols are OpenCode **1.19.x** or **2.2.x, minimum 2.2.1**, and Codex **0.159.x**; incompatible versions are rejected with guidance. Loom does not install or update them automatically.
+3. Use the searchable model picker in the composer; stars keep favorite models easy to find. **Reasoning** shows only the levels reported by that model (Big Pickle exposes no adjustable level). **Permissions** applies to this chat’s next request; start with Auto-accept edits or choose Supervised when you want prompts. Choose a configured model in the composer. The catalog reflects harness configuration; a listed model may still lack access. In this development setup the user confirmed **Big Pickle** is the working OpenCode model. The UI does not hardcode or force it for other installations. An empty catalog explains setup and disables sending while preserving the draft.
+4. Optionally attach a project text file or source selection. A discussion request such as “What assumption does this paper make?” can read files without changing them. To test file creation, ask “Create sections/notes.tex with a short summary and include it from main.tex.” For a focused revision, ask, for example, “Make the first sentence clearer without changing its scientific meaning.” Native permission prompts offer Deny or Allow once; native questions retain typed answers while status updates arrive. Read the actual requested permissions before responding.
+5. Watch the public response in the conversation above the composer. The agent may change the real project directly. **Merge Changes**, above the composer, lists observed files with additions/deletions, **Review**, **Keep all** and **Undo all**. **Review** opens a read-only source diff with old/new line numbers, colored additions/deletions and change navigation. Escape or **Back to editor** returns to writing. This is post-write review; other external writes during the turn can also be included.
+6. Use the diff toolbar’s check to **Keep file changes**, or its cross to **Undo file changes** with confirmation. **Keep all** and **Undo all** handle the listed files; Undo all stops if any file cannot be safely restored. Newer compatible text is retained; overlaps refuse automatic revert and preserve the ordinary conflict versions. Choose **Update PDF** to compile the revised paper with the existing snapshot build scheduler.
+7. Use **Chats** to continue a project conversation. Each chat records its harness; Loom never sends a Codex session to OpenCode or vice versa. A prompt draft survives reload in this Electron profile, independently of the manuscript.
+
+## Connections and recovery
+
+Loom-managed OpenCode starts on a private loopback endpoint (classic 1.19 may reuse port 4096) with a random in-memory password. Codex uses its native stdio app-server. Disconnect stops an owned process and waits for exit before final filesystem review. The local HTTP MCP endpoint is authenticated and exists only for the managed process lifetime. Managed harnesses receive paper structure, PDF status and build tools. Build responses distinguish a scheduled request from an actually completed PDF.
+
+**Agent connections → Runtime → Use an existing server** accepts a root `http://127.0.0.1:PORT` or IPv6 loopback endpoint and its credentials. Passwords are masked, not saved to project/preferences/history and cleared from the form on close. Redirects and non-loopback URLs are rejected. Loom detaches rather than killing an external server and does not register or change its tools. Explicit chat permission choices update only the selected session, not server-wide configuration. Only managed instances receive Loom's automatic MCP configuration.
+
+**Runtime → Binary path** accepts the full path to an installed supported harness; leave it empty for automatic detection. The successful path is retained privately. **Overview** keeps connection/account status concise; **Models** lists and filters the connected native catalog. Loom does not install or update agents.
+
+**Stop** sends the native cancellation request, then waits for confirmed idle/terminal state. Partial multi-file work remains reviewable. A transport failure is not reported as success. If an external server's stop cannot be confirmed, Loom retains the unresolved turn and explains how to stop it in OpenCode and reconnect. Reconnect resumes the same native session, confirms interruption and scans the final files before allowing another turn. Owned classic cancellation falls back to process closure when native completion is ambiguous. An already-idle attached classic request with no terminal record cannot prove it stopped; Loom keeps it protected rather than clearing recovery from an idle guess.
+
+Before a turn, Loom flushes current author work, checks the project revision and durably checkpoints existing project bytes. The recovery record survives utility/Electron restart independently of native history. After a crash, an old owned supervisor must be positively known to have exited before recovery proceeds; an inaccessible or reused PID is not assumed dead. With external servers, reconnect and native stop confirmation are required. Do not remove application data while it contains wanted recovery checkpoints.
+
+Practical checks:
+
+- Start a request that modifies two synthetic files, Stop midway and inspect both changes after cancellation/reload.
+- Type a compatible note while a request is running; verify safe review/revert retains it. For an overlapping sentence change, verify the conflict retains baseline, author text and disk text without silent replacement.
+- Interrupt the local utility process during a partial external-server request. The UI must say local service unavailable/interrupted, preserve the prompt, reconnect before another request and retain file review.
+- Disconnect and reconnect both harnesses. Continue a chat and verify history, model choice and correct project association.
+- At 720×540, use keyboard Tab/Shift Tab, Escape, Source/PDF focus modes and native model selection. Source and the bottom composer remain reachable; questions retain focus; notifications must not obscure Send.
+
+Pilot limits follow existing project limits plus 128 MiB of pre-turn recovery bytes and 100 retained turn/chat references per project. Text excerpts/differences are bounded. Computationally complex differences fall back to explicit before/after review; the original checkpoint bytes remain available. These bounds are explained rather than silently dropping recovery data. Cross-platform distribution and exhaustive performance/IME remain Phase 8.
+
+## Deterministic and Electron checks
+
+```bash
+npm run check
+npm run test:e2e
+```
+
+`check` runs formatting, TypeScript, deterministic tests and production bundles. Default tests make no paid model calls. `tests/opencode-adapter.test.ts` and `tests/codex-adapter.test.ts` exercise native protocol fixtures, empty catalogs, permission/question decisions, terminal events, resume, redirect/endpoint rejection and owned process termination. Change/service/project tests exercise real temporary filesystem/SQLite recovery, admission failure, compatible/overlapping edits, rename/delete/binary changes, large comparisons and interrupted operation guards. The MCP fixture uses actual authenticated local HTTP.
+
+`tests/e2e/agent.spec.ts` launches real sandboxed Electron/main/preload/utility/SQLite/IndexedDB/Yjs, with a **synthetic OpenCode HTTP server** and synthetic manuscript. Its model responses are simulated; it is not evidence of provider inference. Eleven default cases cover attachment/permission/question/streaming/revert, partial cancellation and chat/draft reload, 720×540 keyboard use, utility SIGKILL/reconnect, overlapping edits, empty-model setup, per-chat permission/reasoning persistence with native payload assertions, narrow inline diffs and bulk keep/undo/cancel, numeric/boolean question validation, and missing-binary runtime recovery. Only native picker results and the harness server boundary are substituted. An additional opt-in live desktop case uses the actual managed OpenCode service and Big Pickle, creates a second LaTeX file and inserts its input into the main source, compiles the revised PDF, inspects the diff and safely reverts it. It is skipped by default. Existing desktop/LaTeX suites retain their independent workflows. Run Electron suites sequentially to avoid shared artifact collisions. The manual nested-paper recovery fixture removes copied local `loom.build.json` preferences from its temporary sample so a developer’s automatic-build setting cannot turn its explicit Create action into Stop; the source sample is untouched.
+
+## Optional authorized native checks
+
+These commands use existing local agent setup. Only run with an available authorized account; inference tests send a synthetic paper to the configured model and can consume account usage.
+
+```bash
+LOOM_AGENT_LIVE=1 npx vitest run tests/agent-live.test.ts
+LOOM_AGENT_INFERENCE=1 LOOM_OPENCODE_MODEL=big-pickle npx vitest run tests/agent-live.test.ts
+LOOM_CODEX_INFERENCE=1 npx vitest run tests/agent-live.test.ts
+LOOM_WORKFLOW_LIVE=codex,next npx vitest run tests/agent-workflow-live.test.ts
+LOOM_CLASSIC_EXECUTABLE=/absolute/path/to/opencode-1.19 LOOM_WORKFLOW_LIVE=classic npx vitest run tests/agent-workflow-live.test.ts
+LOOM_LATEX_LIVE=1 npx vitest run tests/agent-tools.test.ts
+LOOM_AGENT_DESKTOP_LIVE=1 npx playwright test tests/e2e/agent.spec.ts -g 'authorized live native'
+```
+
+Set `LOOM_AGENT_DESKTOP_HARNESS=codex` for the native Codex desktop case, or `LOOM_CLASSIC_EXECUTABLE` for classic OpenCode. Workflow tests require actual answers to a paper question without edits, successful authenticated MCP structure access, file creation plus main-source inclusion, retained native chat/settings after reconnect and safe revert of both files. They use Codex’s configured Sol model or OpenCode Big Pickle; catalogs alone do not establish entitlement.
+
+The first command actually starts both installed harnesses, reads their model catalogs, creates/resumes native project sessions and confirms authenticated OpenCode MCP registration, without requesting model inference. The second revises a synthetic manuscript through actual OpenCode (Big Pickle is the default test choice) and safely reverts its real file write. The third exercises actual Codex revision, public messages, native history reconnect and safe revert. The MCP check uses installed latexmk/TeX to compile through the actual authenticated Loom MCP build tool. The live desktop check also requires these local build tools. The temporary Phase 3 toolchain, if still available, needs its bin and compatibility-library paths as described in that guide.
+
+To exercise the built package through the same native desktop boundaries:
+
+```bash
+npm run package
+LOOM_AGENT_PACKAGED=1 npx playwright test tests/e2e/agent.spec.ts -g 'real Electron agent flow'
+```
+
+This uses `release/linux-unpacked/loom`, sandbox enabled, with the explicitly synthetic harness fixture. It proves bundled transport/UI/recovery operation, not packaged provider entitlement. Observed counts, live versions, review findings and remaining limits belong in [project status](../project_status.md) and [Phase 4 review](phase-4-review.md).
+
+## Conversation switching, deletion and compact controls
+
+- Open the composer model menu and use the OpenCode/Codex logo buttons to activate an installed harness. Both idle connections can stay open. Each Loom chat keeps a separate native session and permissions/reasoning settings for each agent; the next request after a switch includes bounded earlier public chat context. Switch only after the current request stops. Model availability still comes from the selected native harness.
+- In **Chats**, use the trash icon beside a conversation. **Cancel** preserves it; **Delete conversation** removes its local Loom history/reference, including after restart. Paper files, change-recovery records and native harness history stay intact. Deletion is refused while a request is running or its stop remains unconfirmed.
+- Composer **+** opens the native file selector directly. Choose up to 20 paper text files; outside-paper/image/PDF attachments explain their current limitation. Cancel keeps the draft and existing attachments. Selecting text in the editor offers **Attach selected text**.
+- Check inline backticks and fenced LaTeX/diff responses, plus lists and headings. Raw model HTML must appear as inert text. Source review still shows literal syntax-highlighted LaTeX. Model/reasoning/access menus should fit at 720×540, with only their content scrolling as necessary; thin dividers retain pointer/keyboard resize behavior.
+- Successful source-edit turns schedule PDF creation automatically once saved source is conflict-free. Inspect actual build diagnostics on failure; an older PDF must stay labeled as older. Agent `build_pdf` tool replies schedule work rather than claiming success.
+
+Real synthetic-paper TikZ checks use the installed local TeX tools:
+
+```sh
+LOOM_LATEX_LIVE=1 npx vitest run tests/agent-tools-tikz.test.ts tests/agent-conversations-review.test.ts
+```
+
+An available authorized OpenCode Big Pickle setup can separately perform an actual inference/edit/MCP/build check:
+
+```sh
+LOOM_AGENT_INFERENCE=1 npx vitest run tests/agent-tools-tikz.test.ts
+```
+
+These flags are opt-in; default unit and Electron harness fixtures do not imply external-provider inference. `LOOM_TIKZ_RENDER=/tmp/loom-tikz` and `LOOM_AGENT_TIKZ_RENDER=/tmp/loom-agent-tikz` optionally retain a PNG rendering for visual inspection. All papers in these tests are synthetic and isolated.

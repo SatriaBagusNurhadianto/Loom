@@ -109,6 +109,32 @@ describe.skipIf(process.env.LOOM_TEST_TEX !== '1')(
           ).kind,
         ).toBe('forward');
       }, 60000);
+    it('renders a starter paper with an absent optional bibliography in automatic mode and records a warning', async () => {
+      const root = join(dir, 'starter');
+      await cp(resolve('examples/phase-3/bibtex'), root, { recursive: true });
+      await writeFile(
+        join(root, 'main.tex'),
+        '\\documentclass{article}\n\\begin{document}\nStarter paper.\n\\bibliographystyle{plain}\n\\bibliography{not-added-yet}\n\\end{document}\n',
+      );
+      await projects.open(root);
+      const id = projects.snapshot().id;
+      await builds.status(id);
+      await builds.settings(id, { ...defaultBuildSettings, bibliography: 'auto' });
+      builds.request(id, false);
+      await builds.idle(id);
+      const state = await builds.status(id);
+      expect(state.current?.status, state.current?.log).toBe('succeeded');
+      expect(
+        state.current?.diagnostics.some(
+          (item) =>
+            item.severity === 'warning' && item.message.includes('Bibliography files are missing'),
+        ),
+      ).toBe(true);
+      await builds.settings(id, { ...defaultBuildSettings, bibliography: 'bibtex' });
+      builds.request(id, false);
+      await builds.idle(id);
+      expect((await builds.status(id)).current?.status).toBe('failed');
+    }, 60000);
     for (const backend of ['biber', 'bibtex'] as const)
       it(`runs a real ${backend} bibliography sequence and restores portable configuration`, async () => {
         const root = join(dir, backend);

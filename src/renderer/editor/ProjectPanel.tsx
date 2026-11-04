@@ -1,5 +1,13 @@
 import type { LatexWorkspace } from '../latex/workspace';
-import { createEffect, createMemo, createSignal, createUniqueId, For, Show } from 'solid-js';
+import {
+  type JSX,
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  Show,
+} from 'solid-js';
 import { relativePath, type ProjectFile } from '../../contracts/project';
 import type { ProjectWorkspace } from './documents';
 import { Modal, IconButton } from '../ui/primitives';
@@ -18,6 +26,8 @@ function fileIcon(path: string): IconName {
 type FileOperation = { type: 'rename' | 'delete'; id: string; path: string };
 export function ProjectPanel(props: {
   workspace: ProjectWorkspace;
+  chats?: JSX.Element;
+  onNewChat?: () => void;
   latex?: LatexWorkspace;
   onNavigate?: () => void;
   onSettings?: () => void;
@@ -279,6 +289,7 @@ export function ProjectPanel(props: {
             classList={{ selected: tab() === 'files' }}
             onClick={() => changeTab('files')}
           >
+            <Icon name="folder" size={15} />
             Files
           </button>
           <button
@@ -286,6 +297,7 @@ export function ProjectPanel(props: {
             classList={{ selected: tab() === 'chats' }}
             onClick={() => changeTab('chats')}
           >
+            <Icon name="chat" size={15} />
             Chats
           </button>
         </div>
@@ -332,23 +344,28 @@ export function ProjectPanel(props: {
         </Show>
         <Show when={tab() === 'chats'}>
           <IconButton
-            label="New chat — availability"
+            label="New conversation"
             icon="plus"
-            onClick={() => setAgentInfo(true)}
+            onClick={() => (props.onNewChat ? props.onNewChat() : setAgentInfo(true))}
           />
         </Show>
       </div>
       <Show
         when={tab() === 'files'}
         fallback={
-          <div class="sidebar-empty chat-empty">
-            <Icon name="chat" size={24} />
-            <p>No conversations yet</p>
-            <span>Connect OpenCode when agent integration is available.</span>
-            <button class="text-button" onClick={() => setAgentInfo(true)}>
-              Agent connection details
-            </button>
-          </div>
+          props.chats ?? (
+            <div class="sidebar-empty chat-empty">
+              <Icon name="chat" size={24} />
+              <p>No conversations yet</p>
+              <span>Connect OpenCode or Codex to discuss your paper.</span>
+              <button
+                class="text-button"
+                onClick={() => (props.onNewChat ? props.onNewChat() : setAgentInfo(true))}
+              >
+                Agent connection details
+              </button>
+            </div>
+          )
         }
       >
         <Show when={searchOpen()}>
@@ -641,8 +658,8 @@ export function ProjectPanel(props: {
       </Modal>
       <Modal open={agentInfo()} title="Agent not connected" onClose={() => setAgentInfo(false)}>
         <p>
-          OpenCode sessions, model selection, and conversations arrive in Phase 4. Your local
-          project is ready for source editing.
+          Use the agent connection control below your source to connect OpenCode or Codex and start
+          a conversation about this paper.
         </p>
       </Modal>
     </div>

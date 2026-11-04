@@ -1,3 +1,4 @@
+import type { ResearchCommand } from '../../contracts/research';
 import { createSignal, onCleanup, onMount } from 'solid-js';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -462,6 +463,15 @@ export function createProjectWorkspace(report: (message: string) => void) {
     choose,
     newFile,
     flushPending,
+    research: async (command: ResearchCommand, isCurrent: () => boolean = () => true) => {
+      if (!(await flushPending()) || !window.loom) return;
+      await queue;
+      if (!isCurrent()) return;
+      const result = await window.loom.research(command);
+      if (result.ok && result.value.snapshot && project()?.id === result.value.snapshot.id)
+        accept(result.value.snapshot);
+      return result;
+    },
     search,
   };
 }

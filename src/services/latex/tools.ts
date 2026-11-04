@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs, constants } from 'node:fs';
 import { delimiter, join, isAbsolute } from 'node:path';
+import { homedir } from 'node:os';
 import { toolNames, type BuildState } from '../../contracts/latex';
 
 export type Tool = BuildState['tools'][number] & { executable: string | null };
@@ -79,8 +80,8 @@ export function runTool(
     });
   });
 }
-export async function findExecutable(name: string): Promise<string | null> {
-  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+async function executableIn(name: string, directories: string[]): Promise<string | null> {
+  for (const directory of directories) {
     if (!isAbsolute(directory)) continue; // Never execute a project-local program via PATH=.
     const candidate = join(directory, process.platform === 'win32' ? name + '.exe' : name);
     try {
@@ -92,18 +93,67 @@ export async function findExecutable(name: string): Promise<string | null> {
   }
   return null;
 }
+export async function findExecutable(name: string): Promise<string | null> {
+  return executableIn(name, (process.env.PATH ?? '').split(delimiter));
+}
+type LatexEnvironmentOptions = { home?: string; path?: string; override?: string };
+function latexDirectories(options: LatexEnvironmentOptions = {}) {
+  const home = options.home ?? homedir();
+  const override = options.override ?? process.env.LOOM_TEX_PATH;
+  const fallback =
+    process.platform === 'linux' && process.arch === 'x64'
+      ? [join(home, '.TinyTeX/bin/x86_64-linux'), join(home, '.local/share/loom/bin')]
+      : [];
+  return [
+    ...new Set(
+      (override !== undefined
+        ? override.split(delimiter)
+        : [...(options.path ?? process.env.PATH ?? '').split(delimiter), ...fallback]
+      ).filter(isAbsolute),
+    ),
+  ];
+}
+/** Machine-owned tools only: project-relative PATH entries are never executable. */
+export function findLatexExecutable(
+  name: (typeof toolNames)[number],
+  options?: LatexEnvironmentOptions,
+) {
+  return executableIn(name, latexDirectories(options));
+}
+export function latexEnvironment(options: LatexEnvironmentOptions = {}): NodeJS.ProcessEnv {
+  const home = options.home ?? homedir();
+  return {
+    PATH: latexDirectories(options).join(delimiter),
+    ...(process.platform === 'linux'
+      ? {
+          LD_LIBRARY_PATH: [
+            join(home, '.local/share/loom/lib'),
+            ...(process.env.LD_LIBRARY_PATH ?? '').split(delimiter),
+          ]
+            .filter(isAbsolute)
+            .join(delimiter),
+        }
+      : {}),
+  };
+}
 export async function detectTools(): Promise<Tool[]> {
   return Promise.all(
     toolNames.map(async (name) => {
-      const executable = await findExecutable(name);
+      const executable = await findLatexExecutable(name);
       if (!executable)
-        return { name, available: false, version: 'Not found on PATH', executable: null };
+        return {
+          name,
+          available: false,
+          version: 'Not found in configured tool directories',
+          executable: null,
+        };
       try {
         const result = await runTool(
           executable,
           [name === 'latexmk' ? '-v' : name === 'synctex' ? 'help' : '--version'],
           {
             timeoutMs: 5000,
+            env: latexEnvironment(),
           },
         );
         return {

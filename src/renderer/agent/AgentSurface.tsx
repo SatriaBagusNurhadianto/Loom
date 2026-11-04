@@ -1,0 +1,830 @@
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import { IconButton, Modal } from '../ui/primitives';
+import { Icon } from '../ui/Icon';
+import { MessageBody } from './MessageBody';
+import { ProviderLogo } from '../ui/ProviderLogo';
+import { type AgentWorkspace } from './workspace';
+import { AgentChatMenus } from './AgentMenus';
+import { imageMime } from '../../domain/images';
+export { AgentConnections } from './AgentConnections';
+
+const questionFieldId = (questionId: string, fieldKey: string) =>
+  `agent-question-${encodeURIComponent(questionId)}-${encodeURIComponent(fieldKey)}`;
+
+export function AgentChats(props: {
+  agent: AgentWorkspace;
+  onConnect: () => void;
+  onSelect?: () => void;
+}) {
+  const a = props.agent;
+  const [deleting, setDeleting] = createSignal<{ id: string; title: string } | null>(null);
+  let chats!: HTMLDivElement;
+  return (
+    <div class="agent-chats" ref={chats}>
+      <Show
+        when={a.state()?.sessions.length}
+        fallback={
+          <div class="sidebar-empty chat-empty">
+            <Icon name="chat" size={24} />
+            <p>No conversations yet</p>
+            <span>Ask about your paper or work on a revision together.</span>
+            <button
+              class="text-button"
+              onClick={() =>
+                a.state()?.connection === 'connected' ? void a.newChat() : props.onConnect()
+              }
+            >
+              {a.state()?.connection === 'connected' ? 'New conversation' : 'Connect an agent'}
+            </button>
+          </div>
+        }
+      >
+        <ul class="agent-chat-list">
+          <For each={a.state()?.sessions}>
+            {(ref) => (
+              <li>
+                <button
+                  class="agent-chat-row"
+                  classList={{ selected: a.state()?.sessionId === ref.id }}
+                  aria-pressed={a.state()?.sessionId === ref.id}
+                  disabled={
+                    a.busy() || (a.state()?.running && a.state()?.connection === 'connected')
+                  }
+                  onClick={() => {
+                    void a.selectChat(ref.id).then((ok) => {
+                      if (ok) props.onSelect?.();
+                    });
+                  }}
+                >
+                  <ProviderLogo provider={ref.harness} size={20} />
+                  <span>
+                    {ref.title}
+                    <small>
+                      {(ref.harnesses ?? [ref.harness])
+                        .map((kind) => (kind === 'codex' ? 'Codex' : 'OpenCode'))
+                        .join(' · ')}
+                    </small>
+                  </span>
+                </button>
+                <IconButton
+                  icon="trash"
+                  label={`Delete conversation ${ref.title}`}
+                  disabled={a.busy() || !!a.state()?.running}
+                  onClick={() => setDeleting({ id: ref.id, title: ref.title })}
+                />
+              </li>
+            )}
+          </For>
+        </ul>
+        <button class="text-button" onClick={props.onConnect}>
+          Agent connections
+        </button>
+      </Show>
+      <Modal
+        open={!!deleting()}
+        title="Delete conversation"
+        icon="trash"
+        onClose={() => {
+          if (!a.busy()) setDeleting(null);
+        }}
+      >
+        <p>
+          Delete “{deleting()?.title}” from Loom on this computer? Paper files and change-recovery
+          records stay intact. Native agent history stays in its harness.
+        </p>
+        <div class="button-row">
+          <button class="secondary-button" disabled={a.busy()} onClick={() => setDeleting(null)}>
+            Cancel
+          </button>
+          <button
+            class="primary-button"
+            disabled={a.busy()}
+            onClick={async () => {
+              const projectId = a.projects.project()?.id;
+              if (
+                projectId &&
+                deleting() &&
+                (await a.act({ type: 'delete-session', projectId, sessionId: deleting()!.id }))
+              ) {
+                setDeleting(null);
+                requestAnimationFrame(() =>
+                  chats
+                    .querySelector<HTMLButtonElement>(
+                      '.agent-chat-row:not(:disabled), .chat-empty button',
+                    )
+                    ?.focus(),
+                );
+              }
+            }}
+          >
+            Delete conversation
+          </button>
+        </div>
+        <Show when={a.error()}>
+          <p role="alert" class="inline-error">
+            {a.error()}
+          </p>
+        </Show>
+      </Modal>
+    </div>
+  );
+}
+export function AgentConversation(props: { agent: AgentWorkspace }) {
+  const a = props.agent;
+  let scroller!: HTMLDivElement;
+  const [copyError, setCopyError] = createSignal('');
+  const [follow, setFollow] = createSignal(true),
+    [questionErrors, setQuestionErrors] = createSignal<
+      Record<string, { message: string; fieldId: string }>
+    >({}),
+    [answers, setAnswers] = createSignal<
+      Record<string, Record<string, string | string[] | boolean>>
+    >({});
+  const clearQuestionError = (questionId: string, fieldId: string) => {
+    setQuestionErrors((old) => {
+      if (old[questionId]?.fieldId !== fieldId) return old;
+      const next = { ...old };
+      delete next[questionId];
+      return next;
+    });
+  };
+  const updateQuestionAnswer = (
+    questionId: string,
+    fieldId: string,
+    fieldKey: string,
+    value: string | string[] | boolean,
+  ) => {
+    setAnswers((old) => ({
+      ...old,
+      [questionId]: { ...old[questionId], [fieldKey]: value },
+    }));
+    clearQuestionError(questionId, fieldId);
+  };
+  const content = createMemo(
+    () =>
+      a
+        .state()
+        ?.messages.map((m) => m.id + m.text + m.state)
+        .join('|') +
+      JSON.stringify(a.state()?.permissions) +
+      JSON.stringify(a.state()?.questions),
+  );
+  createEffect(() => {
+    content();
+    if (follow())
+      requestAnimationFrame(() => {
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      });
+  });
+  return (
+    <Show when={a.open()}>
+      <section class="agent-conversation" aria-label="Conversation about this paper">
+        <div class="agent-conversation-heading">
+          <IconButton
+            icon="down"
+            label="Hide conversation"
+            onClick={() => {
+              a.setOpen(false);
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+              );
+            }}
+          />
+          <span>
+            {a.state()?.sessions.find((s) => s.id === a.state()?.sessionId)?.title ??
+              'New conversation'}
+          </span>
+          <div>
+            <IconButton
+              icon="plus"
+              label="New conversation"
+              disabled={a.busy() || a.state()?.running || a.state()?.connection !== 'connected'}
+              onClick={() => void a.newChat()}
+            />
+          </div>
+        </div>
+        <div
+          class="agent-messages"
+          ref={scroller}
+          onScroll={() =>
+            setFollow(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60)
+          }
+        >
+          <Show
+            when={a.state()?.messages.length}
+            fallback={
+              <p class="agent-chat-guidance">
+                Ask where an assumption enters your paper, discuss an idea, or request a focused
+                revision. The agent can inspect relevant project files.
+              </p>
+            }
+          >
+            <For each={a.state()?.messages}>
+              {(message) => (
+                <div
+                  class="agent-message"
+                  classList={{
+                    'agent-message-user': message.role === 'user',
+                    'agent-message-tool': message.role === 'tool',
+                    'agent-message-status': message.role === 'status',
+                    'agent-message-harness': message.role === 'assistant',
+                  }}
+                >
+                  <small>
+                    <Show
+                      when={message.role === 'assistant'}
+                      fallback={
+                        <Icon
+                          name={
+                            message.role === 'user'
+                              ? 'user'
+                              : message.role === 'tool'
+                                ? 'terminal'
+                                : 'info'
+                          }
+                          size={13}
+                        />
+                      }
+                    >
+                      <ProviderLogo
+                        provider={message.harness ?? a.state()?.harness ?? 'opencode'}
+                        size={17}
+                      />
+                    </Show>
+                    {message.role === 'user'
+                      ? 'You'
+                      : message.role === 'assistant'
+                        ? (message.harness ?? a.state()?.harness) === 'codex'
+                          ? 'Codex'
+                          : 'OpenCode'
+                        : message.role === 'tool'
+                          ? 'Tool activity'
+                          : 'Request status'}
+                    {message.state ? ' · ' + message.state : ''}
+                  </small>
+                  <MessageBody text={message.text} />
+                  <Show when={message.execution}>
+                    {(execution) => (
+                      <details
+                        class="agent-execution"
+                        onToggle={(event) => {
+                          if (!event.currentTarget.open) return;
+                          const details = event.currentTarget;
+                          requestAnimationFrame(() => {
+                            const container = details.closest<HTMLElement>('.agent-messages');
+                            if (container)
+                              container.scrollTop += Math.max(
+                                0,
+                                details.getBoundingClientRect().bottom -
+                                  container.getBoundingClientRect().bottom +
+                                  8,
+                              );
+                          });
+                        }}
+                      >
+                        <summary>Native command details</summary>
+                        <strong>Command</strong>
+                        <pre>{execution().command}</pre>
+                        <strong>
+                          Output{' '}
+                          {execution().exitCode !== null ? `· exit ${execution().exitCode}` : ''}
+                        </strong>
+                        <pre>{execution().output ?? 'No output reported by the harness.'}</pre>
+                        <Show when={execution().truncated}>
+                          <small>Output or command was truncated for display.</small>
+                        </Show>
+                      </details>
+                    )}
+                  </Show>
+                  <Show when={message.role === 'assistant' || message.role === 'user'}>
+                    <IconButton
+                      icon="copy"
+                      label="Copy message"
+                      onClick={() => {
+                        void navigator.clipboard
+                          .writeText(message.text)
+                          .catch(() =>
+                            setCopyError(
+                              'Could not copy this message. Select its text and copy it instead.',
+                            ),
+                          );
+                      }}
+                    />
+                  </Show>
+                </div>
+              )}
+            </For>
+          </Show>
+          <Show when={copyError()}>
+            <p role="alert" class="agent-inline-error">
+              {copyError()}
+            </p>
+          </Show>
+          <Show when={a.state()?.running}>
+            <p class="agent-activity" role="status">
+              {a.state()?.permissions.length
+                ? 'Waiting for your permission'
+                : a.state()?.questions.length
+                  ? 'Waiting for your answer'
+                  : 'Thinking…'}
+            </p>
+          </Show>
+          <For each={a.state()?.permissions}>
+            {(permission) => (
+              <div class="agent-request">
+                <h4>Permission needed: {permission.action}</h4>
+                <pre>{permission.resources.join('\n')}</pre>
+                <p>
+                  Allow this operation once using the agent’s permission system. Read the requested
+                  action and paths above before allowing it.
+                </p>
+                <div class="button-row">
+                  <button
+                    class="secondary-button"
+                    disabled={a.busy()}
+                    onClick={() => {
+                      const projectId = a.projects.project()?.id;
+                      if (projectId)
+                        void a.act({
+                          type: 'permission',
+                          projectId,
+                          requestId: permission.id,
+                          reply: 'reject',
+                        });
+                    }}
+                  >
+                    Deny
+                  </button>
+                  <button
+                    class="primary-button"
+                    disabled={a.busy()}
+                    onClick={() => {
+                      const projectId = a.projects.project()?.id;
+                      if (projectId)
+                        void a.act({
+                          type: 'permission',
+                          projectId,
+                          requestId: permission.id,
+                          reply: 'once',
+                        });
+                    }}
+                  >
+                    Allow once
+                  </button>
+                </div>
+              </div>
+            )}
+          </For>
+          <For each={a.state()?.questions}>
+            {(question) => (
+              <form
+                noValidate
+                class="agent-request"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const rawValues: Record<string, string | string[] | boolean | undefined> = {
+                    ...Object.fromEntries(
+                      question.fields
+                        .filter((f) => f.type === 'boolean')
+                        .map((f) => [f.key, false]),
+                    ),
+                    ...(answers()[question.id] ?? {}),
+                  };
+                  const isEmpty = (value: string | string[] | boolean | undefined) =>
+                    value === undefined ||
+                    (typeof value === 'string' && value.trim() === '') ||
+                    (Array.isArray(value) && value.length === 0);
+                  const invalid = question.fields.find((field) => {
+                    if (field.type === 'external') return true;
+                    if (field.type === 'boolean') return false;
+                    const value = rawValues[field.key];
+                    const empty = isEmpty(value);
+                    if (field.required && empty) return true;
+                    if ((field.type === 'number' || field.type === 'integer') && !empty) {
+                      const number = Number(value);
+                      return (
+                        !Number.isFinite(number) ||
+                        (field.type === 'integer' && !Number.isInteger(number))
+                      );
+                    }
+                    return false;
+                  });
+                  if (invalid) {
+                    const value = rawValues[invalid.key];
+                    const empty = isEmpty(value);
+                    const label = invalid.title || invalid.key;
+                    const message =
+                      invalid.type === 'external'
+                        ? `${label} needs an answer in the harness because Loom cannot display this control.`
+                        : !empty && (invalid.type === 'number' || invalid.type === 'integer')
+                          ? !Number.isFinite(Number(value))
+                            ? `Enter a finite number for ${label}.`
+                            : `Enter a whole number for ${label}.`
+                          : `Answer ${label} before sending.`;
+                    const fieldId = questionFieldId(question.id, invalid.key);
+                    setQuestionErrors((old) => ({
+                      ...old,
+                      [question.id]: { message, fieldId },
+                    }));
+                    requestAnimationFrame(() => document.getElementById(fieldId)?.focus());
+                    return;
+                  }
+                  const values: Record<string, string | string[] | boolean | number> = {};
+                  for (const field of question.fields) {
+                    const value = rawValues[field.key];
+                    if (field.type === 'boolean') {
+                      values[field.key] = value === true;
+                    } else if (field.type === 'number' || field.type === 'integer') {
+                      if (!isEmpty(value)) values[field.key] = Number(value);
+                    } else if (value !== undefined) {
+                      values[field.key] = value;
+                    }
+                  }
+                  setQuestionErrors((old) => {
+                    const next = { ...old };
+                    delete next[question.id];
+                    return next;
+                  });
+                  const projectId = a.projects.project()?.id;
+                  if (projectId)
+                    void a.act({
+                      type: 'answer',
+                      projectId,
+                      requestId: question.id,
+                      answer: values,
+                    });
+                }}
+              >
+                <h4>{question.title}</h4>
+                <Show when={questionErrors()[question.id]?.message}>
+                  <p class="inline-error" role="alert">
+                    {questionErrors()[question.id]?.message}
+                  </p>
+                </Show>
+                <For each={question.fields}>
+                  {(field) => {
+                    const fieldId = questionFieldId(question.id, field.key);
+                    const descriptionId = `${fieldId}-description`;
+                    const invalid = () => questionErrors()[question.id]?.fieldId === fieldId;
+                    return (
+                      <label class="field-label">
+                        {field.title || field.key}
+                        <Show when={field.description}>
+                          <span id={descriptionId}>{field.description}</span>
+                        </Show>
+                        <Show
+                          when={field.type !== 'external'}
+                          fallback={
+                            <p id={fieldId} tabIndex={-1}>
+                              This question needs a control that Loom cannot display. Answer in the
+                              harness or stop this request.
+                            </p>
+                          }
+                        >
+                          <Show
+                            when={field.options.length}
+                            fallback={
+                              <input
+                                id={fieldId}
+                                type={field.type === 'boolean' ? 'checkbox' : 'text'}
+                                inputmode={
+                                  field.type === 'number' || field.type === 'integer'
+                                    ? 'decimal'
+                                    : undefined
+                                }
+                                value={
+                                  field.type === 'boolean'
+                                    ? undefined
+                                    : String(answers()[question.id]?.[field.key] ?? '')
+                                }
+                                checked={
+                                  field.type === 'boolean'
+                                    ? answers()[question.id]?.[field.key] === true
+                                    : undefined
+                                }
+                                required={field.required && field.type !== 'boolean'}
+                                aria-invalid={
+                                  field.type !== 'boolean' && invalid() ? 'true' : undefined
+                                }
+                                aria-describedby={field.description ? descriptionId : undefined}
+                                onInput={(e) =>
+                                  updateQuestionAnswer(
+                                    question.id,
+                                    fieldId,
+                                    field.key,
+                                    field.type === 'boolean'
+                                      ? e.currentTarget.checked
+                                      : e.currentTarget.value,
+                                  )
+                                }
+                              />
+                            }
+                          >
+                            <select
+                              id={fieldId}
+                              multiple={field.type === 'multiselect'}
+                              value={answers()[question.id]?.[field.key] as string | undefined}
+                              required={field.required && field.type !== 'boolean'}
+                              aria-invalid={invalid() ? 'true' : undefined}
+                              aria-describedby={field.description ? descriptionId : undefined}
+                              aria-label={field.title || field.key}
+                              onChange={(e) =>
+                                updateQuestionAnswer(
+                                  question.id,
+                                  fieldId,
+                                  field.key,
+                                  field.type === 'multiselect'
+                                    ? Array.from(e.currentTarget.selectedOptions).map(
+                                        (o) => o.value,
+                                      )
+                                    : e.currentTarget.value,
+                                )
+                              }
+                            >
+                              <Show when={field.type !== 'multiselect'}>
+                                <option value="">Choose an answer</option>
+                              </Show>
+                              <For each={field.options}>
+                                {(option) => <option value={option.value}>{option.label}</option>}
+                              </For>
+                            </select>
+                          </Show>
+                        </Show>
+                      </label>
+                    );
+                  }}
+                </For>
+                <div class="button-row">
+                  <Show when={question.rejectable}>
+                    <button
+                      type="button"
+                      class="secondary-button"
+                      disabled={a.busy()}
+                      onClick={() => {
+                        const projectId = a.projects.project()?.id;
+                        if (projectId)
+                          void a.act({
+                            type: 'answer',
+                            projectId,
+                            requestId: question.id,
+                            answer: {},
+                            reject: true,
+                          });
+                      }}
+                    >
+                      Deny
+                    </button>
+                  </Show>
+                  <button
+                    class="primary-button"
+                    disabled={a.busy() || question.fields.some((f) => f.type === 'external')}
+                  >
+                    Send answer
+                  </button>
+                </div>
+              </form>
+            )}
+          </For>
+          <Show when={!follow()}>
+            <button
+              class="text-button agent-follow"
+              onClick={() => {
+                setFollow(true);
+                scroller.scrollTop = scroller.scrollHeight;
+              }}
+            >
+              Jump to latest
+            </button>
+          </Show>
+        </div>
+      </section>
+    </Show>
+  );
+}
+export function AgentImagePreview(props: { agent: AgentWorkspace }) {
+  const a = props.agent;
+  return (
+    <Show when={a.imagePreview()}>
+      {(preview) => (
+        <div class="agent-image-preview" aria-label="Project image preview">
+          <div>
+            <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
+            <span title={preview().path}>{preview().path}</span>
+            <button class="text-button" onClick={a.closeImage}>
+              Close image
+            </button>
+          </div>
+          <small>
+            {preview().submitted
+              ? 'Saved with this request for comparison.'
+              : 'Current project file; it may have changed since it was sent.'}
+          </small>
+          <Show when={a.open()}>
+            <small class="agent-image-short-hint">Close image to return to the conversation.</small>
+          </Show>
+          <img
+            src={preview().url}
+            alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+          />
+        </div>
+      )}
+    </Show>
+  );
+}
+export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
+  const a = props.agent;
+  let input!: HTMLTextAreaElement;
+  const ready = () => a.state()?.connection === 'connected',
+    running = () => a.state()?.running || a.submitting();
+  return (
+    <>
+      <div class="composer agent-composer">
+        <textarea
+          ref={input}
+          class="agent-prompt resize-none"
+          aria-label="Ask about your paper"
+          title="Paste an image to add it to this paper and attach it"
+          placeholder={
+            a.projects.project() ? 'Ask anything' : 'Open a paper to work with an agent…'
+          }
+          rows={2}
+          style={{ resize: 'none' }}
+          maxLength={50000}
+          value={a.draft()}
+          onInput={(e) => a.setDraft(e.currentTarget.value)}
+          onPaste={(e) => {
+            if (!e.clipboardData) return;
+            const image = [...e.clipboardData.files].find((file) => file.type.startsWith('image/'));
+            if (image) {
+              if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+              void a.pasteImage(image);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+              e.preventDefault();
+              void a.send();
+            }
+          }}
+        />
+        <Show when={a.attachments().length || a.selection()}>
+          <div class="agent-attachments">
+            <For each={a.attachments()}>
+              {(path) => (
+                <>
+                  <Show when={imageMime(path)}>
+                    <button
+                      title={`View project image ${path}`}
+                      aria-label={`View image ${path}`}
+                      onClick={() => void a.showImage(path)}
+                    >
+                      View
+                    </button>
+                  </Show>
+                  <button
+                    title={`Remove attached file ${path}`}
+                    aria-label={`Remove attached file ${path}`}
+                    onClick={() => a.setAttachments((old) => old.filter((p) => p !== path))}
+                  >
+                    {path} ×
+                  </button>
+                </>
+              )}
+            </For>
+            <Show when={a.selection()}>
+              <button title={a.selection()?.text} onClick={() => a.setSelection(null)}>
+                Selected passage · {a.selection()?.path} ×
+              </button>
+            </Show>
+          </div>
+        </Show>
+        <Show
+          when={
+            a.projects.file() &&
+            !a.selection() &&
+            (() => {
+              const caret = a.projects.caret(a.projects.file()!.id);
+              return caret && caret.anchor !== caret.head;
+            })()
+          }
+        >
+          <button
+            class="text-button agent-selection-action"
+            onClick={() => a.attachSelection()}
+            disabled={running()}
+          >
+            Attach selected text
+          </button>
+        </Show>
+        <div class="composer-actions">
+          <IconButton
+            label="Attach paper files or images"
+            icon="plus"
+            disabled={!a.projects.project() || running() || a.busy()}
+            onClick={() => void a.attachFiles().finally(() => input?.focus())}
+          />
+          <AgentChatMenus agent={a} onConnect={props.onConnect} />
+          <IconButton label="Agent connections" icon="settings" onClick={props.onConnect} />
+          <button
+            class="send-button"
+            disabled={
+              running()
+                ? a.busy() && !a.submitting()
+                : !ready() ||
+                  a.state()?.sessionUnavailable ||
+                  !a.model() ||
+                  (a.attachments().some((path) => imageMime(path)) && !a.model()?.images) ||
+                  !a.draft().trim() ||
+                  a.busy()
+            }
+            aria-label={running() ? 'Stop agent request' : 'Send to agent'}
+            title={running() ? 'Stop agent request' : 'Send · Ctrl Enter'}
+            onClick={() => (running() ? void a.cancel() : void a.send())}
+          >
+            <Show when={running()} fallback={<Icon name="arrow" size={22} />}>
+              <span class="agent-stop-square" />
+            </Show>
+          </button>
+        </div>
+      </div>
+      <Show
+        when={a
+          .state()
+          ?.turns.some(
+            (turn) => turn.conversationId === a.state()?.sessionId && turn.images?.length,
+          )}
+      >
+        <div class="agent-attachments" aria-label="Submitted images">
+          <For
+            each={a.state()?.turns.filter((turn) => turn.conversationId === a.state()?.sessionId)}
+          >
+            {(turn) => (
+              <For each={turn.images}>
+                {(image) => (
+                  <button
+                    title={`View image ${image.path} submitted ${turn.startedAt}`}
+                    onClick={() => void a.showSubmittedImage(turn.id, image.path)}
+                  >
+                    Compare {image.path} · {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
+                  </button>
+                )}
+              </For>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show
+        when={a.attachments().some((path) => imageMime(path)) && a.model() && !a.model()?.images}
+      >
+        <div class="agent-inline-error" role="status">
+          This model does not report image support. Choose an image-capable model from the model
+          menu before sending.
+        </div>
+      </Show>
+      <Show when={ready() && !a.state()?.models.length}>
+        <div class="agent-inline-error">
+          <span>No models available. Configure a model in your agent, then reconnect.</span>
+          <button class="text-button" onClick={props.onConnect}>
+            Agent setup
+          </button>
+        </div>
+      </Show>
+
+      <div class="agent-composer-status">
+        <button class="text-button" onClick={() => a.setOpen(!a.open())}>
+          {a.open()
+            ? 'Hide conversation'
+            : a.state()?.permissions.length
+              ? 'View permission request'
+              : a.state()?.questions.length
+                ? 'Answer agent question'
+                : 'Show conversation'}
+        </button>
+        <span role="status" aria-live="polite">
+          {a.state()?.permissions.length
+            ? 'Needs your permission'
+            : a.state()?.questions.length
+              ? 'Needs your answer'
+              : running()
+                ? 'Agent working'
+                : ready()
+                  ? 'Agent connected'
+                  : 'Agent disconnected'}
+        </span>
+      </div>
+      <Show when={a.error() || a.state()?.error}>
+        <div class="agent-inline-error" role="alert">
+          <span>{a.error() || a.state()?.error}</span>
+          <Show when={a.state()?.sessionUnavailable}>
+            <button class="text-button" disabled={a.busy()} onClick={() => void a.newChat()}>
+              New conversation
+            </button>
+          </Show>
+          <button class="text-button" onClick={props.onConnect}>
+            Connection details
+          </button>
+        </div>
+      </Show>
+    </>
+  );
+}

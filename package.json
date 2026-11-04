@@ -1,7 +1,7 @@
 {
   "name": "loom",
   "version": "0.1.0",
-  "description": "A local scientific writing workspace \u2014 LaTeX source, builds and PDF",
+  "description": "A local scientific writing workspace — LaTeX source, builds and PDF",
   "author": "Loom contributors",
   "private": true,
   "main": "out/main/index.js",
@@ -23,7 +23,8 @@
     "build": "electron-vite build",
     "package": "npm run build && electron-builder --linux dir",
     "package:appimage": "npm run build && electron-builder --linux AppImage",
-    "try:phase3": "node scripts/try-phase-3.mjs"
+    "try:phase3": "node scripts/try-phase-3.mjs",
+    "setup:latex": "node scripts/setup-latex.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.4",
@@ -35,6 +36,7 @@
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@lezer/highlight": "1.2.5",
+    "@opencode-ai/sdk": "1.19.5",
     "codemirror": "6.0.2",
     "diff": "9.0.0",
     "fflate": "0.8.3",

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "root": "multi-file/main.tex",
+  "settings": {
+    "engine": "pdflatex",
+    "bibliography": "biber",
+    "recipe": "latexmk",
+    "autoBuild": false,
+    "delayMs": 1500
+  }
+}
