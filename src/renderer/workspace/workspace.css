@@ -2456,6 +2456,42 @@ kbd {
   font-size: 11px;
   margin: 8px 0;
 }
+.agent-execution {
+  margin-top: 6px;
+  font-size: 12px;
+  max-width: 100%;
+}
+.agent-execution summary {
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.agent-execution strong {
+  display: block;
+  margin-top: 8px;
+}
+.agent-execution pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: var(--radius-control);
+  background: var(--surface-editor);
+}
+@media (max-height: 650px) {
+  .agent-execution {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .agent-execution strong {
+    margin-top: 2px;
+  }
+  .agent-execution pre {
+    margin: 2px 0;
+    padding: 3px 6px;
+    max-height: 75px;
+  }
+}
 .agent-message-tool > div {
   font-family: var(--font-source);
 }
@@ -2471,6 +2507,9 @@ kbd {
   bottom: 0;
   background: var(--surface-raised);
   border-radius: var(--radius-control);
+}
+.agent-messages:has(.agent-execution[open]) .agent-follow {
+  display: none;
 }
 .agent-request {
   border: 1px solid var(--border);

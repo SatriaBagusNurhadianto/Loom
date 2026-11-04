@@ -263,6 +263,39 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                     {message.state ? ' · ' + message.state : ''}
                   </small>
                   <MessageBody text={message.text} />
+                  <Show when={message.execution}>
+                    {(execution) => (
+                      <details
+                        class="agent-execution"
+                        onToggle={(event) => {
+                          if (!event.currentTarget.open) return;
+                          const details = event.currentTarget;
+                          requestAnimationFrame(() => {
+                            const container = details.closest<HTMLElement>('.agent-messages');
+                            if (container)
+                              container.scrollTop += Math.max(
+                                0,
+                                details.getBoundingClientRect().bottom -
+                                  container.getBoundingClientRect().bottom +
+                                  8,
+                              );
+                          });
+                        }}
+                      >
+                        <summary>Native command details</summary>
+                        <strong>Command</strong>
+                        <pre>{execution().command}</pre>
+                        <strong>
+                          Output{' '}
+                          {execution().exitCode !== null ? `· exit ${execution().exitCode}` : ''}
+                        </strong>
+                        <pre>{execution().output ?? 'No output reported by the harness.'}</pre>
+                        <Show when={execution().truncated}>
+                          <small>Output or command was truncated for display.</small>
+                        </Show>
+                      </details>
+                    )}
+                  </Show>
                   <Show when={message.role === 'assistant' || message.role === 'user'}>
                     <IconButton
                       icon="copy"

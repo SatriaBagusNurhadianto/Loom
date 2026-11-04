@@ -2,6 +2,7 @@ import { createClient } from '@opencode-ai/sdk/v2/gen/client';
 import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { imageMime } from '../../domain/images';
+import { openCodeExecution } from './evidence';
 import type { AgentMessage, AgentModel, AgentSettings } from '../../contracts/agent';
 import type { spawnOwnedTool } from '../latex/tools';
 import { list, object, privateEndpoint, string, type HarnessAdapter } from './opencode';
@@ -315,6 +316,7 @@ export class OpenCodeClassicAdapter implements HarnessAdapter {
             role: 'tool',
             text: string(part.tool),
             state: string(object(part.state).status),
+            execution: openCodeExecution(string(part.tool), object(part.state), true),
           });
       }
       if (text && (role === 'user' || role === 'assistant'))

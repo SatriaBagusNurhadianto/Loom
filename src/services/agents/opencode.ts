@@ -8,6 +8,7 @@ import type { AgentMessage, AgentModel, AgentSettings } from '../../contracts/ag
 import { harnessExecutable } from './runtime';
 import { openCodeServerEndpoint } from './startup';
 import { OpenCodeClassicAdapter, supportedClassicVersion } from './opencode-classic';
+import { openCodeExecution } from './evidence';
 
 const nativeObject = z.record(z.string(), z.unknown());
 export const object = (value: unknown): Record<string, unknown> => nativeObject.parse(value);
@@ -385,6 +386,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
               role: 'tool',
               text: string(part.name),
               state: string(state.status),
+              execution: openCodeExecution(string(part.name), state, false),
             });
           }
         }

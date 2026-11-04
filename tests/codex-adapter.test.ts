@@ -31,6 +31,38 @@ function fixture() {
 }
 
 describe('Codex adapter protocol boundaries', () => {
+  it('exposes the native command and actual completed output and exit status', async () => {
+    const { adapter } = fixture();
+    adapter.rpc = vi.fn(async () => ({ thread: { id: 'thread' } }));
+    await adapter.create('/paper');
+    adapter.receive({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread',
+        item: {
+          id: 'cmd',
+          type: 'commandExecution',
+          command: 'python -c "print(2)"',
+          aggregatedOutput: '2\n',
+          exitCode: 0,
+          status: 'completed',
+        },
+      },
+    });
+    expect(await adapter.messages('thread')).toMatchObject([
+      {
+        role: 'tool',
+        text: 'Command',
+        state: 'completed',
+        execution: {
+          command: 'python -c "print(2)"',
+          output: '2\n',
+          exitCode: 0,
+          truncated: false,
+        },
+      },
+    ]);
+  });
   it('sends images as native image inputs and text files as paths', async () => {
     const { adapter } = fixture();
     adapter.rpc = vi.fn(async (method) =>

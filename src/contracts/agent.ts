@@ -33,6 +33,15 @@ export const agentMessageSchema = z
     role: z.enum(['user', 'assistant', 'tool', 'status']),
     text: z.string().max(100000),
     state: z.string().max(100),
+    execution: z
+      .object({
+        command: z.string().max(8000),
+        output: z.string().max(20000).nullable(),
+        exitCode: z.number().int().nullable(),
+        truncated: z.boolean(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type AgentMessage = z.infer<typeof agentMessageSchema>;

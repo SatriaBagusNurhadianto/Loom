@@ -9,6 +9,7 @@ import {
 import { harnessExecutable } from './runtime';
 import { StringDecoder } from 'node:string_decoder';
 import { imageMime } from '../../domain/images';
+import { executionEvidence } from './evidence';
 
 type Session = {
   directory: string;
@@ -295,11 +296,14 @@ export class CodexAdapter implements HarnessAdapter {
           role: 'tool' as const,
           text:
             type === 'commandExecution'
-              ? string(item.command)
+              ? 'Command'
               : type === 'mcpToolCall'
                 ? string(item.tool)
                 : type,
           state: method === 'item/started' ? 'running' : string(item.status, 'completed'),
+          ...(type === 'commandExecution'
+            ? { execution: executionEvidence(item.command, item.aggregatedOutput, item.exitCode) }
+            : {}),
         };
         const old = session.messages.findIndex((v) => v.id === id);
         if (old >= 0) session.messages[old] = m;
@@ -424,6 +428,14 @@ export class CodexAdapter implements HarnessAdapter {
       if (turn.status === 'inProgress') s.turnId = string(turn.id);
       for (const value of Array.isArray(turn.items) ? turn.items : []) {
         const item = object(value);
+        if (item.type === 'commandExecution')
+          s.messages.push({
+            id: string(item.id),
+            role: 'tool',
+            text: 'Command',
+            state: string(item.status),
+            execution: executionEvidence(item.command, item.aggregatedOutput, item.exitCode),
+          });
         if (item.type === 'agentMessage')
           s.messages.push({
             id: string(item.id),

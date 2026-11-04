@@ -113,7 +113,10 @@ export class AgentService {
     this.publishSessions();
     const data = JSON.stringify({
       version: 2,
-      sessions: this.sessions,
+      sessions: this.sessions.map((session) => ({
+        ...session,
+        history: session.history?.map(({ execution: _execution, ...message }) => message),
+      })),
       sessionId: this.state?.sessionId,
       harness: this.state?.harness,
     });

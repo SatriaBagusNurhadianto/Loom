@@ -235,6 +235,28 @@ test.beforeEach(async () => {
               ],
             },
           ];
+        } else if (String(body.text).includes('native computation')) {
+          s.messages.push({
+            id: 'computation',
+            type: 'assistant',
+            content: [
+              {
+                type: 'tool',
+                id: 'calc',
+                name: 'bash',
+                state: {
+                  status: 'completed',
+                  input: { command: 'python -c "print(2 + 2)"' },
+                  content: [{ type: 'text', text: '4\n' }],
+                },
+              },
+              { type: 'text', text: 'The result is 4.' },
+            ],
+          });
+          s.active = false;
+          s.outcome = 'succeeded';
+          s.time.idle = Date.now();
+          s.messages.push({ id: 'computation-idle', type: 'idle', outcome: 'succeeded' });
         } else if (String(body.text).includes('markdown rendering')) {
           s.messages.push({
             id: 'markdown-response',
@@ -830,6 +852,28 @@ test('submitted image snapshot stays available after the project file changes an
   await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
   await page.getByRole('button', { name: /Compare board\.png/ }).click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+});
+
+test('native computation activity exposes the reported command and result', async () => {
+  await connect();
+  await dimensions(720, 540);
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Run native computation.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  const details = page.locator('.agent-execution');
+  await expect(details).toBeVisible();
+  await details.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(details).toContainText('python -c "print(2 + 2)"');
+  await expect(details).toContainText('4');
+  await expect(details.locator('pre').last()).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-computation-small.png'),
+    animations: 'disabled',
+  });
+  await details.locator('summary').scrollIntoViewIfNeeded();
+  await expect(details.locator('summary')).toBeInViewport();
+  await page.getByText('Tool activity · completed').scrollIntoViewIfNeeded();
+  await expect(page.getByText('Tool activity · completed')).toBeInViewport();
 });
 
 test('agent messages render supported Markdown as safe native elements', async () => {
