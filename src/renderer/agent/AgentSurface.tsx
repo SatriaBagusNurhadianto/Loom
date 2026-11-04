@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
+import { MessageBody } from './MessageBody';
 import { ProviderLogo } from '../ui/ProviderLogo';
 import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
@@ -15,8 +16,10 @@ export function AgentChats(props: {
   onSelect?: () => void;
 }) {
   const a = props.agent;
+  const [deleting, setDeleting] = createSignal<{ id: string; title: string } | null>(null);
+  let chats!: HTMLDivElement;
   return (
-    <div class="agent-chats">
+    <div class="agent-chats" ref={chats}>
       <Show
         when={a.state()?.sessions.length}
         fallback={
@@ -55,9 +58,19 @@ export function AgentChats(props: {
                   <ProviderLogo provider={ref.harness} size={20} />
                   <span>
                     {ref.title}
-                    <small>{ref.harness === 'codex' ? 'Codex' : 'OpenCode'}</small>
+                    <small>
+                      {(ref.harnesses ?? [ref.harness])
+                        .map((kind) => (kind === 'codex' ? 'Codex' : 'OpenCode'))
+                        .join(' · ')}
+                    </small>
                   </span>
                 </button>
+                <IconButton
+                  icon="trash"
+                  label={`Delete conversation ${ref.title}`}
+                  disabled={a.busy() || !!a.state()?.running}
+                  onClick={() => setDeleting({ id: ref.id, title: ref.title })}
+                />
               </li>
             )}
           </For>
@@ -66,6 +79,52 @@ export function AgentChats(props: {
           Agent connections
         </button>
       </Show>
+      <Modal
+        open={!!deleting()}
+        title="Delete conversation"
+        icon="trash"
+        onClose={() => {
+          if (!a.busy()) setDeleting(null);
+        }}
+      >
+        <p>
+          Delete “{deleting()?.title}” from Loom on this computer? Paper files and change-recovery
+          records stay intact. Native agent history stays in its harness.
+        </p>
+        <div class="button-row">
+          <button class="secondary-button" disabled={a.busy()} onClick={() => setDeleting(null)}>
+            Cancel
+          </button>
+          <button
+            class="primary-button"
+            disabled={a.busy()}
+            onClick={async () => {
+              const projectId = a.projects.project()?.id;
+              if (
+                projectId &&
+                deleting() &&
+                (await a.act({ type: 'delete-session', projectId, sessionId: deleting()!.id }))
+              ) {
+                setDeleting(null);
+                requestAnimationFrame(() =>
+                  chats
+                    .querySelector<HTMLButtonElement>(
+                      '.agent-chat-row:not(:disabled), .chat-empty button',
+                    )
+                    ?.focus(),
+                );
+              }
+            }}
+          >
+            Delete conversation
+          </button>
+        </div>
+        <Show when={a.error()}>
+          <p role="alert" class="inline-error">
+            {a.error()}
+          </p>
+        </Show>
+      </Modal>
     </div>
   );
 }
@@ -167,6 +226,7 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                     'agent-message-user': message.role === 'user',
                     'agent-message-tool': message.role === 'tool',
                     'agent-message-status': message.role === 'status',
+                    'agent-message-harness': message.role === 'assistant',
                   }}
                 >
                   <small>
@@ -185,12 +245,15 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                         />
                       }
                     >
-                      <ProviderLogo provider={a.state()?.harness ?? 'opencode'} size={17} />
+                      <ProviderLogo
+                        provider={message.harness ?? a.state()?.harness ?? 'opencode'}
+                        size={17}
+                      />
                     </Show>
                     {message.role === 'user'
                       ? 'You'
                       : message.role === 'assistant'
-                        ? a.state()?.harness === 'codex'
+                        ? (message.harness ?? a.state()?.harness) === 'codex'
                           ? 'Codex'
                           : 'OpenCode'
                         : message.role === 'tool'
@@ -198,7 +261,7 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                           : 'Request status'}
                     {message.state ? ' · ' + message.state : ''}
                   </small>
-                  <div>{message.text}</div>
+                  <MessageBody text={message.text} />
                   <Show when={message.role === 'assistant' || message.role === 'user'}>
                     <IconButton
                       icon="copy"
@@ -506,8 +569,6 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
 }
 export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
   const a = props.agent;
-  const [attachOpen, setAttachOpen] = createSignal(false),
-    [file, setFile] = createSignal('');
   let input!: HTMLTextAreaElement;
   const ready = () => a.state()?.connection === 'connected',
     running = () => a.state()?.running || a.submitting();
@@ -553,7 +614,16 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             </Show>
           </div>
         </Show>
-        <Show when={a.projects.file() && !a.selection()}>
+        <Show
+          when={
+            a.projects.file() &&
+            !a.selection() &&
+            (() => {
+              const caret = a.projects.caret(a.projects.file()!.id);
+              return caret && caret.anchor !== caret.head;
+            })()
+          }
+        >
           <button
             class="text-button agent-selection-action"
             onClick={() => a.attachSelection()}
@@ -567,7 +637,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             label="Attach text or project files"
             icon="plus"
             disabled={!a.projects.project() || running()}
-            onClick={() => setAttachOpen(true)}
+            onClick={() => void a.attachFiles().finally(() => input?.focus())}
           />
           <AgentChatMenus agent={a} onConnect={props.onConnect} />
           <IconButton label="Agent connections" icon="settings" onClick={props.onConnect} />
@@ -576,7 +646,11 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             disabled={
               running()
                 ? a.busy() && !a.submitting()
-                : !ready() || !a.model() || !a.draft().trim() || a.busy()
+                : !ready() ||
+                  a.state()?.sessionUnavailable ||
+                  !a.model() ||
+                  !a.draft().trim() ||
+                  a.busy()
             }
             aria-label={running() ? 'Stop agent request' : 'Send to agent'}
             title={running() ? 'Stop agent request' : 'Send · Ctrl Enter'}
@@ -622,61 +696,16 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
       <Show when={a.error() || a.state()?.error}>
         <div class="agent-inline-error" role="alert">
           <span>{a.error() || a.state()?.error}</span>
+          <Show when={a.state()?.sessionUnavailable}>
+            <button class="text-button" disabled={a.busy()} onClick={() => void a.newChat()}>
+              New conversation
+            </button>
+          </Show>
           <button class="text-button" onClick={props.onConnect}>
             Connection details
           </button>
         </div>
       </Show>
-      <Modal
-        open={attachOpen()}
-        title="Attach context"
-        icon="fileText"
-        onClose={() => setAttachOpen(false)}
-      >
-        <p>
-          Add a selected passage or source files for this request. The agent can also inspect
-          relevant files in your paper.
-        </p>
-        <p class="help-text">
-          {a.model()?.images
-            ? 'The selected model accepts images, but image attachments are not available in Loom yet.'
-            : 'The selected model accepts text attachments.'}
-        </p>
-        <button
-          class="secondary-button"
-          onClick={() => {
-            if (a.attachSelection()) setAttachOpen(false);
-          }}
-        >
-          Attach selected text
-        </button>
-        <label class="field-label">
-          Project text file
-          <select value={file()} onChange={(e) => setFile(e.currentTarget.value)}>
-            <option value="">Choose a file</option>
-            <For each={a.projects.project()?.files.filter((f) => !f.deleted && f.text !== null)}>
-              {(f) => <option value={f.path}>{f.path}</option>}
-            </For>
-          </select>
-        </label>
-        <button
-          class="primary-button"
-          disabled={!file() || a.attachments().length >= 20}
-          onClick={() => {
-            a.setAttachments((old) => [...new Set([...old, file()])]);
-            setFile('');
-            setAttachOpen(false);
-            input?.focus();
-          }}
-        >
-          Attach file
-        </button>
-        <Show when={a.error()}>
-          <p class="inline-error" role="alert">
-            {a.error()}
-          </p>
-        </Show>
-      </Modal>
     </>
   );
 }

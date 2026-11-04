@@ -198,3 +198,53 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Compact, content-sized popovers; model results own their single scroller. */
+.agent-choice-popup {
+  width: min(300px, calc(100vw - 24px));
+  max-height: min(430px, calc(100vh - 24px));
+  padding: 5px;
+  font-size: 12px;
+}
+.agent-choice-popup.agent-reasoning-popup {
+  width: min(210px, calc(100vw - 24px));
+}
+.agent-choice-popup.agent-model-popup {
+  width: min(340px, calc(100vw - 24px));
+  overflow: hidden;
+}
+.agent-model-picker {
+  min-height: 0;
+}
+.agent-model-rail {
+  gap: 4px;
+  padding: 5px;
+}
+.agent-model-rail button {
+  width: 28px;
+  height: 28px;
+}
+.agent-model-choices {
+  padding: 2px 2px 2px 7px;
+}
+.agent-model-results {
+  max-height: min(270px, 44vh);
+}
+.agent-model-choice-row button,
+.agent-option-list > button {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+.agent-option-list > button {
+  gap: 8px;
+}
+.agent-option-list small,
+.agent-model-choice-row small {
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.agent-menu-caption {
+  font-size: 10px;
+  margin: 3px 0;
+  padding: 3px 7px;
+}

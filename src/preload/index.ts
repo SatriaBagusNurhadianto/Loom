@@ -10,6 +10,8 @@ import {
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   channels,
+  attachmentChoiceSchema,
+  attachmentResultSchema,
   failure,
   serviceEventSchema,
   statusResultSchema,
@@ -70,6 +72,17 @@ const desktop: LoomDesktop = {
       return latexResultSchema.parse(await ipcRenderer.invoke(channels.exportPdf, input.data));
     } catch {
       return failure('SERVICE_UNAVAILABLE', 'PDF export failed. Retry.');
+    }
+  },
+  chooseAttachments: async (request) => {
+    const input = attachmentChoiceSchema.safeParse(request);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid attachment choice.', false);
+    try {
+      return attachmentResultSchema.parse(
+        await ipcRenderer.invoke(channels.chooseAttachments, input.data),
+      );
+    } catch {
+      return failure('SERVICE_UNAVAILABLE', 'The file selector is unavailable. Try again.');
     }
   },
   chooseFile: async (request) => {

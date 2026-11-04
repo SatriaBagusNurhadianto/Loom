@@ -1,0 +1,60 @@
+.agent-markdown {
+  white-space: normal;
+  min-width: 0;
+}
+.agent-markdown p {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+}
+.agent-markdown p:last-child {
+  margin-bottom: 0;
+}
+.agent-markdown h4 {
+  font-size: 1em;
+  margin: 14px 0 6px;
+}
+.agent-markdown ul,
+.agent-markdown ol {
+  padding-left: 22px;
+  margin: 6px 0 12px;
+}
+.agent-markdown blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+.agent-markdown code {
+  font: 0.9em/1.5 var(--font-source);
+  background: var(--surface-raised);
+  border-radius: 4px;
+  padding: 1px 4px;
+  overflow-wrap: anywhere;
+}
+.agent-code-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  margin: 10px 0;
+  overflow: hidden;
+  background: var(--surface-editor);
+}
+.agent-code-block > div {
+  padding: 5px 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.agent-code-block pre {
+  margin: 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-code-block pre code {
+  padding: 0;
+  background: transparent;
+}
+.agent-message-reference {
+  color: var(--accent-text);
+}

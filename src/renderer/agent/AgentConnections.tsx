@@ -76,7 +76,11 @@ export function AgentConnections(props: {
   const status = (harness: HarnessKind) => {
     if (!a.projects.project()) return 'Open a paper to check';
     const entry = a.state()?.providers.find((item) => item.id === harness);
-    if (a.state()?.harness === harness && a.state()?.connection === 'connected') return 'Connected';
+    if (
+      entry?.connected ||
+      (a.state()?.harness === harness && a.state()?.connection === 'connected')
+    )
+      return 'Connected';
     if (a.state()?.harness === harness && a.state()?.connection === 'interrupted')
       return 'Interrupted';
     if (!entry || entry.version === 'Not checked') return 'Checking installation';
@@ -121,6 +125,7 @@ export function AgentConnections(props: {
   const connectLabel = () => {
     if (a.busy()) return 'Connecting…';
     if (interrupted()) return `Reconnect ${harnessName(selected())}`;
+    if (provider()?.connected) return `Use ${harnessName(selected())}`;
     if (isSetupRequired()) return `Set up ${harnessName(selected())}`;
     return `Connect ${harnessName(selected())}`;
   };

@@ -70,6 +70,10 @@ function ChoicePopover(props: {
         ref={popup}
         id={id}
         class="agent-choice-popup"
+        classList={{
+          'agent-model-popup': props.label === 'Choose agent model',
+          'agent-reasoning-popup': props.label === 'Reasoning',
+        }}
         role="dialog"
         aria-label={props.label}
         popover="auto"
@@ -219,15 +223,31 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 >
                   <Icon name="star" />
                 </button>
-                <button
-                  classList={{ selected: !favoritesOnly() }}
-                  aria-label="All connected models"
-                  title="All connected models"
-                  aria-pressed={!favoritesOnly()}
-                  onClick={() => setFavoritesOnly(false)}
-                >
-                  <ProviderLogo provider={a.state()?.harness ?? 'opencode'} size={22} />
-                </button>
+                <For each={a.state()?.providers}>
+                  {(provider) => (
+                    <button
+                      classList={{
+                        selected: provider.id === a.state()?.harness && !favoritesOnly(),
+                      }}
+                      aria-label={`Use ${providerName(provider.id)}`}
+                      title={`${providerName(provider.id)}${provider.connected ? ' · connected' : ' · connect'}`}
+                      disabled={disabled() || (!provider.installed && !provider.connected)}
+                      aria-pressed={provider.id === a.state()?.harness && !favoritesOnly()}
+                      onClick={async () => {
+                        if (provider.id === a.state()?.harness) {
+                          setFavoritesOnly(false);
+                          return;
+                        }
+                        close();
+                        await a.connect(provider.id);
+                        setFavoritesOnly(false);
+                        setQuery('');
+                      }}
+                    >
+                      <ProviderLogo provider={provider.id} size={20} />
+                    </button>
+                  )}
+                </For>
                 <button
                   aria-label="Agent connections"
                   title="Agent connections"

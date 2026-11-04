@@ -44,3 +44,16 @@ The [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server) 
 Terra review caught a failed-resume permission escalation and all-provider detection failure after a custom binary disappears. Root corrected both with service/runtime tests and extended strict session IPC validation. Subsequent review caught the inability to submit a replacement or blank/PATH runtime choice after a missing binary; the Runtime tab now permits an explicit reconnect probe, with an Electron regression. Native uncertain external cancellation stays protected rather than manufacturing confirmation.
 
 Luna xhigh UI/UX review inspected the current provider/settings source and running-Electron screenshots against DESIGN/Prism. It found duplicate OpenCode Auto policy, misleading paper-only edit wording, numeric answer coercion and inconsistent boolean validation/focus. Those are corrected; actual Electron form/settings tests cover the results. Single-line model-search Up/Down intentionally moves to options, with Home/End retained for text editing and a keyboard selection regression. The final permission screenshot was regenerated after source changes. Reviewers did not independently execute Electron or conduct researcher interviews; root ran the desktop checks and visually inspected the generated artifacts.
+
+## 4 November: shared-chat and PDF workflow follow-up
+
+GPT-6.1 Terra reviewed the native connection pool and shared-conversation implementation. Findings fixed before handoff:
+
+- A failed refresh previously marked only the visible connection interrupted, allowing a stale pooled adapter to be reused. The matching pool entry now becomes unusable too.
+- A saved native session that cannot resume now retains its local transcript/reference and blocks Send, with New conversation available. It cannot silently send into an unavailable or wrong-folder session.
+- An inactive interrupted connection now closes its adapter and MCP server before replacement.
+- Provider-qualified native/message keys prevent collisions. Persisted seen-message identities stop evicted old native messages from reappearing as new public context after switching/restart.
+
+Focused tests exercise pooled switching with colliding IDs, settings isolation, selected native-session submission, public-context handoff excluding tool text, failed transport/resume, and connection disposal. A real TinyTeX test with synthetic harness completion verifies post-edit PDF scheduling leaves the project queue, snapshots edited bytes and associates the PDF with the correct revision. An additional actual managed OpenCode Big Pickle inference edited a synthetic TikZ triangle and compiled it through Loom MCP; the resulting triangle was rasterized and visually inspected. This does not claim live dual-provider switching or live Codex inference in this follow-up.
+
+Renderer/Electron verification adds native attachment selection/cancellation/outside-paper rejection, selected-text attachments, safe Markdown elements/inert HTML, compact menus, and conversation deletion cancellation/persistence across app restart. Existing source/diff/overlap/recovery boundaries remain covered. The desktop preload API inventory explicitly includes the new narrow validated attachment picker; Node integration remains disabled with context isolation and sandboxing enabled.

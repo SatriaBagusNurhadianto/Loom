@@ -43,6 +43,55 @@ async function dimensions(width: number, height: number) {
     .poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
     .toEqual({ width, height });
 }
+async function launchElectron() {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.ELECTRON_RENDERER_URL;
+  app = await _electron.launch({
+    chromiumSandbox: true,
+    ...(process.env.LOOM_AGENT_PACKAGED === '1'
+      ? { executablePath: resolve('release/linux-unpacked/loom') }
+      : {}),
+    args: [
+      ...(process.env.LOOM_AGENT_PACKAGED === '1' ? [] : [resolve('out/main/index.js')]),
+      `--user-data-dir=${join(directory, 'data')}`,
+    ],
+    env,
+  });
+  page = await app.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+  await dimensions(1440, 900);
+}
+async function stubNativeOpenDialog(paths: string[]) {
+  await app.evaluate(({ dialog }, selected) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: selected });
+  }, paths);
+}
+async function openProjectIfNeeded() {
+  if (
+    await page
+      .locator('.cm-editor')
+      .isVisible()
+      .catch(() => false)
+  )
+    return;
+  await stubNativeOpenDialog([root]);
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await expect(page.locator('.cm-editor')).toBeVisible();
+}
+async function restartElectron() {
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().forEach((window) => window.destroy()),
+  );
+  await app.close();
+  await launchElectron();
+  await openProjectIfNeeded();
+}
 function later(action: () => void, ms: number) {
   pendingTimers.push(setTimeout(action, ms));
 }
@@ -183,6 +232,35 @@ test.beforeEach(async () => {
               ],
             },
           ];
+        } else if (String(body.text).includes('markdown rendering')) {
+          s.messages.push({
+            id: 'markdown-response',
+            type: 'assistant',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '## Research update',
+                  'Updated **main.tex** and reviewed `references.bib`.',
+                  '',
+                  '- Preserved the manuscript structure',
+                  '- Kept the source available for review',
+                  '',
+                  '> Revisions stay available for your review.',
+                  '',
+                  '```tex',
+                  String.raw`\input{sections/methods.tex}`,
+                  '```',
+                  '',
+                  '<script>window.__loomMarkdownProbe = true</script>',
+                ].join('\n'),
+              },
+            ],
+          });
+          s.active = false;
+          s.outcome = 'succeeded';
+          s.time.idle = Date.now();
+          s.messages.push({ id: 'markdown-idle', type: 'idle', outcome: 'succeeded' });
         } else {
           s.permissions = [{ id: 'permission-1', action: 'edit', resources: ['main.tex'] }];
         }
@@ -250,30 +328,8 @@ test.beforeEach(async () => {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('fixture address');
   endpoint = `http://127.0.0.1:${address.port}`;
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => typeof entry[1] === 'string',
-    ),
-  );
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.ELECTRON_RENDERER_URL;
-  app = await _electron.launch({
-    chromiumSandbox: true,
-    ...(process.env.LOOM_AGENT_PACKAGED === '1'
-      ? { executablePath: resolve('release/linux-unpacked/loom') }
-      : {}),
-    args: [
-      ...(process.env.LOOM_AGENT_PACKAGED === '1' ? [] : [resolve('out/main/index.js')]),
-      `--user-data-dir=${join(directory, 'data')}`,
-    ],
-    env,
-  });
-  page = await app.firstWindow();
-  await page.waitForLoadState('domcontentloaded');
-  await dimensions(1440, 900);
-  await app.evaluate(({ dialog }, folder) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
-  }, root);
+  await launchElectron();
+  await stubNativeOpenDialog([root]);
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder', exact: true }).click();
   await expect(page.locator('.cm-editor')).toBeVisible();
@@ -300,16 +356,17 @@ async function connect(requireModel = true) {
     await dialog.getByRole('button', { name: 'Close dialog' }).click();
     return;
   }
-  await page.screenshot({
-    path: resolve('artifacts/phase-4-connections-redesign.png'),
-    animations: 'disabled',
-  });
   await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
   await dialog.getByLabel('Use an existing server').check();
   await dialog.getByLabel('Server address').fill(endpoint);
   await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
   await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
   await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Overview', exact: true }).click();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-connections-redesign.png'),
+    animations: 'disabled',
+  });
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   if (requireModel)
     await expect(
@@ -318,10 +375,8 @@ async function connect(requireModel = true) {
 }
 test('real Electron agent flow: context, permissions, retained questions, streaming, safe review and newer writing', async () => {
   await connect();
+  await stubNativeOpenDialog([join(root, 'main.tex')]);
   await page.getByRole('button', { name: 'Attach text or project files' }).click();
-  const attach = page.getByRole('dialog', { name: 'Attach context' });
-  await attach.getByLabel('Project text file').selectOption('main.tex');
-  await attach.getByRole('button', { name: 'Attach file', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
@@ -464,7 +519,9 @@ test('partial cancellation, retained draft and project chat continuation after r
     await page.getByRole('button', { name: 'Show conversation', exact: true }).click();
   await expect(page.getByText('First file updated; continuing…', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Chats', exact: true }).click();
-  await expect(page.getByRole('button', { name: /Perform a partial operation/ })).toBeVisible();
+  await expect(
+    page.locator('.agent-chat-row').filter({ hasText: 'Perform a partial operation' }),
+  ).toBeVisible();
 });
 test('provider settings, source and composer remain usable at 720 by 540 with keyboard access', async () => {
   includeSecondaryModel = true;
@@ -490,6 +547,11 @@ test('provider settings, source and composer remain usable at 720 by 540 with ke
   await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
   await expect(picker.getByRole('textbox', { name: 'Search models' })).toBeFocused();
+  const pickerBounds = await picker.boundingBox();
+  expect(pickerBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(pickerBounds!.y).toBeGreaterThanOrEqual(0);
+  expect(pickerBounds!.x + pickerBounds!.width).toBeLessThanOrEqual(720);
+  expect(pickerBounds!.y + pickerBounds!.height).toBeLessThanOrEqual(540);
   await page.screenshot({
     path: resolve('artifacts/phase-4-provider-logos-model-picker.png'),
     animations: 'disabled',
@@ -595,6 +657,20 @@ test('native reasoning and permission controls persist with the chat and reach t
   expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(540);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
+  const permissions = page.getByRole('dialog', { name: 'Permissions', exact: true });
+  await expect(permissions).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-permission-menu-small.png'),
+    animations: 'disabled',
+  });
+  const permissionBounds = await permissions.boundingBox();
+  expect(permissionBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(permissionBounds!.y).toBeGreaterThanOrEqual(0);
+  expect(permissionBounds!.x + permissionBounds!.width).toBeLessThanOrEqual(720);
+  expect(permissionBounds!.y + permissionBounds!.height).toBeLessThanOrEqual(540);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Permissions', exact: true })).toBeFocused();
 });
 
 test('native questions preserve decimal input, validate blank and integer answers, and accept false', async () => {
@@ -625,6 +701,109 @@ test('native questions preserve decimal input, validate blank and integer answer
   await expect
     .poll(() => requestBodies.find((r) => r.path.endsWith('/form/question-1/reply'))?.body.answer)
     .toEqual({ confirmed: false, amount: 1.5, count: 2 });
+});
+
+test('native attachment picker preserves cancellation, rejects outside-paper files and retains source selections', async () => {
+  const plus = page.getByRole('button', { name: 'Attach text or project files', exact: true });
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Keep this draft');
+  await stubNativeOpenDialog([join(root, 'main.tex')]);
+  await plus.click();
+  const attached = page.getByRole('button', { name: 'Remove attached file main.tex', exact: true });
+  await expect(attached).toBeVisible();
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await plus.click();
+  await expect(attached).toBeVisible();
+  await stubNativeOpenDialog([join(directory, 'outside.tex')]);
+  await plus.click();
+  await expect(page.getByRole('alert')).toContainText('inside this paper folder');
+  await expect(attached).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Keep this draft',
+  );
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+a');
+  await page.getByRole('button', { name: 'Attach selected text', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+});
+
+test('agent messages render supported Markdown as safe native elements', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  const markdown = page.locator('.agent-message-harness .agent-markdown');
+  await expect(markdown.locator('h4')).toHaveText('Research update');
+  await expect(markdown.locator('strong')).toHaveText('main.tex');
+  await expect(markdown.locator('p code')).toHaveText('references.bib');
+  await expect(markdown.locator('ul li')).toHaveText([
+    'Preserved the manuscript structure',
+    'Kept the source available for review',
+  ]);
+  await expect(markdown.locator('blockquote')).toContainText(
+    'Revisions stay available for your review.',
+  );
+  await expect(markdown.locator('.agent-code-block pre')).toContainText(
+    '\\input{sections/methods.tex}',
+  );
+  await expect(markdown.locator('script')).toHaveCount(0);
+  await expect(markdown).toContainText('<script>window.__loomMarkdownProbe = true</script>');
+  await markdown.evaluate((element) => {
+    const scroller = element.closest('.agent-messages');
+    if (scroller) scroller.scrollTop = 0;
+  });
+  await expect(page.locator('.agent-message-harness > small')).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-agent-markdown.png'),
+    animations: 'disabled',
+  });
+});
+
+test('Chats deletion can be cancelled and remains deleted after an Electron restart', async () => {
+  const title = 'A conversation for deletion.';
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill(title);
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Allow once', exact: true }).click();
+  await page.getByLabel('Audience', { exact: true }).fill('Researchers');
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click();
+  await expect(
+    page.getByText('Updated main.tex for your selected audience.', { exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  const conversation = page.locator('.agent-chat-row').filter({ hasText: title });
+  await expect(conversation).toBeVisible();
+  const deleteButton = page.getByRole('button', {
+    name: `Delete conversation ${title}`,
+    exact: true,
+  });
+  await deleteButton.click();
+  const confirmation = page.getByRole('dialog', { name: 'Delete conversation', exact: true });
+  await expect(confirmation).toContainText('Paper files and change-recovery records stay intact.');
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-delete-conversation.png'),
+    animations: 'disabled',
+  });
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirmation).not.toBeVisible();
+  await expect(conversation).toBeVisible();
+
+  await deleteButton.click();
+  await confirmation.getByRole('button', { name: 'Delete conversation', exact: true }).click();
+  await expect(conversation).not.toBeVisible();
+  await expect(page.getByText('No conversations yet', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('.chat-empty').getByRole('button', { name: 'New conversation', exact: true }),
+  ).toBeFocused();
+
+  await restartElectron();
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await expect(page.getByText('No conversations yet', { exact: true })).toBeVisible();
+  await expect(page.locator('.agent-chat-row').filter({ hasText: title })).toHaveCount(0);
 });
 
 test('a replacement binary path remains connectable after the saved path disappears', async () => {

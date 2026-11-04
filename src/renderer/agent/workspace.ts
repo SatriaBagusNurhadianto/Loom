@@ -204,11 +204,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const projectId = projects.project()?.id;
     if (!projectId) return;
     const ref = state()?.sessions.find((s) => s.id === sessionId);
-    if (ref && ref.harness !== state()?.harness) {
-      setError(
-        `Connect ${ref.harness === 'codex' ? 'Codex' : 'OpenCode'} to continue this conversation.`,
-      );
-      return;
+    if (ref && (ref.harness !== state()?.harness || state()?.connection !== 'connected')) {
+      if (!(await connect(ref.harness))) return false;
     }
     const result = await act({ type: 'session', projectId, sessionId });
     if (result) {
@@ -221,7 +218,15 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const projectId = projects.project()?.id,
       prompt = draft().trim(),
       chosen = model();
-    if (!projectId || !prompt || !chosen || busy() || state()?.running) return;
+    if (
+      !projectId ||
+      !prompt ||
+      !chosen ||
+      busy() ||
+      state()?.running ||
+      state()?.sessionUnavailable
+    )
+      return;
     const current = generation;
     setBusy(true);
     setSubmitting(true);
@@ -282,6 +287,25 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     }
     const projectId = projects.project()?.id;
     if (projectId) await act({ type: 'cancel', projectId });
+  }
+  async function attachFiles() {
+    const projectId = projects.project()?.id;
+    if (!projectId || !window.loom) return;
+    const result = await window.loom.chooseAttachments({ projectId });
+    if (projects.project()?.id !== projectId) return;
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    if (!result.value.cancelled) {
+      const paths = [...new Set([...attachments(), ...result.value.paths])];
+      if (paths.length > 20) {
+        setError('Attach up to 20 files per request.');
+        return;
+      }
+      setAttachments(paths);
+      setError('');
+    }
   }
   function attachSelection() {
     const file = projects.file(),
@@ -394,6 +418,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     send,
     cancel,
     attachSelection,
+    attachFiles,
     review,
     act,
     projects,

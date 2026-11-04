@@ -2,6 +2,7 @@ import { agentResultSchema, type AgentCommand, type AgentResult } from './agent'
 import { latexResultSchema, type LatexCommand, type LatexResult } from './latex';
 import {
   projectResultSchema,
+  relativePath,
   type ProjectChoice,
   type ChooseFileRequest,
   type ProjectCommand,
@@ -18,6 +19,7 @@ export const channels = {
   project: 'loom:project:command',
   chooseProject: 'loom:project:choose',
   chooseFile: 'loom:project:choose-file',
+  chooseAttachments: 'loom:agent:choose-attachments',
   agent: 'loom:agent:command',
   latex: 'loom:latex:command',
   setup: 'loom:latex:setup',
@@ -66,11 +68,24 @@ export const serviceEventSchema = z
 export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 
 // No project paths, file access, shell execution, or arbitrary IPC are exposed.
+export const attachmentChoiceSchema = z.object({ projectId: z.string().min(1).max(160) }).strict();
+export const attachmentResultSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      ok: z.literal(true),
+      value: z.object({ cancelled: z.boolean(), paths: z.array(relativePath).max(20) }).strict(),
+    })
+    .strict(),
+  z.object({ ok: z.literal(false), error: operationErrorSchema }).strict(),
+]);
 export interface LoomDesktop {
   agent(command: AgentCommand): Promise<AgentResult>;
   openSetup(guide: 'tex' | 'texlab' | 'opencode' | 'codex'): Promise<void>;
   latex(command: LatexCommand): Promise<LatexResult>;
   exportPdf(request: { projectId: string; buildId: string; stale: boolean }): Promise<LatexResult>;
+  chooseAttachments(request: {
+    projectId: string;
+  }): Promise<z.infer<typeof attachmentResultSchema>>;
   chooseFile(request: ChooseFileRequest): Promise<ProjectResult>;
   project(command: ProjectCommand): Promise<ProjectResult>;
   chooseProject(choice: ProjectChoice): Promise<ProjectResult>;

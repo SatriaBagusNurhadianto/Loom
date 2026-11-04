@@ -2750,7 +2750,7 @@ kbd {
   padding: 10px 14px;
   border-radius: 14px;
 }
-.agent-workspace-panel .agent-message:not(.agent-message-tool):not(.agent-message-status) > small {
+.agent-workspace-panel .agent-message-user > small {
   display: none;
 }
 .agent-message > .icon-button {
@@ -2794,7 +2794,10 @@ kbd {
   font-size: 17px;
 }
 .agent-workspace-panel .agent-selection-action {
-  display: none;
+  display: block;
+  align-self: flex-start;
+  font-size: 11px;
+  padding: 2px 0;
 }
 .agent-workspace-panel .agent-composer-status {
   padding: 3px 10px 0;
@@ -2824,4 +2827,77 @@ kbd {
     min-height: 34px;
     font-size: 15px;
   }
+}
+/* A narrow visible handle keeps a generous pointer/keyboard target. */
+.panel-separator {
+  position: relative;
+  background: transparent;
+}
+.panel-separator::after {
+  content: '';
+  position: absolute;
+  inset: 12px 2px;
+  width: 1px;
+  background: var(--border);
+}
+.panel-separator:hover,
+.panel-separator:focus-visible {
+  background: transparent;
+}
+.panel-separator:hover::after,
+.panel-separator:focus-visible::after {
+  background: var(--focus);
+}
+.agent-panel-grip::after {
+  left: 17px;
+  width: 30px;
+  height: 2px;
+  opacity: 0.35;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+.source-content {
+  overflow: hidden;
+}
+.agent-messages {
+  scrollbar-gutter: auto;
+}
+.agent-merge-card {
+  max-height: none;
+  flex-shrink: 0;
+  overflow: visible;
+}
+.agent-merge-files {
+  max-height: 130px;
+  overflow: auto;
+}
+@media (max-height: 650px) {
+  .agent-merge-files {
+    max-height: 65px;
+  }
+}
+.agent-chat-list > li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.agent-chat-list .agent-chat-row {
+  flex: 1;
+  min-width: 0;
+}
+.agent-chat-list > li > .icon-button {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.agent-workspace-panel .agent-message.agent-message-harness > small {
+  display: flex;
+  font-size: 10px;
+  margin-bottom: 6px;
 }

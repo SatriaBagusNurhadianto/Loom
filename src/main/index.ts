@@ -16,12 +16,13 @@ import {
   utilityProcess,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   channels,
   emptyRequestSchema,
   failure,
+  attachmentChoiceSchema,
   type Result,
   type ServiceStatus,
 } from '../contracts/desktop';
@@ -239,6 +240,66 @@ void app.whenReady().then(() => {
     }
   });
   let choosing = false;
+  ipcMain.handle(channels.chooseAttachments, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot select attachments.', false);
+    const input = attachmentChoiceSchema.safeParse(payload);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid attachment choice.', false);
+    if (choosing) return failure('BUSY', 'A file selector is already open.');
+    choosing = true;
+    try {
+      const current = await service.project({ type: 'current' });
+      const location = service.projectLocation;
+      if (
+        !current.ok ||
+        !current.value ||
+        !location ||
+        current.value.id !== input.data.projectId ||
+        location.projectId !== input.data.projectId
+      )
+        return failure('INVALID_REQUEST', 'Open a paper before attaching files.', false);
+      const selected = await dialog.showOpenDialog(window!, {
+        title: 'Attach paper files',
+        buttonLabel: 'Attach',
+        defaultPath: location.path,
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: 'Paper text and data',
+            extensions: ['tex', 'bib', 'txt', 'md', 'csv', 'tsv', 'json', 'sty', 'cls'],
+          },
+        ],
+      });
+      if (selected.canceled) return { ok: true, value: { cancelled: true, paths: [] } };
+      const paths = [
+        ...new Set(
+          selected.filePaths.map((path) => relative(location.path, path).split('\\').join('/')),
+        ),
+      ];
+      if (
+        paths.length > 20 ||
+        paths.some(
+          (path) =>
+            !current.value!.files.some(
+              (file) => file.path === path && !file.deleted && file.diskKind === 'text',
+            ),
+        )
+      )
+        return failure(
+          'INVALID_REQUEST',
+          'Choose up to 20 text files inside this paper folder. Image and PDF attachments are not supported yet.',
+          false,
+        );
+      return { ok: true, value: { cancelled: false, paths } };
+    } catch {
+      return failure(
+        'INVALID_REQUEST',
+        'The file selector could not open. Try attaching files again.',
+      );
+    } finally {
+      choosing = false;
+    }
+  });
   ipcMain.handle(channels.chooseFile, async (event, payload: unknown) => {
     if (!trustedSender(event))
       return failure('FORBIDDEN', 'This window cannot create project files.', false);

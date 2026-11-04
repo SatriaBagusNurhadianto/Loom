@@ -71,3 +71,25 @@ LOOM_AGENT_PACKAGED=1 npx playwright test tests/e2e/agent.spec.ts -g 'real Elect
 ```
 
 This uses `release/linux-unpacked/loom`, sandbox enabled, with the explicitly synthetic harness fixture. It proves bundled transport/UI/recovery operation, not packaged provider entitlement. Observed counts, live versions, review findings and remaining limits belong in [project status](../project_status.md) and [Phase 4 review](phase-4-review.md).
+
+## Conversation switching, deletion and compact controls
+
+- Open the composer model menu and use the OpenCode/Codex logo buttons to activate an installed harness. Both idle connections can stay open. Each Loom chat keeps a separate native session and permissions/reasoning settings for each agent; the next request after a switch includes bounded earlier public chat context. Switch only after the current request stops. Model availability still comes from the selected native harness.
+- In **Chats**, use the trash icon beside a conversation. **Cancel** preserves it; **Delete conversation** removes its local Loom history/reference, including after restart. Paper files, change-recovery records and native harness history stay intact. Deletion is refused while a request is running or its stop remains unconfirmed.
+- Composer **+** opens the native file selector directly. Choose up to 20 paper text files; outside-paper/image/PDF attachments explain their current limitation. Cancel keeps the draft and existing attachments. Selecting text in the editor offers **Attach selected text**.
+- Check inline backticks and fenced LaTeX/diff responses, plus lists and headings. Raw model HTML must appear as inert text. Source review still shows literal syntax-highlighted LaTeX. Model/reasoning/access menus should fit at 720×540, with only their content scrolling as necessary; thin dividers retain pointer/keyboard resize behavior.
+- Successful source-edit turns schedule PDF creation automatically once saved source is conflict-free. Inspect actual build diagnostics on failure; an older PDF must stay labeled as older. Agent `build_pdf` tool replies schedule work rather than claiming success.
+
+Real synthetic-paper TikZ checks use the installed local TeX tools:
+
+```sh
+LOOM_LATEX_LIVE=1 npx vitest run tests/agent-tools-tikz.test.ts tests/agent-conversations-review.test.ts
+```
+
+An available authorized OpenCode Big Pickle setup can separately perform an actual inference/edit/MCP/build check:
+
+```sh
+LOOM_AGENT_INFERENCE=1 npx vitest run tests/agent-tools-tikz.test.ts
+```
+
+These flags are opt-in; default unit and Electron harness fixtures do not imply external-provider inference. `LOOM_TIKZ_RENDER=/tmp/loom-tikz` and `LOOM_AGENT_TIKZ_RENDER=/tmp/loom-agent-tikz` optionally retain a PNG rendering for visual inspection. All papers in these tests are synthetic and isolated.
