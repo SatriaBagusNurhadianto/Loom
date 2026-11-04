@@ -341,3 +341,62 @@
     padding-inline: 20px;
   }
 }
+
+/* One quiet return affordance in the wide sidebar or the compact header. */
+.workspace-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 9px;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.workspace-back:hover {
+  color: var(--text-primary);
+}
+.sidebar > .workspace-back {
+  align-self: flex-start;
+  margin: -9px 0 8px;
+}
+#library-heading:focus {
+  outline: none;
+}
+
+/* Capture a single composed page; editor/PDF panel morphs remain for view changes. */
+:root:active-view-transition-type(project-navigation) .source-column,
+:root:active-view-transition-type(project-navigation) .sidebar,
+:root:active-view-transition-type(project-navigation) .pdf-column {
+  view-transition-name: none;
+}
+:root:active-view-transition-type(project-navigation)::view-transition {
+  pointer-events: none;
+}
+:root:active-view-transition-type(project-navigation)::view-transition-old(root) {
+  animation: project-page-out var(--duration-navigation) var(--ease-standard) both;
+}
+:root:active-view-transition-type(project-navigation)::view-transition-new(root) {
+  animation: project-page-in var(--duration-navigation) var(--ease-standard) both;
+}
+@keyframes project-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes project-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:active-view-transition-type(project-navigation)::view-transition-old(root),
+  :root:active-view-transition-type(project-navigation)::view-transition-new(root) {
+    animation: none !important;
+  }
+}

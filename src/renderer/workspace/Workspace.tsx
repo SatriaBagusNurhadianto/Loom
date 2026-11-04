@@ -72,11 +72,70 @@ export function Workspace() {
   });
   const [libraryOpen, setLibraryOpen] = createSignal(true);
   const projects = createProjectWorkspace(setNotice, { libraryFirst: true });
-  const showLibrary = async () => {
-    if (!(await projects.saveSession())) return;
+  const [returningToLibrary, setReturningToLibrary] = createSignal(false);
+  let navigationTransition: ViewTransition | undefined;
+  function navigateLibrary(open: boolean) {
+    navigationTransition?.skipTransition();
+    layoutTransition?.skipTransition();
+    // Close the chooser now; a following PDF/setup dialog must survive the async update.
     setDialog(null);
-    setLibraryOpen(true);
+    const previous = document.activeElement;
+    const apply = () => setLibraryOpen(open);
+    const focusDestination = () =>
+      requestAnimationFrame(() => {
+        if (
+          libraryOpen() !== open ||
+          (document.activeElement !== previous && document.activeElement !== document.body)
+        )
+          return;
+        const target = open
+          ? document.querySelector<HTMLElement>('#library-heading')
+          : effectiveMode() === 'pdf'
+            ? pdf
+            : (document.querySelector<HTMLElement>('.cm-content') ?? source);
+        target?.focus({ preventScroll: true });
+      });
+    if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const transition = document.startViewTransition({
+        types: ['project-navigation', open ? 'project-return' : 'project-open'],
+        update: apply,
+      });
+      navigationTransition = transition;
+      void transition.ready.catch(() => {});
+      void transition.updateCallbackDone.then(focusDestination).catch(() => {});
+      void transition.finished
+        .catch(() => {})
+        .finally(() => {
+          if (navigationTransition === transition) navigationTransition = undefined;
+        });
+    } else {
+      apply();
+      focusDestination();
+    }
+  }
+  onCleanup(() => navigationTransition?.skipTransition());
+  const showLibrary = async () => {
+    if (returningToLibrary()) return;
+    setReturningToLibrary(true);
+    try {
+      if (await projects.saveSession()) navigateLibrary(true);
+    } finally {
+      setReturningToLibrary(false);
+    }
   };
+  const BackToProjects = () => (
+    <button
+      class="workspace-back"
+      aria-label="Back to projects"
+      title="Back to projects"
+      disabled={returningToLibrary() || projects.pending()}
+      aria-busy={returningToLibrary()}
+      onClick={() => void showLibrary()}
+    >
+      <Icon name="back" size={16} />
+      <span>Projects</span>
+    </button>
+  );
   const latex = createLatexWorkspace(projects, setNotice);
   const agent = createAgentWorkspace(projects, setNotice);
   const [chatHeight, setChatHeight] = createSignal(68);
@@ -103,7 +162,7 @@ export function Workspace() {
       setCloneUrl('');
       await projects.command({ type: 'current' });
       setDialog(null);
-      setLibraryOpen(false);
+      navigateLibrary(false);
     }
   };
   let gitProjectId: string | undefined;
@@ -261,7 +320,7 @@ export function Workspace() {
   };
   const showExample = () => {
     setExample(true);
-    setLibraryOpen(false);
+    navigateLibrary(false);
     setNotice('Read-only example loaded. No project files were created.');
   };
   const afterLayout = (action: () => void) => {
@@ -318,7 +377,6 @@ export function Workspace() {
     if (!opened) return;
     const newMain = opened.files.find((file) => file.id === opened.rootId)?.path;
     const conflictingMain = choice === 'main-folder' && newMain !== previousMain;
-    setLibraryOpen(false);
     setChooseMain(conflictingMain);
     setDialog(null);
     setExample(false);
@@ -329,6 +387,7 @@ export function Workspace() {
     }
     if (makePdf) showPdf();
     else if (!projects.storedLayout()) update({ pdfOpen: true, mode: 'split' });
+    navigateLibrary(false);
     if (makePdf) {
       if (!opened.rootId || conflictingMain) setDialog('build');
       else await latex.compile();
@@ -490,22 +549,11 @@ export function Workspace() {
           pending={projects.pending()}
           error={projects.error()}
           current={projects.project()?.name}
-          onContinue={() => {
-            setLibraryOpen(false);
-            requestAnimationFrame(() =>
-              document.querySelector<HTMLElement>('.cm-content')?.focus(),
-            );
-          }}
+          onContinue={() => navigateLibrary(false)}
           onChoose={(choice) => void openProject(choice)}
           onOpen={async (projectId) => {
             const opened = await projects.choose({ projectId });
-            if (opened) {
-              setLibraryOpen(false);
-              setDialog(null);
-              requestAnimationFrame(() =>
-                document.querySelector<HTMLElement>('.cm-content')?.focus(),
-              );
-            }
+            if (opened) navigateLibrary(false);
           }}
           onAppearance={() => setAppearanceOpen(true)}
           onMore={() => setDialog('projects')}
@@ -531,9 +579,7 @@ export function Workspace() {
         Skip to source
       </a>
       <header class="compact-bar">
-        <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
-          Loom
-        </button>
+        <BackToProjects />
         <nav aria-label="Workspace views">
           <button aria-pressed={effectiveMode() === 'source'} onClick={() => focusMode('source')}>
             Source
@@ -575,6 +621,7 @@ export function Workspace() {
                 onClick={() => update({ sidebarOpen: false })}
               />
             </div>
+            <BackToProjects />
             <button
               class="project-selector"
               title="Your projects"

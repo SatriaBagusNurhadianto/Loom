@@ -53,7 +53,7 @@ async function create(name: string) {
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toBeVisible();
 }
 async function library() {
-  await page.locator('button[title="Your projects"]:visible').first().click();
+  await page.getByRole('button', { name: 'Back to projects', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your projects', exact: true })).toBeVisible();
 }
 test.beforeEach(async () => {
@@ -153,4 +153,128 @@ test('cancelled pickers and unavailable folders keep the manager and saved recov
   await launch();
   await expect(page.getByRole('button', { name: 'Open Missing paper' })).toBeVisible();
   await create('Available paper');
+});
+
+test('visible back navigation animates both ways, preserves the live workspace and respects reduced motion', async () => {
+  await create('Navigation paper');
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await editor.fill('Keep this exact live editor and its text.');
+  await page.locator('.agent-prompt').fill('Keep this unsent draft.');
+  await page.evaluate(() => {
+    const state = window as typeof window & {
+      navigationFrames: Array<{
+        types: string[];
+        animation: string;
+        duration: string;
+        panelName: string;
+      }>;
+      retainedEditor: Element | null;
+    };
+    state.retainedEditor = document.querySelector('.cm-content');
+    state.navigationFrames = [];
+    const start = document.startViewTransition.bind(document);
+    document.startViewTransition = (options) => {
+      const transition = start(options);
+      void transition.ready
+        .then(() => {
+          if (!transition.types.has('project-navigation')) return;
+          const style = getComputedStyle(document.documentElement, '::view-transition-new(root)');
+          state.navigationFrames.push({
+            types: [...transition.types],
+            animation: style.animationName,
+            duration: style.animationDuration,
+            panelName: getComputedStyle(document.querySelector('.source-column')!)
+              .viewTransitionName,
+          });
+        })
+        .catch(() => {});
+      return transition;
+    };
+  });
+  const back = page.getByRole('button', { name: 'Back to projects', exact: true });
+  await expect(back).toBeVisible();
+  await back.focus();
+  await back.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Your projects', exact: true })).toBeFocused();
+  expect(await readFile(join(dir, 'Navigation paper', 'main.tex'), 'utf8')).toBe(
+    'Keep this exact live editor and its text.',
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { navigationFrames: unknown[] }).navigationFrames.length,
+      ),
+    )
+    .toBe(1);
+  await page.screenshot({
+    path: 'artifacts/project-navigation-library.png',
+    animations: 'disabled',
+  });
+  const resume = page.getByRole('button', { name: 'Return to workspace', exact: true });
+  await resume.focus();
+  await resume.press('Enter');
+  await expect(editor).toBeFocused();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { navigationFrames: unknown[] }).navigationFrames.length,
+      ),
+    )
+    .toBe(2);
+  const frames = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          navigationFrames: Array<{
+            types: string[];
+            animation: string;
+            duration: string;
+            panelName: string;
+          }>;
+        }
+      ).navigationFrames,
+  );
+  expect(frames.map((f) => f.types)).toEqual([
+    ['project-navigation', 'project-return'],
+    ['project-navigation', 'project-open'],
+  ]);
+  expect(
+    frames.every(
+      (f) => f.animation === 'project-page-in' && f.duration === '0.28s' && f.panelName === 'none',
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () =>
+        document.querySelector('.cm-content') ===
+        (window as unknown as { retainedEditor: Element }).retainedEditor,
+    ),
+  ).toBe(true);
+  await expect(editor).toContainText('Keep this exact live editor and its text.');
+  await expect(page.locator('.agent-prompt')).toHaveValue('Keep this unsent draft.');
+  await page.screenshot({
+    path: 'artifacts/project-navigation-workspace.png',
+    animations: 'disabled',
+  });
+  await size(720, 540);
+  await expect(back).toBeVisible();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await back.click();
+  await expect(page.getByRole('heading', { name: 'Your projects', exact: true })).toBeFocused();
+  await resume.click();
+  await expect(editor).toBeFocused();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { navigationFrames: unknown[] }).navigationFrames.length,
+    ),
+  ).toBe(2);
+  await page.screenshot({ path: 'artifacts/project-navigation-small.png', animations: 'disabled' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // A second navigation can interrupt an unfinished transition without losing the workspace.
+  await back.click();
+  await expect(resume).toBeVisible();
+  await resume.click();
+  await expect(editor).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your projects', exact: true })).not.toBeVisible();
 });

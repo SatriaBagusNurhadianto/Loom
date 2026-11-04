@@ -130,7 +130,9 @@ export function ProjectManager(props: {
         aria-busy={loading() || props.pending}
       >
         <header class="library-toolbar">
-          <h1 id="library-heading">Your projects</h1>
+          <h1 id="library-heading" tabIndex={-1}>
+            Your projects
+          </h1>
           <div class="library-actions">
             <div class="library-search">
               <Icon name="search" size={19} />

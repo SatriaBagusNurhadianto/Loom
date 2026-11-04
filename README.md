@@ -33,7 +33,7 @@ Open <http://127.0.0.1:5173>. Browser preview intentionally reports the desktop 
 
 ## Local projects
 
-Loom opens at **Your projects**. Create a project, open an existing folder, or reopen a saved project from the searchable list/grid. **Import project** copies a folder or ZIP into a new destination; **Open folder** edits the existing folder. Use the workspace project name or Loom button to return to the manager. **More options** includes Git cloning and the sample library.
+Loom opens at **Your projects**. Create a project, open an existing folder, or reopen a saved project from the searchable list/grid. **Import project** copies a folder or ZIP into a new destination; **Open folder** edits the existing folder. Use **← Projects** in the workspace sidebar or compact header to return to the manager. The project name and Projects menu remain alternate routes. **More options** includes Git cloning and the sample library.
 
 Source and assets remain ordinary files in your chosen folder. Loom keeps chats, session references, editor state, recovery records and builds in its local application data; appearance is saved for this device. Keep both your project folders and Loom application data for a complete-session backup. Reconnect missing drives or restore folders at their original paths to preserve local identity. No account is needed.
 

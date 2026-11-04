@@ -6,7 +6,7 @@ Use `npm ci`, `npm run build`, and `npm start` for the real Electron application
 
 ## Startup project library
 
-Loom starts at **Your projects**, including after a full restart. Open a registered project to resume its workspace, or use **New project**, **Open folder**, **Import project** or **More options**. The workspace project selector, Loom button and Projects action return to this manager after saving documents and editor preferences. At narrow widths use the Loom button in the compact header.
+Loom starts at **Your projects**, including after a full restart. Open a registered project to resume its workspace, or use **New project**, **Open folder**, **Import project** or **More options**. The workspace project selector, Loom button and Projects action return to this manager after saving documents and editor preferences. The explicit **← Projects** button is available in both the sidebar and compact header. Check keyboard activation, heading/editor focus, and that returning/continuing preserves the live editor, draft and source. Normal opening/return uses a short page crossfade; reduced-motion mode switches immediately.
 
 Check list/grid persistence, local search and clear, name/recent sorting, native picker cancellation, two projects with different source/drafts/editor settings, appearance across restart, and unavailable folder errors. Existing local manifests migrate into the library without modifying their source. Reconnect/restore an unavailable folder at its original path to retain its identity; opening a moved folder as a new path currently registers another local identity. Keep both the source folders and Electron application data for a full-session backup. Source ZIP exports exclude private chats and recovery records.
 
