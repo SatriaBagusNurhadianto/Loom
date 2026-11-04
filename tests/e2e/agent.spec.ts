@@ -1336,6 +1336,55 @@ test('message copy reports clipboard failures and confirms successful copies', a
   expect(await page.evaluate(() => (window as any).__loomCopiedText)).toContain('Research update');
 });
 
+test('new conversation remains available while disconnected and continues after connecting', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.locator('.agent-message-harness')).toBeVisible();
+  const previousSessions = Object.keys(sessions).length;
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  const newConversation = page
+    .locator('.agent-conversation-heading')
+    .getByRole('button', { name: 'New conversation', exact: true });
+  await expect(newConversation).toBeEnabled();
+  await newConversation.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Use an existing server').check();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(() => Object.keys(sessions).length).toBe(previousSessions + 1);
+  await expect(page.locator('.agent-message')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeFocused();
+  await dimensions(720, 540);
+  await newConversation.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => Object.keys(sessions).length).toBe(previousSessions + 2);
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-new-conversation-small.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await newConversation.click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await connect();
+  expect(Object.keys(sessions).length).toBe(previousSessions + 2);
+  await dimensions(1440, 900);
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await expect(
+    page.locator('.agent-chat-row').filter({ hasText: 'Show markdown rendering.' }),
+  ).toBeVisible();
+});
+
 test('Chats deletion can be cancelled and remains deleted after an Electron restart', async () => {
   const title = 'A conversation for deletion.';
   await connect();

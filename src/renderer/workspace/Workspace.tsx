@@ -68,6 +68,7 @@ export function Workspace() {
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [referencesOpen, setReferencesOpen] = createSignal(false);
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
+  const [newChatProject, setNewChatProject] = createSignal<string | null>(null);
   const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
   const [reviewSelection, setReviewSelection] = createSignal<ChangeSelection | null>(null);
   const [undoChanges, setUndoChanges] = createSignal<ChangeSelection[] | null>(null);
@@ -103,10 +104,29 @@ export function Workspace() {
     const target = reviewSelection();
     if (target && (await agent.review(target.turnId, target.path, 'keep'))) closeReview();
   };
-  const agentConnect = () => setConnectionsOpen(true);
+  const agentConnect = () => {
+    setNewChatProject(null);
+    setConnectionsOpen(true);
+  };
   const newChat = () => {
-    if (agent.state()?.connection === 'connected') void agent.newChat();
-    else agentConnect();
+    const projectId = projects.project()?.id;
+    if (!projectId || agent.busy()) return;
+    if (agent.state()?.running) {
+      agent.setError('Stop the current request before starting a new conversation.');
+      agent.setOpen(true);
+      return;
+    }
+    if (agent.state()?.connection === 'connected') {
+      void agent.newChat().then((ok) => {
+        if (ok)
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+          );
+      });
+    } else {
+      setNewChatProject(projectId);
+      setConnectionsOpen(true);
+    }
   };
   const [pdfPosition, setPdfPosition] = createSignal({ page: 1, zoom: 1, scroll: 0 });
   const pdfProjectIdentity = createMemo(() => projects.project()?.id);
@@ -580,7 +600,7 @@ export function Workspace() {
               <ProjectPanel
                 latex={latex}
                 workspace={projects}
-                chats={<AgentChats agent={agent} onConnect={agentConnect} />}
+                chats={<AgentChats agent={agent} onConnect={agentConnect} onNewChat={newChat} />}
                 onNewChat={newChat}
                 tab={layout().tab}
                 onTabChange={(tab) => update({ tab })}
@@ -948,7 +968,7 @@ export function Workspace() {
                   }
                 />
               </Show>
-              <AgentConversation agent={agent} />
+              <AgentConversation agent={agent} onNewChat={newChat} />
               <AgentChanges
                 agent={agent}
                 onSelect={selectReview}
@@ -957,7 +977,7 @@ export function Workspace() {
                 onUndoChange={setUndoChanges}
               />
               <div class="composer-area">
-                <AgentComposer agent={agent} onConnect={agentConnect} />
+                <AgentComposer agent={agent} onConnect={agentConnect} onNewChat={newChat} />
               </div>
             </div>
           </main>
@@ -1138,8 +1158,18 @@ export function Workspace() {
       <AgentConnections
         agent={agent}
         open={connectionsOpen()}
-        onClose={() => setConnectionsOpen(false)}
+        onClose={() => {
+          setConnectionsOpen(false);
+          setNewChatProject(null);
+        }}
+        onConnected={() => {
+          if (newChatProject() !== projects.project()?.id) return;
+          setNewChatProject(null);
+          setConnectionsOpen(false);
+          newChat();
+        }}
         onOpenProject={() => {
+          setNewChatProject(null);
           setConnectionsOpen(false);
           setDialog('projects');
         }}
@@ -1331,6 +1361,10 @@ export function Workspace() {
               chats={
                 <AgentChats
                   agent={agent}
+                  onNewChat={() => {
+                    setDialog(null);
+                    newChat();
+                  }}
                   onConnect={() => {
                     setDialog(null);
                     agentConnect();

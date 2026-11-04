@@ -13,6 +13,7 @@ export function AgentConnections(props: {
   agent: AgentWorkspace;
   open: boolean;
   onClose: () => void;
+  onConnected?: () => void;
   onOpenProject: () => void;
 }) {
   const a = props.agent;
@@ -163,6 +164,7 @@ export function AgentConnections(props: {
           setPassword('');
           setTab('overview');
           if (selected() === 'opencode' && external()) setExternalDetailsKnown(true);
+          props.onConnected?.();
         }
       });
   };

@@ -18,6 +18,7 @@ const attachedPaths = (turn: AgentTurn) =>
 export function AgentChats(props: {
   agent: AgentWorkspace;
   onConnect: () => void;
+  onNewChat: () => void;
   onSelect?: () => void;
 }) {
   const a = props.agent;
@@ -34,11 +35,10 @@ export function AgentChats(props: {
             <span>Ask about your paper or work on a revision together.</span>
             <button
               class="text-button"
-              onClick={() =>
-                a.state()?.connection === 'connected' ? void a.newChat() : props.onConnect()
-              }
+              disabled={a.busy() || !!a.state()?.running}
+              onClick={props.onNewChat}
             >
-              {a.state()?.connection === 'connected' ? 'New conversation' : 'Connect an agent'}
+              New conversation
             </button>
           </div>
         }
@@ -133,7 +133,7 @@ export function AgentChats(props: {
     </div>
   );
 }
-export function AgentConversation(props: { agent: AgentWorkspace }) {
+export function AgentConversation(props: { agent: AgentWorkspace; onNewChat: () => void }) {
   const a = props.agent;
   const earlierAttachments = createMemo(() =>
     a
@@ -231,8 +231,8 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
             <IconButton
               icon="plus"
               label="New conversation"
-              disabled={a.busy() || a.state()?.running || a.state()?.connection !== 'connected'}
-              onClick={() => void a.newChat()}
+              disabled={a.busy() || !!a.state()?.running}
+              onClick={props.onNewChat}
             />
           </div>
         </div>
@@ -799,7 +799,11 @@ export function AgentImagePreview(props: { agent: AgentWorkspace }) {
     </>
   );
 }
-export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
+export function AgentComposer(props: {
+  agent: AgentWorkspace;
+  onConnect: () => void;
+  onNewChat: () => void;
+}) {
   const a = props.agent;
   let input!: HTMLTextAreaElement;
   const ready = () => a.state()?.connection === 'connected',
@@ -1020,7 +1024,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
         <div class="agent-inline-error" role="alert">
           <span>{a.error() || a.state()?.error}</span>
           <Show when={a.state()?.sessionUnavailable}>
-            <button class="text-button" disabled={a.busy()} onClick={() => void a.newChat()}>
+            <button class="text-button" disabled={a.busy()} onClick={props.onNewChat}>
               New conversation
             </button>
           </Show>
