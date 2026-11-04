@@ -85,6 +85,11 @@ export const agentTurnSchema = z
     status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'interrupted']),
     startedAt: z.string(),
     revision: z.string(),
+    conversationId: id.optional(),
+    images: z
+      .array(z.object({ path: relativePath, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict())
+      .max(20)
+      .optional(),
     changes: z.array(agentChangeSchema).max(2000),
   })
   .strict();
@@ -135,6 +140,14 @@ export const agentStateSchema = z
     running: z.boolean(),
     error: z.string().max(2000),
     toolsAvailable: z.boolean(),
+    imagePreview: z
+      .object({
+        path: relativePath,
+        mime: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+        data: z.string().max(14_000_000),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type AgentState = z.infer<typeof agentStateSchema>;
@@ -171,6 +184,14 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('settings'), projectId: id, settings: agentSettingsSchema }).strict(),
   z.object({ type: z.literal('cancel'), projectId: id }).strict(),
+  z
+    .object({
+      type: z.literal('preview-submitted-image'),
+      projectId: id,
+      turnId: id,
+      path: relativePath,
+    })
+    .strict(),
   z
     .object({
       type: z.literal('permission'),

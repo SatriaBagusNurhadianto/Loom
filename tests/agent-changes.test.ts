@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, rename, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MetadataStore } from '../src/services/project/store';
@@ -26,6 +26,36 @@ beforeEach(async () => {
 afterEach(async () => {
   store.close();
   await rm(dir, { recursive: true, force: true });
+});
+it('retains and verifies the exact submitted image through recovery and rejects altered checkpoints', async () => {
+  const original = await readFile('tests/fixtures/whiteboard-equation.png');
+  await writeFile(join(root, 'board.png'), original);
+  await projects.refresh();
+  const turn = await changes.begin(
+    'native-session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    ['board.png'],
+  );
+  const submittedPath = changes.imagePath(turn, 'board.png');
+  expect(await readFile(submittedPath)).toEqual(original);
+  await writeFile(join(root, 'board.png'), Buffer.from('project image changed'));
+  const reloaded = new AgentChanges(projects, join(dir, 'recovery'));
+  await reloaded.bind(id);
+  expect(await reloaded.submittedImage(turn.view.id, 'board.png', 'conversation')).toMatchObject({
+    path: 'board.png',
+    data: original.toString('base64'),
+  });
+  await expect(reloaded.submittedImage(turn.view.id, 'board.png', 'another')).rejects.toThrow(
+    'unavailable',
+  );
+  await chmod(submittedPath, 0o600);
+  await writeFile(submittedPath, Buffer.concat([original, Buffer.from('tampered')]));
+  await expect(reloaded.submittedImage(turn.view.id, 'board.png', 'conversation')).rejects.toThrow(
+    'cannot be verified',
+  );
 });
 it('checkpoints before turn, groups partial writes and merges a later unrelated edit on revert', async () => {
   await changes.begin('session', projects.snapshot().sourceRevision!, false, 2147483647);

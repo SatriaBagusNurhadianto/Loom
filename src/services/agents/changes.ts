@@ -2,12 +2,14 @@ import { diffLines } from 'diff';
 import { z } from 'zod';
 import { agentTurnSchema } from '../../contracts/agent';
 import { relativePath } from '../../contracts/project';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentTurn, AgentChange } from '../../contracts/agent';
 import { ProjectService } from '../project/projects';
 import { reconcile } from '../project/reconcile';
+import { imageMime } from '../../domain/images';
+import { imageBytesMatch } from './images';
 
 type RecordTurn = {
   view: AgentTurn;
@@ -97,11 +99,14 @@ export class AgentChanges {
     await fs.mkdir(folder, { recursive: true, mode: 0o700 });
     const index: Record<string, string> = {};
     for (const [path, bytes] of files) {
-      const key = randomUUID();
+      const mime = imageMime(path);
+      const extension = mime ? '.' + path.split('.').pop()!.toLowerCase() : '';
+      const key = randomUUID() + extension;
       const handle = await fs.open(join(folder, key), 'wx', 0o600);
       try {
         await handle.writeFile(bytes);
         await handle.sync();
+        if (mime) await handle.chmod(0o400);
       } finally {
         await handle.close();
       }
@@ -115,7 +120,14 @@ export class AgentChanges {
     }
     return index;
   }
-  async begin(sessionId: string, revision: string, external = false, supervisorPid?: number) {
+  async begin(
+    sessionId: string,
+    revision: string,
+    external = false,
+    supervisorPid?: number,
+    conversationId?: string,
+    imagePaths: string[] = [],
+  ) {
     if (this.unsettled()) throw new Error('Recover the previous request before starting another.');
     if (!external && (!supervisorPid || !Number.isSafeInteger(supervisorPid) || supervisorPid <= 1))
       throw new Error('The agent process cannot be tracked safely. Reconnect before sending.');
@@ -130,6 +142,13 @@ export class AgentChanges {
     )
       throw new Error('Your paper changed while preparing the request. Save and try again.');
     const files = await this.projects.agentFiles(this.projectId);
+    const images = imagePaths.map((path) => {
+      const bytes = files.get(path),
+        mime = imageMime(path);
+      if (!bytes || !mime || bytes.length > 10 * 1024 * 1024 || !imageBytesMatch(mime, bytes))
+        throw new Error('An attached image changed while preparing the request. Attach it again.');
+      return { path, sha256: createHash('sha256').update(bytes).digest('hex') };
+    });
     if (this.projects.snapshot().sourceRevision !== revision)
       throw new Error('Your paper changed while preparing the request. Try again.');
     const id = randomUUID();
@@ -147,6 +166,7 @@ export class AgentChanges {
         status: 'running',
         startedAt: new Date().toISOString(),
         revision,
+        ...(conversationId ? { conversationId, images } : {}),
         changes: [],
       },
       before,
@@ -159,6 +179,41 @@ export class AgentChanges {
     this.turns.unshift(turn);
     this.persist();
     return turn;
+  }
+  imagePath(turn: RecordTurn, path: string) {
+    if (!turn.view.images?.some((image) => image.path === path) || !turn.before[path])
+      throw new Error('The submitted image is unavailable.');
+    return join(this.directory, turn.before[path]);
+  }
+  async submittedImage(turnId: string, path: string, conversationId: string) {
+    const turn = this.turns.find(
+      (item) => item.view.id === turnId && item.view.conversationId === conversationId,
+    );
+    const image = turn?.view.images?.find((item) => item.path === path);
+    const mime = imageMime(path);
+    if (!turn || !image || !mime)
+      throw new Error('The submitted image is unavailable in this conversation.');
+    const handle = await fs.open(this.imagePath(turn, path), 'r');
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size > 10 * 1024 * 1024)
+        throw new Error('The saved image is unavailable.');
+      const bytes = Buffer.alloc(stat.size);
+      const read = await handle.read(bytes, 0, bytes.length, 0);
+      if (
+        read.bytesRead !== bytes.length ||
+        !imageBytesMatch(mime, bytes) ||
+        createHash('sha256').update(bytes).digest('hex') !== image.sha256
+      )
+        throw new Error('The saved submitted image changed and cannot be verified.');
+      return {
+        path,
+        mime: mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+        data: bytes.toString('base64'),
+      };
+    } finally {
+      await handle.close();
+    }
   }
   private comparison(
     before: string | null,

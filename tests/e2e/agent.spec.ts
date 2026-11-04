@@ -3,6 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 let app: ElectronApplication,
   page: Page,
   directory: string,
@@ -24,6 +25,7 @@ let sessions: Record<
 >;
 let modelsAvailable = true;
 let includeSecondaryModel = false;
+let imageModel = false;
 let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
 let requests: string[], streams: ServerResponse[], pendingTimers: ReturnType<typeof setTimeout>[];
 async function dimensions(width: number, height: number) {
@@ -104,6 +106,7 @@ test.beforeEach(async () => {
   sessions = {};
   modelsAvailable = true;
   includeSecondaryModel = false;
+  imageModel = false;
   requests = [];
   requestBodies = [];
   streams = [];
@@ -146,7 +149,7 @@ test.beforeEach(async () => {
                 name: 'Synthetic research model',
                 enabled: true,
                 type: 'chat',
-                capabilities: { tools: true, input: ['text'] },
+                capabilities: { tools: true, input: imageModel ? ['text', 'image'] : ['text'] },
                 variants: [{ id: 'low' }, { id: 'high' }],
               },
               ...(includeSecondaryModel
@@ -795,6 +798,38 @@ test('pasting an image saves an ordinary project asset and keeps clipboard text'
   });
   await page.getByRole('button', { name: 'Close image' }).click();
   await expect(image).toHaveCount(0);
+});
+
+test('submitted image snapshot stays available after the project file changes and after restart', async () => {
+  imageModel = true;
+  const bytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
+  await writeFile(join(root, 'board.png'), bytes);
+  await connect();
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
+  const payload = requestBodies.find((entry) => entry.path.endsWith('/prompt'))!.body;
+  expect(payload.text).toContain('project-relative files, in attachment order: board.png');
+  const files = payload.files as Array<{ uri: string }>;
+  const snapshotPath = fileURLToPath(files[0].uri);
+  expect(snapshotPath).not.toBe(join(root, 'board.png'));
+  expect(await readFile(snapshotPath)).toEqual(bytes);
+  await writeFile(join(root, 'board.png'), Buffer.from('changed'));
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-submitted-image-small.png'),
+    animations: 'disabled',
+  });
+  await restartElectron();
+  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
+  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
 });
 
 test('agent messages render supported Markdown as safe native elements', async () => {

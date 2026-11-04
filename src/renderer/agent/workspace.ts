@@ -17,8 +17,11 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     [modelKey, setModelKeyValue] = createSignal(''),
     [open, setOpen] = createSignal(false),
     [attachments, setAttachments] = createSignal<string[]>([]),
-    [imagePreview, setImagePreview] = createSignal<{ path: string; url: string } | null>(null),
-    [recentImages, setRecentImages] = createSignal<string[]>([]),
+    [imagePreview, setImagePreview] = createSignal<{
+      path: string;
+      url: string;
+      submitted: boolean;
+    } | null>(null),
     [selection, setSelection] = createSignal<{ path: string; text: string } | null>(null),
     [submitting, setSubmitting] = createSignal(false);
   let generation = 0,
@@ -153,7 +156,6 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setError('');
       setAttachments([]);
       setImagePreview(null);
-      setRecentImages([]);
       ++imageSequence;
       setSelection(null);
       setOpen(false);
@@ -206,7 +208,6 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const result = await act({ type: 'session', projectId });
     if (result) {
       setOpen(true);
-      setRecentImages([]);
       closeImage();
     }
     return !!result;
@@ -221,7 +222,6 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const result = await act({ type: 'session', projectId, sessionId });
     if (result) {
       setOpen(true);
-      setRecentImages([]);
       closeImage();
       return true;
     }
@@ -283,8 +283,6 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       });
       if (sent) {
         if (draft().trim() === prompt) setDraft('');
-        const images = attachments().filter((path) => imageMime(path));
-        if (images.length) setRecentImages(images);
         setAttachments([]);
         setSelection(null);
       }
@@ -343,7 +341,44 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     }
     const preview = result.value?.imagePreview;
     if (preview) {
-      setImagePreview({ path: preview.path, url: `data:${preview.mime};base64,${preview.data}` });
+      setImagePreview({
+        path: preview.path,
+        url: `data:${preview.mime};base64,${preview.data}`,
+        submitted: false,
+      });
+      setError('');
+    }
+  }
+  async function showSubmittedImage(turnId: string, path: string) {
+    const projectId = projects.project()?.id,
+      sessionId = state()?.sessionId,
+      current = generation,
+      requestId = ++imageSequence;
+    if (!projectId || !sessionId || !window.loom) return;
+    const result = await window.loom.agent({
+      type: 'preview-submitted-image',
+      projectId,
+      turnId,
+      path,
+    });
+    if (
+      current !== generation ||
+      requestId !== imageSequence ||
+      projects.project()?.id !== projectId ||
+      state()?.sessionId !== sessionId
+    )
+      return;
+    if (!result.ok) {
+      setError(result.error.message);
+      return;
+    }
+    const preview = result.value.imagePreview;
+    if (preview) {
+      setImagePreview({
+        path: preview.path,
+        url: `data:${preview.mime};base64,${preview.data}`,
+        submitted: true,
+      });
       setError('');
     }
   }
@@ -511,7 +546,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     attachments,
     imagePreview,
     closeImage,
-    recentImages,
+    showSubmittedImage,
     showImage,
     pasteImage,
     setAttachments,

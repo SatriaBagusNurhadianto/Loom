@@ -575,17 +575,24 @@ export function AgentImagePreview(props: { agent: AgentWorkspace }) {
       {(preview) => (
         <div class="agent-image-preview" aria-label="Project image preview">
           <div>
-            <strong>Project image</strong>
+            <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
             <span title={preview().path}>{preview().path}</span>
             <button class="text-button" onClick={a.closeImage}>
               Close image
             </button>
           </div>
-          <small>Current project file; it may have changed since it was sent.</small>
+          <small>
+            {preview().submitted
+              ? 'Saved with this request for comparison.'
+              : 'Current project file; it may have changed since it was sent.'}
+          </small>
           <Show when={a.open()}>
             <small class="agent-image-short-hint">Close image to return to the conversation.</small>
           </Show>
-          <img src={preview().url} alt={`Current project image: ${preview().path}`} />
+          <img
+            src={preview().url}
+            alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+          />
         </div>
       )}
     </Show>
@@ -706,16 +713,28 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           </button>
         </div>
       </div>
-      <Show when={a.recentImages().length}>
-        <div class="agent-attachments" aria-label="Recent project images">
-          <For each={a.recentImages()}>
-            {(path) => (
-              <button
-                title={`View current project image ${path}`}
-                onClick={() => void a.showImage(path)}
-              >
-                Compare {path}
-              </button>
+      <Show
+        when={a
+          .state()
+          ?.turns.some(
+            (turn) => turn.conversationId === a.state()?.sessionId && turn.images?.length,
+          )}
+      >
+        <div class="agent-attachments" aria-label="Submitted images">
+          <For
+            each={a.state()?.turns.filter((turn) => turn.conversationId === a.state()?.sessionId)}
+          >
+            {(turn) => (
+              <For each={turn.images}>
+                {(image) => (
+                  <button
+                    title={`View image ${image.path} submitted ${turn.startedAt}`}
+                    onClick={() => void a.showSubmittedImage(turn.id, image.path)}
+                  >
+                    Compare {image.path} · {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
+                  </button>
+                )}
+              </For>
             )}
           </For>
         </div>

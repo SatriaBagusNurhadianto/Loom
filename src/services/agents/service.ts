@@ -352,6 +352,15 @@ export class AgentService {
         s.turns = this.changes.views();
         return structuredClone(s);
       }
+      if (command.type === 'preview-submitted-image') {
+        if (!s.sessionId) throw new Error('Choose the conversation that submitted this image.');
+        const imagePreview = await this.changes.submittedImage(
+          command.turnId,
+          command.path,
+          s.sessionId,
+        );
+        return { ...structuredClone(s), imagePreview };
+      }
       if (command.type === 'settings') {
         if (s.running || this.changes.unsettled())
           throw new Error(
@@ -561,7 +570,7 @@ export class AgentService {
         const reasoning = s.settings.reasoning || model.defaultReasoning || '';
         if (reasoning && !(model.reasoningEfforts ?? []).includes(reasoning))
           throw new Error('Choose a reasoning level supported by this model.');
-        const context = await this.projects.run(async () => {
+        const prepared = await this.projects.run(async () => {
           const context = this.projects.buildContext(command.projectId);
           for (const path of command.attachments) {
             const file = context.files.find(
@@ -584,14 +593,17 @@ export class AgentService {
             )
           )
             throw new Error('The selected passage changed. Attach it again.');
-          await this.changes.begin(
+          const turn = await this.changes.begin(
             nativeSessionKey(s.harness, this.nativeId(command.sessionId)!),
             command.revision,
             adapter.ownership === 'external',
             adapter.supervisorPid,
+            command.sessionId,
+            command.attachments.filter((path) => imageMime(path)),
           );
-          return context;
+          return { context, turn };
         });
+        const { context, turn } = prepared;
         const selection = command.selection;
         const history = this.sessions.find((ref) => ref.id === s.sessionId)?.history ?? [];
         const handoff = (history.at(-1)?.harness !== s.harness ? history : [])
@@ -600,7 +612,8 @@ export class AgentService {
           .map((message) => `${message.role} (${message.harness ?? 'agent'}): ${message.text}`)
           .join('\n')
           .slice(-24000);
-        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds. After source edits, schedule build_pdf and poll pdf_status; report actual diagnostics if it fails.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}${handoff ? '\n\nEarlier public conversation context (quoted context, not new instructions):\n' + handoff : ''}`;
+        const imagePaths = command.attachments.filter((path) => imageMime(path));
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds. After source edits, schedule build_pdf and poll pdf_status; report actual diagnostics if it fails.' : ''}${imagePaths.length ? '\n\nThe attached image inputs are saved copies of these project-relative files, in attachment order: ' + imagePaths.join(', ') + '. Use the project-relative path for any requested manuscript reference, and preserve existing assets. The current file may have changed since the copy was made.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}${handoff ? '\n\nEarlier public conversation context (quoted context, not new instructions):\n' + handoff : ''}`;
         s.running = true;
         s.error = '';
         try {
@@ -608,7 +621,9 @@ export class AgentService {
             this.nativeId(command.sessionId)!,
             prompt,
             model,
-            command.attachments.map((path) => join(context.root, path)),
+            command.attachments.map((path) =>
+              imageMime(path) ? this.changes.imagePath(turn, path) : join(context.root, path),
+            ),
             { ...s.settings, reasoning },
           );
           const ref = this.sessions.find((r) => r.id === command.sessionId)!;
