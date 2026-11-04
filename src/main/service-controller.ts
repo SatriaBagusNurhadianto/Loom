@@ -290,12 +290,20 @@ export class ServiceController {
     if (this.projectPending.size >= 32) return failure('BUSY', 'Too many project operations.');
     const id = `${this.generation}:project:${++this.nextId}`;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.unavailable(
-          'TIMEOUT',
-          'Project operation interrupted. Restart the service and reopen the project to recover.',
-        );
-      }, 30000);
+      const timer = setTimeout(
+        () => {
+          this.unavailable(
+            'TIMEOUT',
+            'Project operation interrupted. Restart the service and reopen the project to recover.',
+          );
+        },
+        typeof command === 'object' &&
+          command !== null &&
+          'type' in command &&
+          command.type === 'native-git-clone'
+          ? 250_000
+          : 30000,
+      );
       this.projectPending.set(id, { resolve, timer });
       try {
         this.transport!.postMessage({ type: 'project', id, command });
@@ -359,7 +367,7 @@ export class ServiceController {
         resolve(
           failure('TIMEOUT', 'Git operation timed out. Refresh repository status before retrying.'),
         );
-      }, 120_000);
+      }, 250_000);
       this.gitPending.set(id, { resolve, timer });
       try {
         this.transport!.postMessage({ type: 'git', id, command });

@@ -151,14 +151,14 @@
 
 **Prerequisites:** Phases 2–4 complete; Phase 5 for bibliography preflight.
 
-- [ ] Add repository/branch/status detection, native Git credential guidance, and clone flow.
-- [ ] Implement diff review, selective staging, commit, fetch, pull, push, and branch workflows.
-- [ ] Coordinate pending document writes and agent activity around working-tree mutations.
-- [ ] Reconcile Git changes into the live model and present conflicts with preserved inputs.
-- [ ] Add portable source ZIP/PDF export, stale-PDF identification, and build/reference/asset preflight.
-- [ ] Exclude credentials, private chats, machine state and disposable outputs from default exports/commits.
+- [x] Add repository/branch/status detection, native Git credential guidance, and clone flow.
+- [x] Implement diff review, selective staging, commit, fetch, pull, push, and branch workflows.
+- [x] Coordinate pending document writes and agent activity around working-tree mutations.
+- [x] Reconcile Git changes into the live model and present conflicts with preserved inputs.
+- [x] Add portable source ZIP/PDF export, stale-PDF identification, and build/reference/asset preflight.
+- [x] Exclude known credentials, private chats, machine state and disposable outputs from default exports/commits, with included-path review and an explicit limitation warning.
 
-**Verification:** Use two local clones and a local bare remote for deterministic exchange/conflict checks. Verify authorized GitHub connectivity separately. Extract an exported project and build it with a documented compatible local toolchain.
+**Verification:** `npm run check` passed (175 tests passed, 31 skipped); all 3 focused Phase 7 Electron Git tests passed. In the 69-case full Electron suite, 56 passed and 12 were skipped; one existing Phase 5 Escape-focus assertion failed twice in the full-suite order but passed when rerun alone. Two local clones and a bare remote exchanged revisions and resolved a merge conflict; native clone, reviewed commit, export exclusion and extracted source compilation passed. `git ls-remote origin HEAD` confirmed read-only access to the configured GitHub remote; no live push was performed. See [Phase 7 testing](docs/phase-7-testing.md) and exact evidence/limits in [project_status.md](project_status.md).
 
 **Exit:** Separate authors can exchange revisions asynchronously, resolve conflicts, and export a portable submission bundle without silent source loss or accidental private-state publication.
 

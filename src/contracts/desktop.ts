@@ -11,6 +11,7 @@ import {
 } from './project';
 import { z } from 'zod';
 import { gitResultSchema, type GitCommand, type GitResult } from './git';
+import { sourceExportResultSchema, type SourceExportRequest } from './git';
 
 export const channels = {
   closeRequest: 'loom:window:close-request',
@@ -27,6 +28,8 @@ export const channels = {
   openSource: 'loom:research:open-source',
   latex: 'loom:latex:command',
   git: 'loom:git:command',
+  cloneGit: 'loom:git:clone',
+  exportSource: 'loom:source:export',
   setup: 'loom:latex:setup',
   exportPdf: 'loom:latex:export',
 } as const;
@@ -101,6 +104,8 @@ export interface LoomDesktop {
   openSetup(guide: 'tex' | 'texlab' | 'opencode' | 'codex'): Promise<void>;
   latex(command: LatexCommand): Promise<LatexResult>;
   git(command: GitCommand): Promise<GitResult>;
+  cloneGit(request: { url: string }): Promise<ProjectResult>;
+  exportSource(request: SourceExportRequest): Promise<z.infer<typeof sourceExportResultSchema>>;
   exportPdf(request: { projectId: string; buildId: string; stale: boolean }): Promise<LatexResult>;
   chooseAttachments(request: {
     projectId: string;

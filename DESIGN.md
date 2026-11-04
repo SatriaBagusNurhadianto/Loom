@@ -100,6 +100,8 @@ Proposed placement of Loom additions, pending user discussion:
 
 Panel sizes and focus should survive routine edits and compilation. Loading and error states should preserve layout. Narrow windows should use explicit focus modes instead of squeezing every panel into view.
 
+Git status stays in the compact workspace footer. The Git review surface opens on demand and groups file status/diffs, staged commit review, branch/remote actions, conflict inputs, and publication preflight without displacing the center-column assistant composer. The preflight shows included and excluded files and its warning state before the native export picker. At a 720×540 window, the scrollable surface keeps actions and focusable file review within the dialog.
+
 ## Elevation & Depth
 
 Match the reference's surface hierarchy after visual inspection. Supplementary tools should appear in contextual panels, menus, and review surfaces without obscuring the passage under review.

@@ -39,10 +39,11 @@ export function runTool(
     cwd?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
+    maxOutputBytes?: number;
     env?: NodeJS.ProcessEnv;
     onOutput?: (chunk: string) => void;
   } = {},
-): Promise<{ code: number; output: string }> {
+): Promise<{ code: number; output: string; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     if (options.signal?.aborted) {
       reject(new Error('Operation cancelled.'));
@@ -50,14 +51,18 @@ export function runTool(
     }
     const child = spawnOwnedTool(executable, args, options.cwd, options.env);
     let output = '',
+      stdout = '',
+      stderr = '',
       timedOut = false;
-    const append = (bytes: Buffer) => {
+    const append = (stream: 'stdout' | 'stderr') => (bytes: Buffer) => {
       const text = bytes.toString('utf8');
-      output = (output + text).slice(-140000);
+      output = (output + text).slice(-(options.maxOutputBytes ?? 140000));
+      if (stream === 'stdout') stdout = (stdout + text).slice(-(options.maxOutputBytes ?? 140000));
+      else stderr = (stderr + text).slice(-(options.maxOutputBytes ?? 140000));
       options.onOutput?.(text);
     };
-    child.stdout.on('data', append);
-    child.stderr.on('data', append);
+    child.stdout.on('data', append('stdout'));
+    child.stderr.on('data', append('stderr'));
     const cancel = () => child.stdin.end();
     const timer = setTimeout(() => {
       timedOut = true;
@@ -76,7 +81,7 @@ export function runTool(
       cleanup();
       if (timedOut)
         reject(new Error('Tool timed out. Check the build log and local tool installation.'));
-      else resolve({ code: code ?? 130, output });
+      else resolve({ code: code ?? 130, output, stdout, stderr });
     });
   });
 }

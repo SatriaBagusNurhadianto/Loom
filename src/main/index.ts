@@ -30,7 +30,13 @@ import {
 } from '../contracts/desktop';
 import { ServiceController } from './service-controller';
 import { imageMime } from '../domain/images';
-import { gitCommandSchema } from '../contracts/git';
+import {
+  gitCloneRequestSchema,
+  gitCommandSchema,
+  sourceExportRequestSchema,
+} from '../contracts/git';
+import { writeSourceExport } from './source-export';
+import { promises as fs } from 'node:fs';
 
 let window: BrowserWindow | undefined;
 let closeAllowed = false;
@@ -191,6 +197,221 @@ void app.whenReady().then(() => {
     return command.success
       ? service.git(command.data)
       : failure('INVALID_REQUEST', 'Invalid Git request.', false);
+  });
+  ipcMain.handle(channels.cloneGit, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return {
+        ok: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'This window cannot clone repositories.',
+          retryable: false,
+        },
+      };
+    const input = gitCloneRequestSchema.safeParse(payload);
+    if (!input.success)
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message:
+            'Use an HTTPS or SSH Git remote without embedded credentials, or a local file URL.',
+          retryable: false,
+        },
+      };
+    if (choosing)
+      return {
+        ok: false,
+        error: { code: 'BUSY', message: 'A native dialog is already open.', retryable: true },
+      };
+    choosing = true;
+    try {
+      const selected = await dialog.showOpenDialog(window!, {
+        title: 'Choose where to clone the repository',
+        buttonLabel: 'Choose parent folder',
+        defaultPath: service.projectLocation?.path,
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (selected.canceled || !selected.filePaths[0]) return { ok: true, value: null };
+      let repositoryName = '';
+      try {
+        const url = new URL(input.data.url);
+        repositoryName = basename(url.pathname.replace(/\/$/, '')).replace(/\.git$/i, '');
+      } catch {
+        repositoryName = basename(input.data.url.slice(input.data.url.indexOf(':') + 1)).replace(
+          /\.git$/i,
+          '',
+        );
+      }
+      if (
+        !/^[\p{L}\p{N}._-]{1,100}$/u.test(repositoryName) ||
+        repositoryName === '.' ||
+        repositoryName === '..'
+      )
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'The remote does not have a safe repository folder name.',
+            retryable: false,
+          },
+        };
+      const parent = await fs.realpath(selected.filePaths[0]);
+      const destination = join(parent, repositoryName);
+      try {
+        await fs.lstat(destination);
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: `The destination ${repositoryName} already exists. Choose another parent folder.`,
+            retryable: false,
+          },
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      return await service.project({ type: 'native-git-clone', url: input.data.url, destination });
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: 'GIT_ERROR',
+          message:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : 'Git clone failed. Check the destination and retry.',
+          retryable: true,
+        },
+      };
+    } finally {
+      choosing = false;
+    }
+  });
+  ipcMain.handle(channels.exportSource, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return {
+        ok: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'This window cannot export project sources.',
+          retryable: false,
+        },
+      };
+    const input = sourceExportRequestSchema.safeParse(payload);
+    if (!input.success)
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Refresh publication preflight before exporting.',
+          retryable: false,
+        },
+      };
+    if (choosing)
+      return {
+        ok: false,
+        error: { code: 'BUSY', message: 'A native dialog is already open.', retryable: true },
+      };
+    choosing = true;
+    try {
+      const current = await service.project({ type: 'refresh' });
+      const location = service.projectLocation;
+      if (
+        !current.ok ||
+        !current.value ||
+        current.value.id !== input.data.projectId ||
+        location?.projectId !== input.data.projectId
+      )
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'The project changed. Refresh preflight before exporting.',
+            retryable: true,
+          },
+        };
+      if (current.value.sourceRevision !== input.data.revision)
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message: 'Project files changed after preflight. Refresh the review before exporting.',
+            retryable: true,
+          },
+        };
+      const archive = await service.git({
+        type: 'archive',
+        projectId: input.data.projectId,
+        expectedRevision: input.data.revision,
+      });
+      if (!archive.ok) return archive;
+      if (archive.value.kind !== 'archive')
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'The source archive service returned an invalid result.',
+            retryable: true,
+          },
+        };
+      const selected = await dialog.showSaveDialog(window!, {
+        title: 'Export portable LaTeX source',
+        buttonLabel: 'Export source ZIP',
+        defaultPath: 'paper-source.zip',
+        filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
+      });
+      if (selected.canceled || !selected.filePath)
+        return {
+          ok: true,
+          value: {
+            cancelled: true,
+            included: archive.value.included.length,
+            excluded: archive.value.excluded.length,
+          },
+        };
+      const latest = await service.project({ type: 'refresh' });
+      if (
+        !latest.ok ||
+        latest.value?.id !== input.data.projectId ||
+        latest.value.sourceRevision !== input.data.revision
+      )
+        return {
+          ok: false,
+          error: {
+            code: 'INVALID_REQUEST',
+            message:
+              'Project files changed while the save dialog was open. Refresh preflight and try again.',
+            retryable: true,
+          },
+        };
+      await writeSourceExport(selected.filePath, archive.value.bytes, {
+        root: location.path,
+        paths: latest.value.files.map((file) => file.path),
+      });
+      return {
+        ok: true,
+        value: {
+          cancelled: false,
+          included: archive.value.included.length,
+          excluded: archive.value.excluded.length,
+        },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: 'EXPORT_ERROR',
+          message:
+            error instanceof Error
+              ? error.message.slice(0, 500)
+              : 'Source export failed. Check the destination and retry.',
+          retryable: true,
+        },
+      };
+    } finally {
+      choosing = false;
+    }
   });
   ipcMain.handle(channels.research, async (event, payload: unknown) => {
     if (!trustedSender(event))

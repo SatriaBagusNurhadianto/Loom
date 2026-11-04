@@ -1,6 +1,6 @@
 # Loom architecture
 
-**Status:** Phases 1–3 shell, project/document, local build/language and PDF services implemented. Agent, research and Git services below remain planned; verification state belongs in project_status.md.
+**Status:** Phases 1–7 shell, project/document, local build/language, PDF, agent, research, Git and source export services implemented. Verification state and limits belong in project_status.md.
 
 **Product authority:** [PRD.md](PRD.md). **Visual authority:** [DESIGN.md](DESIGN.md). **Build sequence:** [phases.md](phases.md). **Actual implementation state:** [project_status.md](project_status.md).
 
@@ -218,6 +218,14 @@ Native Git owns repository state and credential use. Loom coordinates operations
 3. Serialize incompatible operations with agent editing and saves.
 4. Reconcile resulting filesystem changes into the live document model.
 5. Surface conflicts and retain the inputs until resolved.
+
+The utility process invokes Git with argument arrays and the existing machine credential helper/SSH configuration. Renderer Git commands carry a project ID and validated project-relative path; clone receives a credential-free HTTPS/SSH URL or an explicit local file URL, then main chooses a destination parent with a native directory picker and derives a safe folder name. Clone has a four-minute process bound. A failed clone reports that a partial destination may remain for inspection.
+
+Status uses porcelain v1 NUL-delimited output, reports attached/detached branch, upstream, ahead/behind, merge state and a bounded changed-file list. Diffs disable external diff programs and color and are bounded. Stage/unstage accept only files in the refreshed project inventory. Loom rejects known private/generated paths when staging and checks the complete staged path list again before commit. Commit review records the index tree, requires staged diffs to be opened in the UI and verifies the exact index tree immediately before committing. This narrows index races; Git hooks and external writers remain native Git behavior.
+
+Pull and branch switching require a clean worktree; Loom never stashes or discards changes. Pull uses a merge (no rebase). A conflict keeps Git's stage 1/2/3 inputs available for review; the author can choose ours/theirs or edit the live file and mark it resolved. Git mutations serialize against project writes and are blocked during an active agent turn. Pull/resolve/branch operations refresh the project filesystem bridge before returning. Push requires an upstream and does not force-push. Fetch, pull and push use the configured native credential helper or SSH setup; Loom does not store Git credentials.
+
+Source ZIP preflight and archive generation share a synchronized project snapshot and revision. The bounded archive excludes `.git`, Loom/private agent data, known credentials/state folders and common disposable compiler outputs while preserving ordinary manuscript source, bibliography, classes, configuration and assets. Literal LaTeX checks cover common references, bibliography keys, local bibliography files, `\input`/`\include`, and `\includegraphics`; dynamic/custom macros may escape these checks. Filename filters cannot prove that a source file contains no private information, so Loom presents every included and excluded path and warns the author to inspect the list. The ZIP is written atomically to an author-selected location outside the project. Existing PDF export remains tied to a build snapshot; the publication view identifies whether that PDF is stale.
 
 Review/revert controls never imply an automatic commit or remote push. Source exports include required source/assets and optional portable build configuration, excluding private app state. PDF exports identify the build revision and warn when the source has advanced.
 

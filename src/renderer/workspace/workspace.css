@@ -2753,6 +2753,10 @@ dialog:has(.agent-image-expanded-canvas) {
   padding: 0;
 }
 .workspace-statusbar .status-button {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   white-space: nowrap;
   font-size: 10px;
   flex-shrink: 0;

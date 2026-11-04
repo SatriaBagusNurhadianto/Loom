@@ -40,6 +40,7 @@ import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
 import { imageMime } from '../../domain/images';
 import { GitWorkspace } from '../git/GitWorkspace';
+import type { GitStatus } from '../../contracts/git';
 
 declare global {
   interface Window {
@@ -69,6 +70,13 @@ export function Workspace() {
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [referencesOpen, setReferencesOpen] = createSignal(false);
   const [gitOpen, setGitOpen] = createSignal(false);
+  const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
+  let gitProjectId: string | undefined;
+  createEffect(() => {
+    const id = projects.project()?.id;
+    if (id !== gitProjectId) setGitStatus(null);
+    gitProjectId = id;
+  });
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
   const [newChatProject, setNewChatProject] = createSignal<string | null>(null);
   const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
@@ -1162,13 +1170,33 @@ export function Workspace() {
           onClick={() => setGitOpen(true)}
           title={example() ? 'Git is unavailable for the synthetic example.' : undefined}
         >
-          Git
+          {gitStatus()?.repository
+            ? `Git · ${gitStatus()?.branch ?? 'detached'}${gitStatus()?.files.length ? ` · ${gitStatus()?.files.length} changed` : ''}`
+            : 'Git · check status'}
         </button>
       </footer>
       <GitWorkspace
         projectId={() => projects.project()?.id}
         open={gitOpen}
         onClose={() => setGitOpen(false)}
+        beforeMutation={async () => Boolean(await projects.flushPending())}
+        onCloned={async () => {
+          await projects.command({ type: 'current' });
+        }}
+        onStatus={setGitStatus}
+        onPreparePublication={() => {
+          const starter =
+            'Help adapt this manuscript for the journal or conference instructions I will provide. First inspect the instructions and relevant project files, explain proposed changes, and prepare an editable revision. Preserve scientific claims and source assets; do not send or commit changes automatically. I will review all edits and compile the result.';
+          const previous = agent.draft().trim();
+          agent.setDraft(previous ? `${previous}\n\n${starter}` : starter);
+          agent.setOpen(true);
+        }}
+        onSelectPath={(path) => {
+          const file = projects
+            .project()
+            ?.files.find((entry) => entry.path === path && !entry.deleted);
+          if (file) void projects.select(file.id);
+        }}
       />
       <AgentConnections
         agent={agent}
