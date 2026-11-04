@@ -267,7 +267,7 @@ export function References(props: {
   return (
     <Modal
       title="References"
-      icon="search"
+      icon="bookOpen"
       open={props.open}
       onClose={close}
       initialFocus="#reference-search"

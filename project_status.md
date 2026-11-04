@@ -423,3 +423,9 @@ All seven Phase 5 implementation gates are checked in [phases.md](phases.md), ba
 Phase 5 limits: local personal Zotero API only; actual Zotero desktop verification remains unavailable on this machine. arXiv results are metadata/abstract evidence, not full-text inspection or scientific validation. Remote queries are explicitly submitted; supported source/include/resource syntax is literal and project-relative. Local results are bounded (5,000 returned valid records, 100 visible rows), arXiv 30 and Zotero 50; narrowing the query exposes other records. Oversized records produce notices. Interrupted groups preserve saved versions; overlapping newer work can require explicit manual repair/Keep current files. Linux packaging and exercised desktop sizes are evidence, not installed/cross-platform/power-loss release acceptance.
 
 Next concrete task: read Phase 6 prerequisites/FR-10 and add supported image inputs with harness/model capability detection, original-image comparison and uncertainty correction. Preserve the existing ordinary-project recovery and scientific-evidence boundaries.
+
+### References icon update
+
+- Replaced the References toolbar and dialog magnifying glasses with the existing open-book icon; search keeps its established icon. Updated the README and Phase 5 testing guide so authors can find the control.
+- Verified `npm run check` (149 tests passed, 24 optional skipped), `npm run test:e2e` (37 passed, 12 optional skipped), strict UI audit and DESIGN lint (zero errors/warnings). Inspected actual Electron at 1440×900 and 720×540 with keyboard/reference workflows; screenshots are `artifacts/references-icon-desktop.png` and `artifacts/references-icon-small.png`. `npm run package` passed; the rebuilt sandboxed executable passed all four synthetic References workflows (one optional live case skipped). Native picker and Zotero responses are fixture-controlled.
+- Next: Phase 6 scientific content/images.

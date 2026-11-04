@@ -704,7 +704,7 @@ export function Workspace() {
               <Show when={projects.project()}>
                 <IconButton
                   label="References"
-                  icon="search"
+                  icon="bookOpen"
                   onClick={() => setReferencesOpen(true)}
                 />
               </Show>
