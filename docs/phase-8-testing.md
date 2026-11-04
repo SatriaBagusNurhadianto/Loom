@@ -27,11 +27,44 @@ The focused guides include commands and synthetic fixture details. The broad reg
 
 A focused integrated Electron sweep passed **27 tests**: agent interruption/permission/overlap and image cases (13), research/citation/Zotero cases (4), Git/export (7), and desktop recovery (3). It used synthetic harnesses, a local Zotero fixture, and local Git repositories; no provider inference, credential-dependent call, or remote push occurred. The previously recorded full-suite-order References Escape/focus assertion failure was not included in this focused sweep; its isolated rerun passed. See [project status](../project_status.md) for the current Phase 8 limits and pending reviews.
 
-Additional focused persistence review passed 33 deterministic cases, 6 desktop recovery/IME-adjacent cases, 3 agent recovery cases, and 11 build-path cases. A new real-Electron restart case for a project root containing spaces and non-ASCII characters passed 1/1. Packaging checks built both the unpacked app and AppImage; two focused scenarios passed from each in extract-and-run mode. Normal AppImage launch and installation remain unverified because the host lacks `libfuse.so.2`. No large-project performance measurements or physical IME check were completed.
+Additional focused persistence review passed 33 deterministic cases, 6 desktop recovery/IME-adjacent cases, 3 agent recovery cases, and 11 build-path cases. A new real-Electron restart case for a project root containing spaces and non-ASCII characters passed 1/1. Packaging checks built both the unpacked app and AppImage; two focused scenarios passed from each in extract-and-run mode. Normal AppImage launch and installation remain unverified because the host lacks `libfuse.so.2`. At that checkpoint no large-project performance measurements or physical IME check had been completed; the focused workload rerun is recorded below.
 
 ## Performance workload and reporting
 
 Use the PRD Section 10.1 workload: 100,000 source lines across 1,000 files, a 200-page PDF, and 5,000 bibliography entries. Record CPU model/core count, RAM, storage, display resolution, OS, package hash, harness/tool versions, and whether the machine was otherwise idle. Measure cold startup to usable editor, opening a 10,000-line file, mapped source/PDF navigation, 5,000-entry local bibliography search, p95 typing-to-paint while a build and agent stream are active, idle CPU after work settles, and memory across repeated edits/builds. Keep external model latency and compiler duration separate from Loom interaction measurements. Report sample count, measurement method, p50/p95 where applicable, and any workload fixture limits. The PRD figures are proposed targets; do not report them as established requirements or passes without measurements.
+
+Generate a synthetic project that exceeds the input sizes without overwriting an existing directory:
+
+```bash
+npm run workload:phase8 -- .cache/phase-8-large-project
+```
+
+This creates 1,002 `.tex` files with 111,012 lines, including one 10,000-line file, 5,000 bibliography records, and a valid 200-page synthetic PDF. To collect the packaged-app smoke metrics:
+
+```bash
+LOOM_PHASE8_PROJECT="$PWD/.cache/phase-8-large-project" \
+LOOM_E2E_EXECUTABLE="$PWD/release/linux-unpacked/loom" \
+npm run bench:phase8
+```
+
+The opt-in bench writes its measurements to `artifacts/phase-8-workload-metrics.json`. It samples package launch-to-service-ready, project-open-to-editor, project search, 10,000-line navigation, end-to-end bibliography UI search, 50 keydown-to-animation-frame delays, per-process PSS/RSS snapshots before/after interaction, and five-second CPU after save acknowledgment and a three-second settling interval. The one-second project refresh stays active during CPU sampling. Bibliography latency includes the UI action, IPC, project refresh, parsing, filtering and rendering; it does not isolate parsing or indexed-search performance. Memory uses `/proc/<pid>/smaps_rollup` PSS when readable for every sampled process; otherwise the fallback is a process-tree RSS sum, which can double-count shared memory. Two snapshots do not establish memory growth, bounded caches or leaks. The animation-frame delay is a browser-side proxy rather than display presentation latency. This smoke does not model simultaneous TeX compilation and live agent streaming. It does not substitute for the full PRD measurements or hardware/physical IME checks.
+
+### Focused packaged workload rerun — 5 November 2026
+
+`npm run workload:phase8 -- .cache/phase-8-focused-benchmark` generated the stated 1,002-file/111,012-line fixture. The documented environment variables with that folder and `release/linux-unpacked/loom`, followed by `npm run bench:phase8`, passed **1/1** in 22.3 seconds. The initial focused rerun timed out because the default narrow viewport hid the sidebar and the Project button opened a dialog; the passing test sets and records a 1440×900 renderer viewport and searches directly in the Project sidebar.
+
+Single-run measurements (not p95 estimates except the 50-key typing sample):
+
+- Launch to service ready: **286.8 ms**; separate project chooser/open to editor: **1,648.6 ms**. This is not cold launch into a recent project; OS caches were not cleared.
+- Project text search: **1,439.5 ms**; navigation to the search hit in the 10,000-line file: **1,291.6 ms**.
+- Bibliography end-to-end UI search: **1,379.1 ms**.
+- Keydown to next animation frame, 50 samples: p50 **3.1 ms**, p95 **4.6 ms**, maximum **16.2 ms**.
+- Process-tree PSS: **641.97 MiB** after open and **1,128.70 MiB** after interactions/settling. PSS was readable for every process; per-process PID/PPID/PSS/RSS are in `artifacts/phase-8-workload-metrics.json`. Corresponding RSS sums were **1,183.04 / 1,750.96 MiB** and can double-count shared pages.
+- CPU after save acknowledgment and three seconds of settling: **145.71% of one core** over **5,003.1 ms**, including the one-second project refresh and all sampled Electron descendants. Near-idle CPU is not established; this high sample needs profiling in the broader Phase 8 work.
+
+Host: Linux `7.2.3-arch1-3`, AMD Ryzen 9 9955HX (16 cores/32 threads), 30 GiB RAM, Samsung NVMe `MZAL81T0HFLB-00BL2`. Machine activity was uncontrolled; physical display resolution was not confirmed. Existing packaged Electron 45.2.1 artifact was used without rebuilding app code: executable SHA-256 `870b5982c855df1405399efa0d51d83e6e048b3308a84cce4040bc3b052ce9f3`, `resources/app.asar` SHA-256 `32e4611dacde73bb15724a7608927bef23d0cf041de1b6a5d1ce8afb6e5f25a7`. Local TinyTeX is available (`~/.TinyTeX/bin/x86_64-linux/latexmk -v`: 4.88); this benchmark did not compile or stream an agent. Its 200-page PDF remains a source-folder asset, not an exercised PDF.js build snapshot. These measurements do not satisfy mapped PDF navigation, repeated edit/build memory behavior, compilation/stream concurrency, normal AppImage installation, or the full Phase 8 gate.
+
+Focused checks passed: `npm run typecheck`; `npx prettier --check tests/e2e/phase8-workload.spec.ts scripts/phase-8-workload.mjs docs/phase-8-testing.md package.json project_status.md`; `npx playwright test tests/e2e/phase8-workload.spec.ts --list` (1 test); `git diff --check`. No broad suite, new package build, physical IME or live-provider run was performed for this unit.
 
 ## Manual compatibility and security review
 

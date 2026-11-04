@@ -26,6 +26,8 @@
     "package:appimage": "npm run build && electron-builder --linux AppImage",
     "try:phase3": "node scripts/try-phase-3.mjs",
     "try:phase7": "node scripts/try-phase-7.mjs",
+    "workload:phase8": "node scripts/phase-8-workload.mjs",
+    "bench:phase8": "playwright test tests/e2e/phase8-workload.spec.ts",
     "setup:latex": "node scripts/setup-latex.mjs"
   },
   "dependencies": {
