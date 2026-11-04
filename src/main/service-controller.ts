@@ -2,6 +2,7 @@ import type { ResearchCommand, ResearchResult } from '../contracts/research';
 import type { AgentCommand, AgentResult } from '../contracts/agent';
 import type { LatexCommand, LatexResult } from '../contracts/latex';
 import type { ProjectResult } from '../contracts/project';
+import type { GitCommand, GitResult } from '../contracts/git';
 import {
   failure,
   serviceMessageSchema,
@@ -45,6 +46,10 @@ export class ServiceController {
   private agentPending = new Map<
     string,
     { resolve: (result: AgentResult) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private gitPending = new Map<
+    string,
+    { resolve: (result: GitResult) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private pending = new Map<string, Pending>();
   private startup: Promise<Result<ServiceStatus>> | undefined;
@@ -123,6 +128,11 @@ export class ServiceController {
       p.resolve(result);
     }
     this.agentPending.clear();
+    for (const p of this.gitPending.values()) {
+      clearTimeout(p.timer);
+      p.resolve(result);
+    }
+    this.gitPending.clear();
     if (!result.ok) this.publish(result.error);
     return result;
   }
@@ -162,6 +172,15 @@ export class ServiceController {
             clearTimeout(p.timer);
             this.agentPending.delete(data.id);
             p.resolve(data.result);
+          }
+          return;
+        }
+        if (data.type === 'git-result') {
+          const pending = this.gitPending.get(data.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.gitPending.delete(data.id);
+            pending.resolve(data.result);
           }
           return;
         }
@@ -326,6 +345,26 @@ export class ServiceController {
         this.transport!.postMessage({ type: 'latex', id, command });
       } catch {
         this.unavailable('SERVICE_UNAVAILABLE', 'LaTeX connection interrupted.');
+      }
+    });
+  }
+  async git(command: GitCommand): Promise<GitResult> {
+    const ready = await this.start();
+    if (!ready.ok) return ready;
+    if (this.gitPending.size >= 16) return failure('BUSY', 'Too many Git requests.');
+    const id = `${this.generation}:git:${++this.nextId}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.gitPending.delete(id);
+        resolve(
+          failure('TIMEOUT', 'Git operation timed out. Refresh repository status before retrying.'),
+        );
+      }, 120_000);
+      this.gitPending.set(id, { resolve, timer });
+      try {
+        this.transport!.postMessage({ type: 'git', id, command });
+      } catch {
+        this.unavailable('SERVICE_UNAVAILABLE', 'Git connection interrupted.');
       }
     });
   }

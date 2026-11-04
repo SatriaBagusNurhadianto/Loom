@@ -9,6 +9,7 @@ import {
   type ProjectCommand,
 } from '../contracts/project';
 import { contextBridge, ipcRenderer } from 'electron';
+import { gitCommandSchema, gitResultSchema } from '../contracts/git';
 import {
   channels,
   attachmentChoiceSchema,
@@ -78,6 +79,18 @@ const desktop: LoomDesktop = {
       return failure(
         'SERVICE_UNAVAILABLE',
         'LaTeX connection interrupted. Reconnect and compile again.',
+      );
+    }
+  },
+  git: async (command) => {
+    const input = gitCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid Git request.', false);
+    try {
+      return gitResultSchema.parse(await ipcRenderer.invoke(channels.git, input.data));
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'Git connection interrupted. Refresh repository status before retrying.',
       );
     }
   },

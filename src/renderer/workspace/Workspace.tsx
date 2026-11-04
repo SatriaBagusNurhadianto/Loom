@@ -39,6 +39,7 @@ import { EmptyState, IconButton, Modal } from '../ui/primitives';
 import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
 import { imageMime } from '../../domain/images';
+import { GitWorkspace } from '../git/GitWorkspace';
 
 declare global {
   interface Window {
@@ -67,6 +68,7 @@ export function Workspace() {
   const [chatHeight, setChatHeight] = createSignal(68);
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [referencesOpen, setReferencesOpen] = createSignal(false);
+  const [gitOpen, setGitOpen] = createSignal(false);
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
   const [newChatProject, setNewChatProject] = createSignal<string | null>(null);
   const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
@@ -1154,7 +1156,20 @@ export function Workspace() {
               ? 'Local service starting'
               : 'Local service unavailable'}
         </button>
+        <button
+          class="status-button"
+          disabled={!projects.project() || example()}
+          onClick={() => setGitOpen(true)}
+          title={example() ? 'Git is unavailable for the synthetic example.' : undefined}
+        >
+          Git
+        </button>
       </footer>
+      <GitWorkspace
+        projectId={() => projects.project()?.id}
+        open={gitOpen}
+        onClose={() => setGitOpen(false)}
+      />
       <AgentConnections
         agent={agent}
         open={connectionsOpen()}

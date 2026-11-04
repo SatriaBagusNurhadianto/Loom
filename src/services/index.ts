@@ -10,6 +10,8 @@ import { serviceRequestSchema } from '../contracts/desktop';
 import { projectCommandSchema } from '../contracts/project';
 import { ProjectService } from './project/projects';
 import { MetadataStore } from './project/store';
+import { gitCommandSchema, gitResultSchema } from '../contracts/git';
+import { GitService } from './git/service';
 import { z } from 'zod';
 const port = process.parentPort;
 if (!port) throw new Error('The Loom service requires a parent port.');
@@ -17,6 +19,10 @@ const projects = new ProjectService(new MetadataStore(process.argv[2]));
 const builds = new BuildService(projects, join(process.argv[2], 'builds'));
 const agents = new AgentService(projects, builds, process.argv[2]);
 const research = new ResearchService(projects, () => agents.active());
+const git = new GitService((projectId) => {
+  const context = projects.buildContext(projectId);
+  return { root: context.root, projectId, paths: context.files.map((file) => file.path) };
+});
 // Restore unresolved activity before a native project switch can escape its guard.
 const agentReady = agents.initialize().then(
   () => null,
@@ -29,6 +35,9 @@ const agentRequest = z
 const language = new TexlabClient();
 const latexRequest = z
   .object({ type: z.literal('latex'), id: z.string(), command: latexCommandSchema })
+  .strict();
+const gitRequest = z
+  .object({ type: z.literal('git'), id: z.string(), command: gitCommandSchema })
   .strict();
 let languageQueue: Promise<unknown> = Promise.resolve();
 
@@ -187,6 +196,36 @@ port.on('message', (event: { data: unknown }) => {
     if (command.type === 'language') {
       languageQueue = languageQueue.then(execute, execute);
     } else void execute();
+    return;
+  }
+  const gitMessage = gitRequest.safeParse(event.data);
+  if (gitMessage.success) {
+    const { id, command } = gitMessage.data;
+    void projects.run(async () => {
+      try {
+        await projects.current();
+        const value = await git.command(command);
+        port.postMessage({
+          type: 'git-result',
+          id,
+          result: gitResultSchema.parse({ ok: true, value }),
+        });
+      } catch (error) {
+        port.postMessage({
+          type: 'git-result',
+          id,
+          result: {
+            ok: false,
+            error: {
+              code: 'GIT_ERROR',
+              message:
+                error instanceof Error ? error.message.slice(0, 500) : 'Git operation failed.',
+              retryable: true,
+            },
+          },
+        });
+      }
+    });
     return;
   }
   const parsed = request.safeParse(event.data);

@@ -30,6 +30,7 @@ import {
 } from '../contracts/desktop';
 import { ServiceController } from './service-controller';
 import { imageMime } from '../domain/images';
+import { gitCommandSchema } from '../contracts/git';
 
 let window: BrowserWindow | undefined;
 let closeAllowed = false;
@@ -183,6 +184,13 @@ void app.whenReady().then(() => {
     const command = latexCommandSchema.safeParse(payload);
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid LaTeX command.', false);
     return service.latex(command.data);
+  });
+  ipcMain.handle(channels.git, (event, payload: unknown) => {
+    if (!trustedSender(event)) return failure('FORBIDDEN', 'This window cannot access Git.', false);
+    const command = gitCommandSchema.safeParse(payload);
+    return command.success
+      ? service.git(command.data)
+      : failure('INVALID_REQUEST', 'Invalid Git request.', false);
   });
   ipcMain.handle(channels.research, async (event, payload: unknown) => {
     if (!trustedSender(event))
