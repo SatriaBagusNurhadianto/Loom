@@ -92,6 +92,12 @@ Focused checks passed: `npm run typecheck`; `npx prettier --check tests/e2e/phas
 
 Independent Luna High verification then ran the same packaged benchmark three times against `.cache/phase-8-focused-benchmark`; all three passed. Launch-to-ready measured 279.7/284.4/293.1 ms, project open 1,698.9/1,730.1/1,680.6 ms, project search 399.2/908.1/949.3 ms, 10,000-line open 985.3/449.0/378.8 ms, bibliography search 1,753.9/1,256.8/1,947.5 ms, and typing p95 5.4/4.7/4.9 ms. The supplied fixture's `large-file.tex` had the same SHA-256 before and after (`ec24f8d3fcadc4ee7489ecb330444b01c6e0ce01f2474d9adf78c9be118e153c`), 10,000 lines, and 538,883 bytes. [`phase-8-workload-metrics.json`](../artifacts/phase-8-workload-metrics.json) contains the final run's detailed process and memory metrics; all three test results are summarized above and in `project_status.md`. These runs validate repeatable fixture isolation and successful searches; they do not establish controlled cold-start latency, CPU improvement, or memory growth.
 
+### Post-fix warmed CPU profile — 5 November 2026
+
+Independent Luna High rebuilt the current package and measured the same 1,002-file project after a 60-second editor warm-up with TexLab absent from `PATH`. Two 15-second samples with normal project refreshes measured **22.26%** and **21.13% of one core**. The first sample used 1.91 CPU seconds in the utility service, 1.28 in the renderer, 0.11 in main, and 0.04 in the network utility; the second used 1.93, 1.11, 0.10, and 0.03 seconds. The executable SHA-256 was `870b5982c855df1405399efa0d51d83e6e048b3308a84cce4040bc3b052ce9f3`; `app.asar` SHA-256 was `f3b1f9f5212392792239d4c851fcb65411caa804fdb26938fab54ecbe50cc91e`.
+
+These normal-observer readings are below the supplied pre-fix 34.93% sample, but the test was uncontrolled and does not prove a causal reduction or near-idle behavior. The attempted refresh interception failed (the preload bridge was non-writable; a main-process hook attempt later closed before producing metrics), so there is no valid post-fix intercepted comparison with the earlier 9.80% sample. Other desktop processes were active outside the sampled Loom process tree. No application files changed during this profile.
+
 ## Manual compatibility and security review
 
 - Enter Unicode using a physical IME (including composition and candidate confirmation), then save, close, reopen, search, and compile the source. Browser-dispatched composition events are not physical IME verification.
