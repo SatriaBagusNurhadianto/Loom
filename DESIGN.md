@@ -232,7 +232,7 @@ The user's newer chat screenshots supersede the earlier expanded conversation tr
 
 ## Compact chat controls and conversation management
 
-Pasting a supported image into the composer saves a uniquely named file in the paper and adds its attachment chip. The status reports the saved path; removing the chip does not delete the asset. Clipboard text is allowed to paste alongside an image. Unsupported images and busy operations explain why they cannot be attached.
+Pasting a supported image into the composer saves a uniquely named file in the paper and adds its attachment chip. The file picker can also copy explicitly selected external images into the paper; it reports how many were copied. The status reports the saved path for paste; removing a chip does not delete the asset. Clipboard text is allowed to paste alongside an image. Unsupported images and busy operations explain why they cannot be attached.
 
 Image attachments can open a bounded project-image preview over the source. It identifies the current file and warns that it may differ from what was sent. On short windows an open preview temporarily hides the expanded transcript, with an explanation; closing it restores the conversation. Source, composer, model guidance and the close action stay reachable.
 
@@ -244,7 +244,7 @@ Workspace tools offers Convert image, Revise notation, and Table or figure as ed
 
 Model selection uses a 340px popover with provider-logo buttons for connected/installed harnesses; reasoning uses 210px and permissions 300px, bounded to the desktop viewport. Provider changes keep one Loom conversation and distinct native sessions/settings. Public assistant messages identify the harness that produced them. A failed native resume retains readable history and offers New conversation while Send stays blocked. Chats rows provide a labeled trash action and the shared confirmation Modal. Delete removes local conversation history; manuscript/recovery and native harness history stay intact. Active or unsettled requests must stop before deletion or provider changes.
 
-The composer plus opens the native multi-file selector directly, for text files and supported images already in the open paper; cancellation leaves attachments unchanged and unsupported files explain scope. An image attached to a model without reported image input keeps the draft and shows model-switch guidance beside the composer. A selected source passage exposes a small Attach selected text action. Panel resize targets remain keyboard/pointer accessible while their visual strokes are one or two pixels. Source, PDF and transcript each own their necessary scroll region; wrapped code blocks have no nested horizontal scrollbar. Merge Changes scrolls only its file list when needed, leaving actions visible.
+The composer plus opens the native multi-file selector directly, for text files in the open paper and supported images selected from inside or outside it; cancellation leaves attachments unchanged and unsupported files explain scope. An image attached to a model without reported image input keeps the draft and shows model-switch guidance beside the composer. A selected source passage exposes a small Attach selected text action. Panel resize targets remain keyboard/pointer accessible while their visual strokes are one or two pixels. Source, PDF and transcript each own their necessary scroll region; wrapped code blocks have no nested horizontal scrollbar. Merge Changes scrolls only its file list when needed, leaving actions visible.
 
 ## References and source evidence — Phase 5
 

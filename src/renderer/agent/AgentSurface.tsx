@@ -675,9 +675,10 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
                   <Show when={imageMime(path)}>
                     <button
                       title={`View project image ${path}`}
+                      aria-label={`View image ${path}`}
                       onClick={() => void a.showImage(path)}
                     >
-                      View {path}
+                      View
                     </button>
                   </Show>
                   <button

@@ -71,12 +71,23 @@ export const serviceEventSchema = z
 export type ServiceEvent = z.infer<typeof serviceEventSchema>;
 
 // No project paths, file access, shell execution, or arbitrary IPC are exposed.
-export const attachmentChoiceSchema = z.object({ projectId: z.string().min(1).max(160) }).strict();
+export const attachmentChoiceSchema = z
+  .object({
+    projectId: z.string().min(1).max(160),
+    limit: z.number().int().min(1).max(20).optional(),
+  })
+  .strict();
 export const attachmentResultSchema = z.discriminatedUnion('ok', [
   z
     .object({
       ok: z.literal(true),
-      value: z.object({ cancelled: z.boolean(), paths: z.array(relativePath).max(20) }).strict(),
+      value: z
+        .object({
+          cancelled: z.boolean(),
+          paths: z.array(relativePath).max(20),
+          imported: z.number().int().min(0).max(20).optional(),
+        })
+        .strict(),
     })
     .strict(),
   z.object({ ok: z.literal(false), error: operationErrorSchema }).strict(),
@@ -90,6 +101,7 @@ export interface LoomDesktop {
   exportPdf(request: { projectId: string; buildId: string; stale: boolean }): Promise<LatexResult>;
   chooseAttachments(request: {
     projectId: string;
+    limit?: number;
   }): Promise<z.infer<typeof attachmentResultSchema>>;
   chooseFile(request: ChooseFileRequest): Promise<ProjectResult>;
   project(command: ProjectCommand): Promise<ProjectResult>;

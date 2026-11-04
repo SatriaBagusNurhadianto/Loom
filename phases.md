@@ -134,7 +134,7 @@
 
 **Prerequisites:** Phase 4 complete; Phase 5 required for citation-related operations.
 
-- [ ] Support image attachment/paste with capability detection and model-switch guidance.
+- [x] Support image attachment/paste with capability detection and model-switch guidance.
 - [ ] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
 - [ ] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
 - [ ] Preserve existing assets and use project-relative paths for new content.

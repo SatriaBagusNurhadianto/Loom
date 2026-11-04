@@ -36,6 +36,14 @@ const native = z.union([
   z.object({ type: z.literal('native-main-folder'), projectId: z.string().min(1) }).strict(),
   z
     .object({
+      type: z.literal('native-import-image'),
+      projectId: z.string().min(1),
+      source: z.string().min(1).max(4096),
+      path: z.string().min(1).max(1024),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('native-create-file'),
       path: z.string().min(1),
       projectId: z.string().min(1),
@@ -210,6 +218,7 @@ port.on('message', (event: { data: unknown }) => {
             'native-sample',
             'native-main-folder',
             'import-image',
+            'native-import-image',
             'rename',
             'delete',
             'restore',
@@ -223,6 +232,8 @@ port.on('message', (event: { data: unknown }) => {
           const c = n.data;
           if (c.type === 'native-create-file')
             value = await projects.createFile(c.path!, c.projectId);
+          else if (c.type === 'native-import-image')
+            value = await projects.importExternalImage(c.projectId, c.source, c.path);
           else if (c.type === 'native-main-folder')
             value = await projects.openMainFolder(c.projectId);
           else if (c.type === 'native-sample')

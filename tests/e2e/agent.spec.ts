@@ -1,6 +1,6 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -753,6 +753,85 @@ test('native attachment picker preserves cancellation, rejects outside-paper fil
   await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
 });
 
+test('picker copies outside images and retains project files in a mixed selection', async () => {
+  const bytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
+  const external = join(directory, 'outside.png');
+  await writeFile(external, bytes);
+  await dimensions(720, 540);
+  await stubNativeOpenDialog([join(root, 'main.tex'), external]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
+  const chip = page.getByRole('button', { name: /Remove attached file loom-import-.*\.png/ });
+  await expect(chip).toBeVisible();
+  const name = (await chip.getAttribute('aria-label'))!.replace('Remove attached file ', '');
+  expect(await readFile(join(root, name))).toEqual(bytes);
+  expect(await readFile(external)).toEqual(bytes);
+  await expect(page.getByText('1 image copied into this paper.')).toBeVisible();
+  await expect(page.locator('.cm-editor')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Attach paper files or images' })).toBeInViewport();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-import-image-small.png'),
+    animations: 'disabled',
+  });
+});
+
+test('picker reports a partial import without attaching an unimported file', async () => {
+  const bytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
+  const first = join(directory, 'first.png'),
+    invalid = join(directory, 'invalid.png');
+  await writeFile(first, bytes);
+  await writeFile(invalid, 'not an image');
+  await stubNativeOpenDialog([first, invalid]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await expect(page.getByRole('alert')).toContainText('Already copied: loom-import-');
+  await expect(page.getByRole('button', { name: /Remove attached file loom-import/ })).toHaveCount(
+    0,
+  );
+  const imports = (await readdir(root)).filter((name) => name.startsWith('loom-import-'));
+  expect(imports).toHaveLength(1);
+  expect(await readFile(join(root, imports[0]))).toEqual(bytes);
+  expect(await readFile(invalid, 'utf8')).toBe('not an image');
+});
+
+test('a pending attachment picker blocks a project switch until selection completes', async () => {
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = () =>
+      new Promise((resolve) => {
+        (
+          globalThis as unknown as {
+            finishPicker: (result: { canceled: boolean; filePaths: string[] }) => void;
+          }
+        ).finishPicker = resolve;
+      });
+  });
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await expect
+    .poll(() =>
+      app.evaluate(() => typeof (globalThis as unknown as { finishPicker?: unknown }).finishPicker),
+    )
+    .toBe('function');
+  const switched = await page.evaluate(() => window.loom!.chooseProject('sample'));
+  expect(switched).toMatchObject({ ok: false, error: { code: 'BUSY' } });
+  await app.evaluate(
+    (_electron, file) => {
+      (
+        globalThis as unknown as {
+          finishPicker: (result: { canceled: boolean; filePaths: string[] }) => void;
+        }
+      ).finishPicker({ canceled: false, filePaths: [file] });
+    },
+    join(root, 'main.tex'),
+  );
+  await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
+});
+
 test('image attachment explains unsupported model and preserves the draft at a small size', async () => {
   await writeFile(
     join(root, 'board.png'),
@@ -800,7 +879,7 @@ test('pasting an image saves an ordinary project asset and keeps clipboard text'
   const name = (await attachment.getAttribute('aria-label'))!.replace('Remove attached file ', '');
   expect(await readFile(join(root, name))).toEqual(imageBytes);
   await expect(input).toHaveValue('Draft ');
-  await page.getByRole('button', { name: `View ${name}` }).click();
+  await page.getByRole('button', { name: `View image ${name}` }).click();
   const image = page.getByRole('img', { name: `Current project image: ${name}` });
   await expect(image).toBeVisible();
   await expect

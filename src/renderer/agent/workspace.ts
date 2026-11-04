@@ -306,21 +306,38 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
   }
   async function attachFiles() {
     const projectId = projects.project()?.id;
-    if (!projectId || !window.loom) return;
-    const result = await window.loom.chooseAttachments({ projectId });
-    if (projects.project()?.id !== projectId) return;
-    if (!result.ok) {
-      setError(result.error.message);
+    if (!projectId || !window.loom || busy()) return;
+    const limit = 20 - attachments().length;
+    if (!limit) {
+      setError('Attach up to 20 files per request.');
       return;
     }
-    if (!result.value.cancelled) {
-      const paths = [...new Set([...attachments(), ...result.value.paths])];
-      if (paths.length > 20) {
-        setError('Attach up to 20 files per request.');
+    const current = generation;
+    setBusy(true);
+    try {
+      const result = await window.loom.chooseAttachments({ projectId, limit });
+      if (current !== generation || projects.project()?.id !== projectId) return;
+      if (!result.ok) {
+        setError(result.error.message);
         return;
       }
-      setAttachments(paths);
-      setError('');
+      if (!result.value.cancelled) {
+        if (result.value.imported) await projects.command({ type: 'refresh' });
+        if (current !== generation || projects.project()?.id !== projectId) return;
+        const paths = [...new Set([...attachments(), ...result.value.paths])];
+        if (paths.length > 20) {
+          setError('Attach up to 20 files per request.');
+          return;
+        }
+        setAttachments(paths);
+        setError('');
+        if (result.value.imported)
+          report(
+            `${result.value.imported} image${result.value.imported === 1 ? '' : 's'} copied into this paper.`,
+          );
+      }
+    } finally {
+      if (current === generation) setBusy(false);
     }
   }
   async function showImage(path: string) {
@@ -425,7 +442,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
         reader.readAsDataURL(file);
       });
       if (current !== generation || projects.project()?.id !== projectId) return;
-      const path = `loom-paste-${crypto.randomUUID()}.${extension}`;
+      const path = `loom-paste-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}.${extension}`;
       const result = await projects.command({ type: 'import-image', projectId, path, data });
       if (current !== generation || projects.project()?.id !== projectId) return;
       if (result?.ok) {

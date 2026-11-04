@@ -17,7 +17,8 @@ import {
   utilityProcess,
   type IpcMainInvokeEvent,
 } from 'electron';
-import { join, relative } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import {
   channels,
@@ -278,7 +279,7 @@ void app.whenReady().then(() => {
       )
         return failure('INVALID_REQUEST', 'Open a paper before attaching files.', false);
       const selected = await dialog.showOpenDialog(window!, {
-        title: 'Attach paper files',
+        title: 'Attach paper files or import images',
         buttonLabel: 'Attach',
         defaultPath: location.path,
         properties: ['openFile', 'multiSelections'],
@@ -305,29 +306,71 @@ void app.whenReady().then(() => {
         ],
       });
       if (selected.canceled) return { ok: true, value: { cancelled: true, paths: [] } };
-      const paths = [
-        ...new Set(
-          selected.filePaths.map((path) => relative(location.path, path).split('\\').join('/')),
-        ),
-      ];
+      const selectedPaths = [...new Set(selected.filePaths)];
+      if (selectedPaths.length > (input.data.limit ?? 20))
+        return failure(
+          'INVALID_REQUEST',
+          'The selection exceeds the remaining attachment limit.',
+          false,
+        );
+      const choices = selectedPaths.map((source) => {
+        const rel = relative(location.path, source);
+        const outside = !rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel);
+        return { source, outside, path: rel.split(sep).join('/') };
+      });
       if (
-        paths.length > 20 ||
-        paths.some(
-          (path) =>
-            !current.value!.files.some(
-              (file) =>
-                file.path === path &&
-                !file.deleted &&
-                (file.diskKind === 'text' || (file.diskKind === 'binary' && imageMime(path))),
-            ),
-        )
+        choices.some((choice) => {
+          if (!isAbsolute(choice.source)) return true;
+          if (choice.outside) return !imageMime(choice.source);
+          return !current.value!.files.some(
+            (file) =>
+              file.path === choice.path &&
+              !file.deleted &&
+              (file.diskKind === 'text' || (file.diskKind === 'binary' && imageMime(choice.path))),
+          );
+        })
       )
         return failure(
           'INVALID_REQUEST',
-          'Choose up to 20 text files or supported images inside this paper folder.',
+          'Choose text files inside this paper folder or supported images.',
           false,
         );
-      return { ok: true, value: { cancelled: false, paths } };
+      const paths: string[] = [],
+        imported: string[] = [];
+      for (const choice of choices) {
+        if (!choice.outside) {
+          paths.push(choice.path);
+          continue;
+        }
+        const extension = extname(choice.source).slice(1).toLowerCase();
+        const label =
+          Array.from(
+            basename(choice.source, extname(choice.source)).replace(/[^\p{L}\p{N}_-]+/gu, '-'),
+          )
+            .slice(0, 36)
+            .join('')
+            .replace(/^-+|-+$/g, '') || 'image';
+        const path = `loom-import-${randomUUID().replace(/-/g, '').slice(0, 12)}-${label}.${extension}`;
+        const result = await service.project({
+          type: 'native-import-image',
+          projectId: input.data.projectId,
+          source: choice.source,
+          path,
+        });
+        if (!result.ok) {
+          const saved = imported.length
+            ? ` Already copied: ${imported.slice(0, 3).join(', ')}${imported.length > 3 ? ` and ${imported.length - 3} more` : ''}.`
+            : '';
+          return failure(
+            'INVALID_REQUEST',
+            `Could not finish importing an image. Check its format, size and the open paper; check whether ${path} was copied.${saved}`,
+            false,
+          );
+        }
+        paths.push(path);
+        imported.push(path);
+      }
+      return { ok: true, value: { cancelled: false, paths, imported: imported.length } };
     } catch {
       return failure(
         'INVALID_REQUEST',

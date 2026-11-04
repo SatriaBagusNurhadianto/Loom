@@ -1,5 +1,5 @@
 import { portableBuildSchema, type BuildSettings } from '../../contracts/latex';
-import { promises as fs } from 'node:fs';
+import { constants, promises as fs } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
@@ -254,6 +254,68 @@ export class ProjectService {
     if (!target.startsWith(this.root + sep))
       throw new Error('Choose a location inside the open project folder.');
     return this.command({ type: 'create', path: relative(this.root, target).split(sep).join('/') });
+  }
+  private async saveImage(projectId: string, path: string, bytes: Buffer) {
+    if (this.project?.id !== projectId)
+      throw new Error('The open paper changed. Choose the image again.');
+    const mime = imageMime(path);
+    if (!mime || bytes.length > 10 * 1024 * 1024 || !imageBytesMatch(mime, bytes))
+      throw new Error('Choose a PNG, JPEG, GIF or WebP image of at most 10 MiB.');
+    const target = await this.safe(path);
+    if (dirname(target) !== this.root)
+      throw new Error('Imported images must be saved in the paper folder.');
+    const temporary = join(this.root, `.loom-save-${randomUUID()}`);
+    let file: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      file = await fs.open(temporary, 'wx');
+      await file.writeFile(bytes);
+      await file.sync();
+      await file.close();
+      file = undefined;
+      await fs.link(temporary, target);
+      const directory = await fs.open(this.root, 'r');
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    } finally {
+      await file?.close();
+      await fs.rm(temporary, { force: true });
+    }
+    await this.refresh();
+    return this.snapshot();
+  }
+  async importExternalImage(projectId: string, source: string, path: string) {
+    await this.current();
+    if (this.project?.id !== projectId)
+      throw new Error('The open paper changed. Choose the image again.');
+    const mime = imageMime(source);
+    if (!mime || imageMime(path) !== mime) throw new Error('Choose a supported image file.');
+    const file = await fs.open(source, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      const before = await file.stat();
+      if (!before.isFile() || before.size > 10 * 1024 * 1024)
+        throw new Error('Choose an image of at most 10 MiB.');
+      const buffer = Buffer.alloc(before.size + 1);
+      let offset = 0;
+      while (offset < buffer.length) {
+        const read = await file.read(buffer, offset, buffer.length - offset, offset);
+        if (!read.bytesRead) break;
+        offset += read.bytesRead;
+      }
+      const after = await file.stat();
+      if (
+        offset !== before.size ||
+        after.size !== before.size ||
+        after.mtimeMs !== before.mtimeMs ||
+        after.ctimeMs !== before.ctimeMs
+      )
+        throw new Error('The selected image changed while it was being copied. Choose it again.');
+      return await this.saveImage(projectId, path, buffer.subarray(0, offset));
+    } finally {
+      await file.close();
+    }
   }
   async create(path: string): Promise<ProjectSnapshot> {
     await fs.mkdir(path, { recursive: false });
@@ -539,35 +601,7 @@ export class ProjectService {
       return this.snapshot();
     }
     if (command.type === 'import-image') {
-      if (this.project.id !== command.projectId)
-        throw new Error('The open paper changed. Paste the image again.');
-      const mime = imageMime(command.path);
-      const bytes = Buffer.from(command.data, 'base64');
-      if (!mime || bytes.length > 10 * 1024 * 1024 || !imageBytesMatch(mime, bytes))
-        throw new Error('Paste a PNG, JPEG, GIF or WebP image of at most 10 MiB.');
-      const target = await this.safe(command.path);
-      if (dirname(target) !== this.root)
-        throw new Error('Pasted images must be saved in the paper folder.');
-      const temporary = join(this.root, `.loom-save-${randomUUID()}`);
-      let file: Awaited<ReturnType<typeof fs.open>> | undefined;
-      try {
-        file = await fs.open(temporary, 'wx');
-        await file.writeFile(bytes);
-        await file.sync();
-        await file.close();
-        file = undefined;
-        await fs.link(temporary, target);
-        const directory = await fs.open(this.root, 'r');
-        try {
-          await directory.sync();
-        } finally {
-          await directory.close();
-        }
-      } finally {
-        await file?.close();
-        await fs.rm(temporary, { force: true });
-      }
-      await this.refresh();
+      return this.saveImage(command.projectId, command.path, Buffer.from(command.data, 'base64'));
     } else if (command.type === 'create') {
       const path = await this.safe(command.path);
       await fs.mkdir(dirname(path), { recursive: true });

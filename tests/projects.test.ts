@@ -70,7 +70,7 @@ describe('ordinary projects and persistence', () => {
         path: 'other.png',
         data: Buffer.from('wrong image').toString('base64'),
       }),
-    ).rejects.toThrow('Paste a PNG');
+    ).rejects.toThrow('Choose a PNG');
     await expect(service.command({ ...command, projectId: 'wrong' })).rejects.toThrow(
       'paper changed',
     );
@@ -90,6 +90,25 @@ describe('ordinary projects and persistence', () => {
     ).rejects.toThrow('simulated interruption');
     await expect(readFile(join(root, 'paste.png'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe('alpha\nbeta\ngamma\n');
+  });
+  it('copies a selected external image without overwriting the source or project assets', async () => {
+    const bytes = await readFile('tests/fixtures/whiteboard-equation.png');
+    const source = join(dir, 'outside.png');
+    await writeFile(source, bytes);
+    await writeFile(join(root, 'existing.png'), bytes);
+    const projectId = service.snapshot().id;
+    await service.importExternalImage(projectId, source, 'imported.png');
+    expect(await readFile(join(root, 'imported.png'))).toEqual(bytes);
+    expect(await readFile(source)).toEqual(bytes);
+    await expect(service.importExternalImage(projectId, source, 'existing.png')).rejects.toThrow();
+    await expect(service.importExternalImage('wrong', source, 'other.png')).rejects.toThrow(
+      'paper changed',
+    );
+    await writeFile(source, 'not an image');
+    await expect(service.importExternalImage(projectId, source, 'other.png')).rejects.toThrow(
+      'Choose a PNG',
+    );
+    expect(await readFile(join(root, 'existing.png'))).toEqual(bytes);
   });
   it('accepts a large external rewrite without a conflict when the author has no unsaved edits', async () => {
     const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
