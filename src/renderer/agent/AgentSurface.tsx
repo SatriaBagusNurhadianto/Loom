@@ -603,65 +603,110 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
 }
 export function AgentImagePreview(props: { agent: AgentWorkspace }) {
   const a = props.agent;
-  const [inspecting, setInspecting] = createSignal(false);
   const [zoom, setZoom] = createSignal(1);
-  const latestAnswer = () => a.state()?.messages.filter((message) => message.role === 'assistant').at(-1)?.text;
+  const [expanded, setExpanded] = createSignal(false);
   createEffect(() => {
     a.imagePreview();
-    setInspecting(false);
+    setExpanded(false);
     setZoom(1);
   });
   return (
     <>
-    <Show when={a.imagePreview()}>
-      {(preview) => (
-        <div class="agent-image-preview" aria-label="Project image preview">
-          <div>
-            <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
-            <span title={preview().path}>{preview().path}</span>
-            <button class="text-button" onClick={() => setInspecting(true)}>Inspect larger</button>
-            <button class="text-button" onClick={a.closeImage}>
-              Close image
-            </button>
-          </div>
-          <small>
-            {preview().submitted
-              ? 'Saved with this request for comparison.'
-              : 'Current project file; it may have changed since it was sent.'}
-          </small>
-          <Show when={a.open()}>
-            <small class="agent-image-short-hint">Close image to return to the conversation.</small>
-          </Show>
-          <img
-            src={preview().url}
-            alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
-          />
-        </div>
-      )}
-    </Show>
-    <Modal title="Inspect image" open={inspecting() && !!a.imagePreview()} onClose={() => setInspecting(false)}>
       <Show when={a.imagePreview()}>
-        {(preview) => <div class="agent-image-inspection">
-          <div class="agent-image-inspection-toolbar">
-            <button class="secondary-button" disabled={zoom() <= 1} onClick={() => setZoom(Math.max(1, zoom() - 0.5))}>Zoom out</button>
-            <span aria-live="polite">{Math.round(zoom() * 100)}%</span>
-            <button class="secondary-button" disabled={zoom() >= 4} onClick={() => setZoom(Math.min(4, zoom() + 0.5))}>Zoom in</button>
-          </div>
-          <div class="agent-image-inspection-columns">
-            <div class="agent-image-inspection-canvas" tabindex="0" aria-label="Image; scroll to inspect">
-              <img src={preview().url} alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`} style={{ width: `${zoom() * 100}%` }} />
+        {(preview) => (
+          <section class="agent-image-preview" aria-label="Project image preview">
+            <div class="agent-image-preview-heading">
+              <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
+              <span title={preview().path}>{preview().path}</span>
+              <button class="text-button" onClick={() => setExpanded(true)}>
+                Expand
+              </button>
+              <button class="text-button" onClick={a.closeImage}>
+                Close image
+              </button>
             </div>
-            <section class="agent-image-inspection-answer" aria-label="Latest assistant response">
-              <strong>Latest assistant response</strong>
-              <p class="muted">This response may refer to a different request.</p>
-              <Show when={latestAnswer()} fallback={<p class="muted">No assistant response yet.</p>}>
-                {(answer) => <><MessageBody text={answer().slice(0, 8000)} /><Show when={answer().length > 8000}><p class="muted">Response shortened here; see the conversation for the full text.</p></Show></>}
-              </Show>
-            </section>
-          </div>
-        </div>}
+            <small>
+              {preview().submitted
+                ? 'Saved with this request for comparison.'
+                : 'Current project file; it may have changed since it was sent.'}
+            </small>
+            <div class="agent-image-preview-toolbar">
+              <button
+                class="text-button"
+                disabled={zoom() <= 1}
+                onClick={() => setZoom(Math.max(1, zoom() - 0.5))}
+              >
+                Zoom out
+              </button>
+              <span aria-live="polite">{Math.round(zoom() * 100)}%</span>
+              <button
+                class="text-button"
+                disabled={zoom() >= 4}
+                onClick={() => setZoom(Math.min(4, zoom() + 0.5))}
+              >
+                Zoom in
+              </button>
+            </div>
+            <div
+              class="agent-image-preview-canvas"
+              tabindex="0"
+              aria-label="Image; scroll to inspect"
+            >
+              <img
+                src={preview().url}
+                alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+                style={{ width: `${zoom() * 100}%` }}
+              />
+            </div>
+          </section>
+        )}
       </Show>
-    </Modal>
+      <Modal
+        title="Inspect image"
+        open={expanded() && !!a.imagePreview()}
+        onClose={() => setExpanded(false)}
+      >
+        <Show when={a.imagePreview()}>
+          {(preview) => (
+            <>
+              <p class="muted">
+                {preview().submitted
+                  ? 'Submitted image saved with the request'
+                  : 'Current project image'}
+                : {preview().path}
+              </p>
+              <div class="agent-image-preview-toolbar">
+                <button
+                  class="text-button"
+                  disabled={zoom() <= 1}
+                  onClick={() => setZoom(Math.max(1, zoom() - 0.5))}
+                >
+                  Zoom out
+                </button>
+                <span aria-live="polite">{Math.round(zoom() * 100)}%</span>
+                <button
+                  class="text-button"
+                  disabled={zoom() >= 4}
+                  onClick={() => setZoom(Math.min(4, zoom() + 0.5))}
+                >
+                  Zoom in
+                </button>
+              </div>
+              <div
+                class="agent-image-expanded-canvas"
+                tabindex="0"
+                aria-label="Expanded image; scroll to inspect"
+              >
+                <img
+                  src={preview().url}
+                  alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+                  style={{ width: `${zoom() * 100}%` }}
+                />
+              </div>
+            </>
+          )}
+        </Show>
+      </Modal>
     </>
   );
 }

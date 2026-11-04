@@ -924,10 +924,24 @@ test('submitted image snapshot stays available after the project file changes an
   await dimensions(720, 540);
   await page.getByRole('button', { name: /Compare board\.png/ }).click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+  const preview = page.getByRole('region', { name: 'Project image preview' });
+  const image = preview.getByRole('img', { name: 'Submitted image: board.png' });
+  const originalWidth = (await image.boundingBox())!.width;
+  await preview.getByRole('button', { name: 'Zoom in' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(preview.getByText('150%')).toBeVisible();
+  expect((await image.boundingBox())!.width).toBeGreaterThan(originalWidth);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeVisible();
+  await preview.getByRole('button', { name: 'Expand' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Inspect image' });
+  await expect(dialog.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
   await page.screenshot({
-    path: resolve('artifacts/phase-6-submitted-image-small.png'),
+    path: resolve('artifacts/phase-6-image-inspection-small.png'),
     animations: 'disabled',
   });
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(preview.getByRole('button', { name: 'Expand' })).toBeFocused();
   await restartElectron();
   await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
   await page.getByRole('button', { name: /Compare board\.png/ }).click();

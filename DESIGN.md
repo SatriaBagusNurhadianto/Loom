@@ -234,7 +234,7 @@ The user's newer chat screenshots supersede the earlier expanded conversation tr
 
 Pasting a supported image into the composer saves a uniquely named file in the paper and adds its attachment chip. The file picker can also copy explicitly selected external images into the paper; it reports how many were copied. The status reports the saved path for paste; removing a chip does not delete the asset. Clipboard text is allowed to paste alongside an image. Unsupported images and busy operations explain why they cannot be attached.
 
-Image attachments can open a bounded project-image preview over the source. It identifies the current file and warns that it may differ from what was sent. On short windows an open preview temporarily hides the expanded transcript, with an explanation; closing it restores the conversation. Source, composer, model guidance and the close action stay reachable.
+Image attachments can open a bounded project-image preview over the source. It identifies the current file and warns that it may differ from what was sent. Zoom and scrolling support close inspection while the composer remains available. Expand opens a larger shared dialog; closing it returns focus to Expand and preserves the preview and zoom.
 
 Submitted images remain available from their conversation as time-labeled comparison actions. Their preview identifies the saved request image, distinct from the current project file. The author can compare it with the editable manuscript and use the normal conversation and review surfaces to correct an interpretation.
 
