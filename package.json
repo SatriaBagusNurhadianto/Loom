@@ -24,6 +24,7 @@
     "package": "npm run build && electron-builder --linux dir",
     "package:appimage": "npm run build && electron-builder --linux AppImage",
     "try:phase3": "node scripts/try-phase-3.mjs",
+    "try:phase7": "node scripts/try-phase-7.mjs",
     "setup:latex": "node scripts/setup-latex.mjs"
   },
   "dependencies": {

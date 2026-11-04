@@ -23,6 +23,28 @@ The app's Git integration uses native Git, its configured credential helper, or 
 
 After `npm run package`, use an isolated user-data directory and a disposable local Git repository with a synthetic LaTeX file. Launch `release/linux-unpacked/loom`, open the project, check repository status, stage the edit, open the staged diff, and commit through the reviewed-commit flow. Confirm the native Git log contains only the smoke commit. The recorded Phase 7 smoke exercised the packaged renderer, preload, utility process, project storage and native Git service; the native folder picker returned the synthetic project path through the Electron test harness. It did not write to the configured GitHub remote.
 
+## Interactive local demo
+
+Run:
+
+```bash
+npm run try:phase7
+```
+
+The command creates a unique demo folder under `.cache/phase-7-demo-*`, prepares two local author clones and a bare remote, builds Loom, and starts it with a separate profile. It prints the paths to the demo folder, `author-one`, `author-two`, and the `file://` remote. Open the printed `author-one` folder in Loom. The demo uses only synthetic manuscript text and a one-pixel figure; it never contacts GitHub. To create the fixture without launching Loom, run `node scripts/try-phase-7.mjs --prepare-only`.
+
+Try the workflows in this order:
+
+1. **Inspect status and private-path protection.** Refresh Git status. Review the local manuscript edit and the synthetic `.env`. Try to stage `.env` and confirm Loom blocks it. Remove only the generated `.env` and `main.aux` from the printed `author-one` folder, then refresh so Git is clean except for the manuscript edit.
+2. **Review, stage, and commit.** Open the worktree diff for `main.tex`, stage only that file, inspect the staged diff, and create the reviewed commit. Confirm no push happened as a side effect.
+3. **Exercise branch controls.** Create a demo branch, switch to it, then return to `main` before pulling.
+4. **Exchange and resolve a conflict.** Fetch and pull. `author-two` has already pushed a competing edit to the same sentence, so the pull should surface a conflict. Review base/ours/theirs and use **Resolve using ours**. Because the chosen tree matches the just-reviewed local commit, use **Review merge completion** and **Finish merge** to complete the merge without a content delta. Push explicitly.
+5. **Clone through Loom.** Paste the printed `file://` remote into **Clone an existing repository**, choose a new folder under the printed demo directory, and clone the local bare remote. This exercises the clone UI without network credentials.
+6. **Check PDF freshness and export.** Build the manuscript PDF. Edit and save one sentence; confirm the PDF is marked stale, then rebuild and use **Download PDF**. For preflight warnings, temporarily add `\ref{missing:demo}` and `\cite{missing2025}`, run **Run preflight**, and inspect the warnings and included/excluded paths. The existing `\graphicspath{{figures/}}` should resolve `plot` without a false missing-figure warning. Add a synthetic `.env` and `main.aux` again to confirm they are excluded from the source ZIP, then export to a location outside the project. Extract the ZIP and, if local TeX is installed, compile its root `main.tex`.
+7. **Check optional mutation coordination.** If an agent is configured, start a manuscript-writing request and try a Git working-tree mutation while the request is active. Loom should explain why the mutation is blocked; stop the agent, let recovery settle, then retry.
+
+The demo directory is preserved when Loom exits so you can inspect both clones and the bare remote. Close Loom before removing only the printed `.cache/phase-7-demo-*` directory. Build and PDF/ZIP compilation steps need a local TeX toolchain; Git status, branch, review, exchange, conflict resolution, and cloning do not.
+
 ## Manual review
 
 1. Open a clean ordinary LaTeX project and inspect the compact Git branch/status control. A non-repository shows a clear Git-not-initialized state.
