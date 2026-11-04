@@ -106,3 +106,26 @@ it.skipIf(process.platform !== 'linux').each(['owner-kill', 'supervisor-stop'] a
   },
   15000,
 );
+
+it.skipIf(process.platform !== 'linux')(
+  'delivers native output without EAGAIN or truncation when its reader is slow',
+  async () => {
+    const { spawnOwnedTool } = await import('../src/services/latex/tools');
+    const child = spawnOwnedTool('/usr/bin/head', ['-c', '2097152', '/dev/zero']);
+    const closed = once(child, 'close');
+    let bytes = 0;
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    try {
+      // Fill the supervisor's output pipe before the owner starts consuming it.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      child.stdout.on('data', (chunk: Buffer) => (bytes += chunk.length));
+      const [code] = await closed;
+      expect({ code, stderr, bytes }).toEqual({ code: 0, stderr: '', bytes: 2097152 });
+    } finally {
+      child.kill('SIGKILL');
+      await closed;
+    }
+  },
+  5000,
+);

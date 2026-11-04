@@ -10,16 +10,18 @@ export type Tool = BuildState['tools'][number] & { executable: string | null };
 const supervisor = `
 const {spawn}=require('node:child_process');
 const {Socket}=require('node:net');
-const child=spawn(process.argv[1],process.argv.slice(2),{stdio:['pipe','inherit','inherit'],detached:process.platform!=='win32'});
+const child=spawn(process.argv[1],process.argv.slice(2),{stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32'});
 let ending=false;
 function kill(signal){try{if(process.platform==='win32')child.kill(signal);else process.kill(-child.pid,signal)}catch{}}
 function stop(){if(ending)return;ending=true;kill('SIGTERM');setTimeout(()=>kill('SIGKILL'),500).unref()}
 const owner=new Socket({fd:3,readable:true,writable:false});
 owner.on('end',stop);owner.on('error',stop);owner.resume();
 child.stdin.on('error',stop);
+process.stdout.on('error',stop);process.stderr.on('error',stop);
+child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);
 process.stdin.pipe(child.stdin);process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
 child.on('error',e=>{process.stderr.write(e.message);process.exit(127)});
-child.on('close',code=>{kill('SIGKILL');process.exit(code===null?130:code)});
+child.on('close',code=>{kill('SIGKILL');process.exitCode=code===null?130:code;owner.destroy();process.stdin.destroy()});
 `;
 export function spawnOwnedTool(
   executable: string,
