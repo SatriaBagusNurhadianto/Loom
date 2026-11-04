@@ -70,8 +70,8 @@ export class ProjectService {
     }
     let changes: ReturnType<typeof textChanges>;
     try {
-      // Empty documents need no diff. A deliberate conflict resolution is also
-      // permitted to replace its changed span if a detailed diff is too costly.
+      // Empty documents need no diff. A deliberate resolution or a clean incoming
+      // replacement may patch its changed span when a detailed diff is too costly.
       changes = old === '' ? [{ from: 0, to: 0, text }] : textChanges(old, text, DIFF_BUDGET);
     } catch {
       if (!explicit) return false;
@@ -355,7 +355,7 @@ export class ProjectService {
         file.conflict = true;
         continue;
       }
-      if (!this.setText(file, merged)) {
+      if (!this.setText(file, merged, local === file.baseline)) {
         file.conflict = true;
         continue;
       }

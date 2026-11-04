@@ -355,3 +355,9 @@ Root inspected generated running-Electron screenshots at 1440×900 and 720×540 
 - Opened the explicitly authorized local paper in an isolated Electron profile, compiled and visually inspected its real one-page PDF in the right-hand pane (`artifacts/pdf-user-paper-fixed.png`). Assertions confirm `main.tex` and `loom.build.json` were unchanged. These checks use real local tools, not mocks; no inference or Git action was needed. Installed binaries are machine-local prerequisites, not committed artifacts. The maintained screenshot is local evidence and does not commit the user's manuscript.
 
 - Final packaged verification: the rebuilt `release/linux-unpacked/loom` passed both the real PDF/text/zoom/SyncTeX/export workflow and the authorized actual-paper/right-pane workflow without terminal PATH overrides (2/2). Restart the rebuilt app once to load the new application code; installed tools need no further setup.
+
+## Agent rewrite conflict correction — 4 November 2026
+
+- Reproduced the reported review banner without any author edit: a 7,000-line native-style rewrite exceeded the bounded character-diff budget, and `setText` converted a clean replacement into a conflict. The regression failed before the fix.
+- Clean incoming replacements now use the existing bounded-prefix/suffix fallback when live source still equals its synchronized baseline. Genuine concurrent edits continue through the three-way merge and retain conflicts on overlap or budget exhaustion. This does not auto-select a side of an existing overlapping conflict.
+- Verification: `npx vitest run tests/projects.test.ts tests/document-saving.test.ts` passed 26/26, covering large clean replacement, large overlapping author work, stale saves, interrupted writes, reopen/recovery, and compatible edits. The inline merge/diff UI is the next work unit.

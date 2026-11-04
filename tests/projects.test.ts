@@ -39,7 +39,7 @@ async function edit(text: string) {
   };
 }
 describe('ordinary projects and persistence', () => {
-  it('bounds complex external changes, preserves the live document and supports explicit disk resolution', async () => {
+  it('accepts a large external rewrite without a conflict when the author has no unsaved edits', async () => {
     const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
     const external = Array.from({ length: 7000 }, (_, i) => `replacement ${i}\n`).join('');
     await writeFile(join(root, 'large.tex'), baseline);
@@ -48,17 +48,9 @@ describe('ordinary projects and persistence', () => {
     await service.command({ type: 'load', fileId: id });
     await writeFile(join(root, 'large.tex'), external);
     await service.refresh();
-    let file = service.snapshot().files.find((f) => f.id === id)!;
-    expect(file).toMatchObject({ conflict: true, text: baseline, baseline, disk: external });
-    await service.command({
-      type: 'resolve',
-      fileId: id,
-      choice: 'disk',
-      disk: file.disk,
-      diskRevision: file.diskRevision,
-    });
-    file = service.snapshot().files.find((f) => f.id === id)!;
-    expect(file).toMatchObject({ conflict: false, text: external, saved: true });
+    const file = service.snapshot().files.find((f) => f.id === id)!;
+    expect(file.conflict).toBe(false);
+    expect(file.text === external && file.baseline === external && file.saved).toBe(true);
   });
   it('retains concurrent author text when complex external changes exceed the merge budget', async () => {
     const baseline = Array.from({ length: 7000 }, (_, i) => `original ${i}\n`).join('');
