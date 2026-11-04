@@ -446,6 +446,7 @@ port.on('message', (event: { data: unknown }) => {
             recoveryError &&
             ![
               'current',
+              'library',
               'load',
               'refresh',
               'search',
@@ -459,6 +460,7 @@ port.on('message', (event: { data: unknown }) => {
             agents.active() &&
             [
               'native-open',
+              'reopen',
               'native-create',
               'native-import-folder',
               'native-import-zip',
@@ -474,6 +476,15 @@ port.on('message', (event: { data: unknown }) => {
             throw new Error(
               'Stop the current agent request before changing papers or moving files.',
             );
+          if (rawCommand.command?.type === 'library') {
+            projectCommandSchema.parse(parsed.data.command);
+            port.postMessage({
+              type: 'project-result',
+              id: parsed.data.id,
+              result: { ok: true, value: null, library: await projects.library() },
+            });
+            return;
+          }
           const previousProject = projects.nativeLocation()?.projectId;
           const n = native.safeParse(parsed.data.command);
           let value;

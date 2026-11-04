@@ -11,7 +11,7 @@ export class MetadataStore {
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
     const version = (this.db.prepare('PRAGMA user_version').get() as { user_version: number })
       .user_version;
-    if (version > 2) {
+    if (version > 3) {
       this.db.close();
       throw new Error('This metadata database needs a newer Loom version.');
     }
@@ -23,6 +23,28 @@ export class MetadataStore {
       this.db.exec(
         'BEGIN; CREATE TABLE file_index (project TEXT NOT NULL, id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, PRIMARY KEY(project,id)); CREATE INDEX file_index_project ON file_index(project); PRAGMA user_version=2; COMMIT;',
       );
+    if (version < 3)
+      this.db.exec(`
+      BEGIN;
+      CREATE TABLE project_library (path TEXT PRIMARY KEY, id TEXT NOT NULL, name TEXT NOT NULL, last_opened REAL NOT NULL);
+      INSERT INTO project_library SELECT path, json_extract(value,'$.id'), json_extract(value,'$.name'), 0
+      FROM projects WHERE json_valid(value) AND json_type(value,'$.id')='text' AND json_type(value,'$.name')='text';
+      PRAGMA user_version=3; COMMIT;
+    `);
+  }
+  rememberProject(path: string, id: string, name: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO project_library VALUES (?,?,?,?) ON CONFLICT(path) DO UPDATE SET id=excluded.id,name=excluded.name,last_opened=excluded.last_opened',
+      )
+      .run(path, id, name, Date.now());
+  }
+  recentProjects(): Array<{ path: string; id: string; name: string; lastOpened: number }> {
+    return this.db
+      .prepare(
+        'SELECT path,id,name,last_opened AS lastOpened FROM project_library ORDER BY last_opened DESC,path',
+      )
+      .all() as Array<{ path: string; id: string; name: string; lastOpened: number }>;
   }
   index(project: string, files: Array<{ id: string; path: string; content: string }>): void {
     const rows = this.db

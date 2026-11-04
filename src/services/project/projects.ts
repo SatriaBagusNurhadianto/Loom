@@ -207,6 +207,7 @@ export class ProjectService {
       await this.refresh();
       this.persist();
       this.store.set('lastProject', root);
+      this.store.rememberProject(root, this.project!.id, this.project!.name);
       for (const doc of previous.documents.values()) doc.destroy();
       return this.snapshot();
     } catch (error) {
@@ -221,6 +222,31 @@ export class ProjectService {
     }
   }
 
+  async library() {
+    return Promise.all(
+      this.store.recentProjects().map(async (entry) => {
+        let available = false;
+        try {
+          available = (await fs.stat(entry.path)).isDirectory();
+        } catch {
+          /* Keep missing projects visible. */
+        }
+        return { ...entry, available };
+      }),
+    );
+  }
+  async reopen(projectId: string) {
+    const entry = this.store.recentProjects().find((entry) => entry.id === projectId);
+    if (!entry)
+      throw new Error('This project is not in the local library. Open its folder to add it.');
+    try {
+      return await this.open(entry.path);
+    } catch {
+      throw new Error(
+        'This project folder is unavailable or could not be loaded. Reconnect its drive or use Open folder to locate it. Saved recovery data has been retained.',
+      );
+    }
+  }
   async current(): Promise<ProjectSnapshot | null> {
     if (!this.project) {
       const last = this.store.get('lastProject');
@@ -581,6 +607,8 @@ export class ProjectService {
     }
   }
   async command(command: ProjectCommand): Promise<ProjectSnapshot | null> {
+    if (command.type === 'reopen') return this.reopen(command.projectId);
+    if (command.type === 'library') throw new Error('Use the library result boundary.');
     if (command.type === 'current') return this.current();
     if (!this.project) await this.current();
     if (!this.project) throw new Error('Open a project first.');

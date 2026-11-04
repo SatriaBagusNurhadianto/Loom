@@ -14,6 +14,8 @@ export const relativePath = z
 const id = z.string().min(1).max(80);
 export const projectCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('current') }).strict(),
+  z.object({ type: z.literal('library') }).strict(),
+  z.object({ type: z.literal('reopen'), projectId: id }).strict(),
   z
     .object({
       type: z.literal('sync'),
@@ -112,8 +114,24 @@ export const projectSnapshotSchema = z
   })
   .strict();
 export type ProjectSnapshot = z.infer<typeof projectSnapshotSchema>;
+export const recentProjectSchema = z
+  .object({
+    id,
+    name: z.string(),
+    path: z.string().min(1).max(4096),
+    lastOpened: z.number().nonnegative(),
+    available: z.boolean(),
+  })
+  .strict();
+export type RecentProject = z.infer<typeof recentProjectSchema>;
 export const projectResultSchema = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), value: projectSnapshotSchema.nullable() }).strict(),
+  z
+    .object({
+      ok: z.literal(true),
+      value: projectSnapshotSchema.nullable(),
+      library: z.array(recentProjectSchema).optional(),
+    })
+    .strict(),
   z
     .object({
       ok: z.literal(false),

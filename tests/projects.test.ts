@@ -613,9 +613,9 @@ it('does not merge a folder import into an existing destination', async () => {
   expect(await readFile(join(dest, 'precious'), 'utf8')).toBe('keep');
 });
 
-it('migrates schema v1 to v2 without losing recoverable project identity', async () => {
+it('migrates schema v1 to v3 without losing recoverable project identity', async () => {
   const id = service.snapshot().id;
-  store.db.exec('DROP TABLE file_index; PRAGMA user_version=1;');
+  store.db.exec('DROP TABLE file_index; DROP TABLE project_library; PRAGMA user_version=1;');
   store.close();
   store = new MetadataStore(join(dir, 'data'));
   service = new ProjectService(store);
