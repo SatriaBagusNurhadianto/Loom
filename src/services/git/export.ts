@@ -1,4 +1,4 @@
-import { zipSync } from 'fflate';
+import { Zip, ZipDeflate } from 'fflate';
 import { dirname, join } from 'node:path/posix';
 import { relativePath } from '../../contracts/project';
 import type { SourceArchive, SourcePreflight } from '../../contracts/git';
@@ -162,10 +162,26 @@ export function sourcePreflight(files: Map<string, Buffer>, revision: string): S
 
 export function sourceArchive(files: Map<string, Buffer>, revision: string): SourceArchive {
   const report = sourcePreflight(files, revision);
-  const entries: Record<string, Uint8Array> = {};
-  for (const path of report.included) entries[path] = files.get(path)!;
-  const bytes = zipSync(entries, { level: 6 });
-  if (bytes.byteLength > compressedLimit)
-    throw new Error('Source archive exceeds the 64 MiB compressed export limit.');
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const zip = new Zip((error, chunk) => {
+    if (error) throw error;
+    size += chunk.byteLength;
+    if (size > compressedLimit)
+      throw new Error('Source archive exceeds the 64 MiB compressed export limit.');
+    chunks.push(chunk);
+  });
+  for (const path of report.included) {
+    const entry = new ZipDeflate(path, { level: 6 });
+    zip.add(entry);
+    entry.push(files.get(path)!, true);
+  }
+  zip.end();
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   return { kind: 'archive', revision, included: report.included, excluded: report.excluded, bytes };
 }

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile, link } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { unzipSync } from 'fflate';
+import { unzipSync, Unzip, UnzipInflate } from 'fflate';
 import { sourceArchive, sourcePreflight } from '../src/services/git/export';
 import { gitResultSchema } from '../src/contracts/git';
 import { writeSourceExport } from '../src/main/source-export';
@@ -39,6 +39,29 @@ describe('portable source export', () => {
     expect(Object.keys(entries).sort()).toEqual(preflight.included.slice().sort());
     expect(Buffer.from(entries['main.tex']!).toString()).toContain('cite{unknown}');
     expect(entries['.env']).toBeUndefined();
+  });
+
+  it('exports a root __proto__ file with its original bytes', () => {
+    const files = new Map([
+      ['main.tex', Buffer.from('manuscript')],
+      ['__proto__', Buffer.from('ordinary file')],
+    ]);
+    expect(sourcePreflight(files, 'r').included).toContain('__proto__');
+    const archive = sourceArchive(files, 'r');
+    const extracted = new Map<string, Buffer>();
+    const unzip = new Unzip((file) => {
+      const chunks: Uint8Array[] = [];
+      file.ondata = (error, data, final) => {
+        if (error) throw error;
+        chunks.push(data);
+        if (final) extracted.set(file.name, Buffer.concat(chunks));
+      };
+      file.start();
+    });
+    unzip.register(UnzipInflate);
+    unzip.push(archive.bytes, true);
+    expect(extracted.get('__proto__')?.toString()).toBe('ordinary file');
+    expect(extracted.get('main.tex')?.toString()).toBe('manuscript');
   });
 
   it('warns about missing literal assets and checks export revision consistency', () => {

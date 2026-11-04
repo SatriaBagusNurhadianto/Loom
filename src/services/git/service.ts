@@ -461,7 +461,7 @@ export class GitService {
         );
       const names = await runTool(
         executable,
-        ['diff', '--cached', '--name-only', '-z', '--no-renames'],
+        ['diff', '--cached', '--name-only', '-z', '--no-renames', '--ignore-submodules=none'],
         {
           cwd: gitLine(repoRoot.stdout),
           timeoutMs: 10_000,
@@ -473,11 +473,15 @@ export class GitService {
         throw new Error(
           'The staged path list is too large to validate safely. Unstage files and retry.',
         );
-      const modes = await runTool(executable, ['diff', '--cached', '--raw', '-z', '--no-renames'], {
-        cwd: gitLine(repoRoot.stdout),
-        timeoutMs: 10_000,
-        maxOutputBytes: pathListLimit + 1,
-      });
+      const modes = await runTool(
+        executable,
+        ['diff', '--cached', '--raw', '-z', '--no-renames', '--ignore-submodules=none'],
+        {
+          cwd: gitLine(repoRoot.stdout),
+          timeoutMs: 10_000,
+          maxOutputBytes: pathListLimit + 1,
+        },
+      );
       if (modes.code !== 0 || modes.stdout.length > pathListLimit)
         throw new Error('Could not inspect staged file types safely.');
       if (modes.stdout.split('\0').some((entry) => /^:\d{6} 160000 /.test(entry)))

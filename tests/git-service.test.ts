@@ -223,6 +223,48 @@ describe('Git status and diff service', () => {
     ).not.toBe(0);
   });
 
+  it.each(['config', 'gitmodules'])(
+    'blocks staged gitlinks when %s ignores submodules',
+    async (setting) => {
+      const setup = await repository();
+      if (!setup) return;
+      const run = async (...args: string[]) => {
+        const result = await runTool(setup.git, ['-C', setup.root, ...args]);
+        expect(result.code, result.output).toBe(0);
+        return result.stdout.trim();
+      };
+      await writeFile(join(setup.root, 'main.tex'), 'base\n');
+      await run('add', 'main.tex');
+      await run('commit', '-qm', 'base');
+      const head = await run('rev-parse', 'HEAD');
+      await run('update-index', '--add', '--cacheinfo', '160000', head, 'nested');
+      await writeFile(join(setup.root, 'main.tex'), 'updated\n');
+      await run('add', 'main.tex');
+      if (setting === 'config') await run('config', 'diff.ignoreSubmodules', 'all');
+      else
+        await writeFile(
+          join(setup.root, '.gitmodules'),
+          '[submodule "nested"]\n\tpath = nested\n\turl = ./nested\n\tignore = all\n',
+        );
+      const service = new GitService(() => ({
+        root: setup.root,
+        projectId: 'p',
+        paths: ['main.tex', 'nested'],
+      }));
+      const state = await service.command({ type: 'status', projectId: 'p' });
+      if (state.kind !== 'status' || !state.indexTree) throw new Error('Missing tree');
+      await expect(
+        service.command({
+          type: 'commit',
+          projectId: 'p',
+          message: 'unsafe',
+          expectedIndexTree: state.indexTree,
+        }),
+      ).rejects.toThrow('gitlinks');
+      expect(await run('rev-parse', 'HEAD')).toBe(head);
+    },
+  );
+
   it('reports branch, untracked Unicode paths, and distinct index/worktree diffs', async () => {
     const setup = await repository();
     if (!setup) return;
