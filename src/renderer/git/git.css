@@ -83,7 +83,7 @@ dialog:has(.git-workspace) {
 }
 .git-commit-review {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -104,7 +104,7 @@ dialog:has(.git-workspace) {
 }
 .git-publication {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   padding: 10px;
   display: grid;
   gap: 8px;
@@ -153,7 +153,7 @@ dialog:has(.git-workspace) {
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
 }
 .git-file {
@@ -215,4 +215,20 @@ dialog:has(.git-workspace) {
   .git-clone-controls {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.git-actions button,
+.git-clone-controls button,
+.git-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.git-actions button svg {
+  flex-shrink: 0;
+  color: var(--icon-git);
+}
+.git-label {
+  justify-content: flex-start;
 }

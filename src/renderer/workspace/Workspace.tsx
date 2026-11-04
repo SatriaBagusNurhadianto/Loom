@@ -35,6 +35,7 @@ import {
 } from 'solid-js';
 import type { LoomDesktop, ServiceStatus } from '../../contracts/desktop';
 import { Icon } from '../ui/Icon';
+import { ActionMenu } from '../ui/ActionMenu';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
 import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
@@ -212,7 +213,19 @@ export function Workspace() {
   let search!: HTMLInputElement;
   let shell!: HTMLDivElement;
   let dragCleanup: (() => void) | undefined;
-  const update = (patch: Partial<Layout>) => setLayout((old) => ({ ...old, ...patch }));
+  let layoutTransition: ViewTransition | undefined;
+  const update = (patch: Partial<Layout>) => {
+    const apply = () => setLayout((old) => ({ ...old, ...patch }));
+    const changesVisibility = 'sidebarOpen' in patch || 'pdfOpen' in patch || 'mode' in patch;
+    if (
+      changesVisibility &&
+      document.startViewTransition &&
+      !matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      layoutTransition?.skipTransition();
+      layoutTransition = document.startViewTransition(apply);
+    } else apply();
+  };
   const effectiveMode = () => (narrow() && layout().mode === 'split' ? 'source' : layout().mode);
   const sidebarVisible = () => layout().sidebarOpen && !narrow() && effectiveMode() === 'split';
   const sourceVisible = () => effectiveMode() !== 'pdf';
@@ -237,10 +250,15 @@ export function Workspace() {
     setExample(true);
     setNotice('Read-only example loaded. No project files were created.');
   };
+  const afterLayout = (action: () => void) => {
+    if (layoutTransition)
+      void layoutTransition.updateCallbackDone.then(() => requestAnimationFrame(action));
+    else requestAnimationFrame(action);
+  };
   const focusMode = (mode: Layout['mode']) => {
     const previous = document.activeElement;
     update({ mode });
-    requestAnimationFrame(() => {
+    afterLayout(() => {
       // A later keyboard/pointer action owns focus; do not steal it from a menu.
       if (document.activeElement === previous || document.activeElement === document.body)
         (mode === 'pdf' ? pdf : source)?.focus();
@@ -249,7 +267,7 @@ export function Workspace() {
   const togglePreview = () => {
     const open = !pdfVisible();
     update({ pdfOpen: open, mode: open && narrow() ? 'pdf' : 'split' });
-    requestAnimationFrame(() => {
+    afterLayout(() => {
       if (!open) previewToggle?.focus();
       else if (narrow()) pdf?.focus();
     });
@@ -671,11 +689,6 @@ export function Workspace() {
               </section>
             </Show>
             <footer class="sidebar-footer">
-              <span class="avatar">L</span>
-              <div>
-                <span>Local workspace</span>
-                <small>No account required</small>
-              </div>
               <IconButton
                 label="Workspace settings"
                 icon="settings"
@@ -756,7 +769,7 @@ export function Workspace() {
               </Show>
               <button
                 ref={previewToggle}
-                class="secondary-button preview-toggle"
+                class="icon-button preview-toggle"
                 aria-label={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
                 title={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
                 aria-pressed={pdfVisible()}
@@ -764,19 +777,22 @@ export function Workspace() {
                 onClick={togglePreview}
               >
                 <Icon name="preview" />
-                <span>Preview</span>
               </button>
               <Show when={projects.project()}>
                 <button
-                  class="secondary-button compile-source"
+                  class="icon-button compile-source"
+                  aria-label={
+                    latex.running()
+                      ? 'Stop'
+                      : latex.state()?.successful
+                        ? 'Update PDF'
+                        : 'Create PDF'
+                  }
+                  title={latex.running() ? 'Stop build' : 'Build PDF'}
                   disabled={latex.busy()}
                   onClick={() => (latex.running() ? void latex.cancel() : void createPdf())}
                 >
-                  {latex.running()
-                    ? 'Stop'
-                    : latex.state()?.successful
-                      ? 'Update PDF'
-                      : 'Create PDF'}
+                  <Icon name={latex.running() ? 'stop' : 'build'} />
                 </button>
               </Show>
               <Show when={projects.project()}>
@@ -786,9 +802,24 @@ export function Workspace() {
                   onClick={() => setReferencesOpen(true)}
                 />
               </Show>
-              <button class="tools-button" onClick={() => setDialog('tools')}>
-                Tools <Icon name="tools" />
-              </button>
+              <IconButton
+                label="Open Git repository"
+                icon="gitBranch"
+                disabled={!projects.project() || example()}
+                onClick={() => setGitOpen(true)}
+              />
+              <ActionMenu
+                label="More workspace actions"
+                actions={[
+                  { label: 'Scientific tools', icon: 'science', run: () => setDialog('tools') },
+                  { label: 'Projects', icon: 'folder', run: () => setDialog('projects') },
+                  {
+                    label: 'Workspace settings',
+                    icon: 'settings',
+                    run: () => setDialog('settings'),
+                  },
+                ]}
+              />
             </div>
             <Show when={projects.error()}>
               <div role="alert" class="project-error">
@@ -958,7 +989,7 @@ export function Workspace() {
                           : 'Unsaved · recovery pending'
                   : example()
                     ? 'Example · read only'
-                    : 'Local workspace'}
+                    : 'Open a paper to begin'}
               </span>
               <Show when={projects.file()}>
                 <span class="document-path" title={projects.file()?.path}>
@@ -1191,6 +1222,7 @@ export function Workspace() {
           onClick={() => setGitOpen(true)}
           title={example() ? 'Git is unavailable for the synthetic example.' : undefined}
         >
+          <Icon name="gitBranch" size={14} />
           {gitStatus()?.repository
             ? `Git · ${gitStatus()?.branch ?? 'detached'}${gitStatus()?.files.length ? ` · ${gitStatus()?.files.length} changed` : ''}`
             : 'Git · check status'}
@@ -1634,7 +1666,6 @@ export function Workspace() {
               Merge Changes
             </button>
           </section>
-          <p class="muted">Phase 2 · local projects</p>
           <div class="settings-section">
             <h3>View</h3>
             <div class="view-buttons">

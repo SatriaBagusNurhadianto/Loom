@@ -19,8 +19,8 @@ typography:
   paper:
     fontFamily: Liberation Serif, Times New Roman, serif
 rounded:
-  control: 8px
-  panel: 14px
+  control: 12px
+  panel: 20px
   pill: 999px
 spacing:
   small: 4px
@@ -108,7 +108,7 @@ Match the reference's surface hierarchy after visual inspection. Supplementary t
 
 ## Shapes
 
-Match the reference after measurement. No alternative shape system has been approved.
+The 5 November beta polish uses a shared 12px control radius, 20px surface/dialog radius and pill shapes only for circular or capsule controls. Avoid bright decorative outlines; use surface contrast for grouping and retain visible keyboard focus.
 
 ## Components
 
@@ -259,3 +259,9 @@ The wide dialog pairs a bounded results list with a selected record; smaller win
 Insertion previews the key, bibliography file (including literal declared missing files) and supported citation command. Known identifiers reuse an unambiguous existing entry; title-only matches require explicit author confirmation. Key collisions stay inline. Literal main-document dependencies determine which bibliography resources are actually in the paper; unsupported dynamic declarations require source editing rather than guessed linkage. An interrupted group exposes copyable saved versions, Finish/Undo, and a reviewed **Keep current files** escape for newer divergent work. **Discuss with agent** appends identified evidence to the existing draft and retains a selected claim; sending remains explicit. Citation and recovery success return to the editor with shared status feedback. Updating the PDF remains the existing build action.
 
 Native command details show the harness-reported command and output separately from assistant prose. The disclosure explains that files read by the command may be absent and invites the author to ask for inputs; it does not imply complete input tracing.
+
+## Beta UX polish — 5 November 2026
+
+The user authorized a quieter, more rounded workspace while retaining the reference arrangement. Remove the local workspace/avatar identity until accounts arrive. Use icon-only source actions with accessible names and native tooltips. Separate document tabs from actions so filenames retain room; hide tab scroll chrome while retaining wheel/trackpad and keyboard access. Replace the prominent blue Tools control with a More workspace actions menu; scientific request starters remain available there. References and Git have dedicated actions. Git review uses distinct clone/fetch/pull/push/branch/commit icons with explanatory text at the operation boundary. Blue/lavender references, warm build and muted green Git accents give controls meaning without coloring the manuscript workspace.
+
+Chat surfaces and active tabs have no decorative bright borders. Scroll tracks and corners are transparent; retain thin thumbs for genuinely overflowing content. Native dialogs use short enter/exit transitions; explicit workspace view changes use interruptible view transitions, bypassed during resizing and under reduced motion. Preserve focus, source state and the center-column composer. Later minor changes to Loom's broader design language are separate follow-up work.

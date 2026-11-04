@@ -1550,7 +1550,8 @@ test('scientific request templates preserve the draft and selected source', asyn
   await input.fill('My existing note.');
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+a');
-  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
   await expect(dialog.getByRole('heading', { name: 'Scientific content' })).toBeVisible();
   await page.screenshot({
@@ -1567,7 +1568,8 @@ test('scientific request templates preserve the draft and selected source', asyn
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+Home');
   await page.keyboard.press('Shift+End');
-  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
   await dialog.getByRole('button', { name: 'Revise notation' }).click();
   await expect(page.getByText(/previously attached passage was retained/)).toBeVisible();
   await expect(input).toHaveValue(

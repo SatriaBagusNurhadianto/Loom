@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import type { GitDiff, GitStatus } from '../../contracts/git';
 import type { BuildState } from '../../contracts/latex';
 import type { SourcePreflight } from '../../contracts/git';
+import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/primitives';
 import './git.css';
 
@@ -298,6 +299,7 @@ export function GitWorkspace(props: {
   return (
     <Modal
       title="Git · repository review"
+      icon="gitBranch"
       open={props.open()}
       onClose={props.onClose}
       initialFocus="button"
@@ -311,7 +313,7 @@ export function GitWorkspace(props: {
                 ? `${status()?.detached ? 'Detached HEAD' : (status()?.branch ?? 'Branch unavailable')}${status()?.upstream ? ` · tracks ${status()?.upstream}` : ''}`
                 : status()?.gitAvailable === false
                   ? 'Git is not installed or could not be found.'
-                  : 'Open a Git repository to review manuscript changes.'}
+                  : 'Open a repository folder, or clone one from GitHub below.'}
             </p>
           </div>
           <button class="secondary-button" disabled={busy()} onClick={() => void refresh()}>
@@ -334,7 +336,7 @@ export function GitWorkspace(props: {
               disabled={busy() || !remoteUrl().trim()}
               onClick={() => void clone()}
             >
-              Choose location and clone
+              <Icon name="clone" size={16} /> Choose location and clone
             </button>
             <p class="muted">
               Uses your configured Git credential helper or SSH key. Loom never stores remote
@@ -348,21 +350,21 @@ export function GitWorkspace(props: {
             disabled={busy() || !status()?.repository}
             onClick={() => void operation('fetch')}
           >
-            Fetch
+            <Icon name="fetch" size={16} /> Fetch
           </button>
           <button
             class="secondary-button"
             disabled={busy() || !status()?.repository || !!status()?.files.length}
             onClick={() => void operation('pull')}
           >
-            Pull
+            <Icon name="pull" size={16} /> Pull
           </button>
           <button
             class="secondary-button"
             disabled={busy() || !status()?.upstream || status()?.detached}
             onClick={() => void operation('push')}
           >
-            Push committed revisions
+            <Icon name="push" size={16} /> Push committed revisions
           </button>
           <Show when={!status()?.upstream && status()?.branch && status()?.remotes.length}>
             <label class="git-publish-remote">
@@ -383,7 +385,7 @@ export function GitWorkspace(props: {
               disabled={busy() || !(pushRemote() || status()?.remotes[0]) || status()?.detached}
               onClick={() => void operation('push')}
             >
-              Publish branch
+              <Icon name="push" size={16} /> Publish branch
             </button>
           </Show>
           <button
@@ -405,6 +407,7 @@ export function GitWorkspace(props: {
               setCommitOpen(true);
             }}
           >
+            <Icon name="gitCommit" size={16} />
             {status()?.mergeInProgress && !staged().length
               ? 'Review merge completion'
               : `Review staged commit (${staged().length})`}
@@ -412,7 +415,9 @@ export function GitWorkspace(props: {
         </div>
         <div class="git-branch-controls">
           <label>
-            Switch branch
+            <span class="git-label">
+              <Icon name="gitBranch" size={14} /> Switch branch
+            </span>
             <select
               value={status()?.branch ?? ''}
               disabled={busy() || !!status()?.files.length || !status()?.repository}
@@ -536,6 +541,7 @@ export function GitWorkspace(props: {
         <Show when={commitOpen()}>
           <div class="git-commit-review" aria-label="Commit review">
             <strong>
+              <Icon name="gitCommit" size={16} />
               {status()?.mergeInProgress && !staged().length
                 ? 'Review merge completion'
                 : 'Review actual staged changes'}

@@ -412,7 +412,7 @@ h3 {
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid var(--text-muted);
-  border-radius: 13px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   white-space: nowrap;
   transition:
@@ -1585,7 +1585,7 @@ kbd {
 }
 .document-tab.source-tab {
   color: var(--text-primary);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   border-color: var(--text-muted);
   background: var(--surface-raised);
 }
@@ -1630,7 +1630,7 @@ kbd {
   gap: 12px;
   min-height: 130px;
   padding: 15px 16px 12px;
-  border-radius: 24px;
+  border-radius: var(--radius-panel);
 }
 .composer-placeholder {
   display: block;
@@ -2105,9 +2105,6 @@ kbd {
   .build-settings {
     grid-template-columns: 1fr;
   }
-  .compile-source {
-    display: none;
-  }
 }
 @media (forced-colors: active) {
   .pdf-sheet .textLayer ::selection {
@@ -2145,7 +2142,7 @@ kbd {
 .modal-body .pdf-feedback {
   max-height: none;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   margin: 14px 0;
 }
 .pdf-settings-intro p {
@@ -2193,7 +2190,7 @@ kbd {
   padding: 18px;
   background: var(--surface-hover);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   margin: 8px 0 18px;
 }
 .sample-paper-entry span {
@@ -2818,7 +2815,7 @@ dialog:has(.agent-image-expanded-canvas) {
   min-height: 0;
   max-height: calc(100% - 100px);
   border: 1px solid var(--border);
-  border-radius: 28px;
+  border-radius: var(--radius-panel);
   background: var(--surface-sidebar);
   box-shadow: 0 12px 36px #0005;
   overflow: hidden;
@@ -2879,7 +2876,7 @@ dialog:has(.agent-image-expanded-canvas) {
   max-width: 85%;
   margin-left: auto;
   padding: 10px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-control);
 }
 .agent-workspace-panel .agent-message-user > small {
   display: none;
@@ -2898,7 +2895,7 @@ dialog:has(.agent-image-expanded-canvas) {
   width: 220px;
   max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--surface-editor);
   white-space: normal;
 }
@@ -2988,7 +2985,7 @@ dialog:has(.agent-image-expanded-canvas) {
   justify-content: center;
   width: 32px;
   height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-raised);
   color: var(--text-muted);
 }
@@ -3095,7 +3092,7 @@ dialog:has(.agent-image-expanded-canvas) {
 .agent-workspace-panel .agent-composer {
   min-height: 165px;
   padding: 18px 16px 12px;
-  border-radius: 28px;
+  border-radius: var(--radius-panel);
   background: var(--surface-raised);
 }
 .agent-workspace-panel .agent-prompt {
@@ -3227,4 +3224,156 @@ dialog:has(.agent-image-expanded-canvas) {
   display: flex;
   font-size: 10px;
   margin-bottom: 6px;
+}
+
+/* Beta workspace chrome: quiet surfaces, compact actions, readable file tabs. */
+.source-toolbar {
+  height: auto;
+  min-height: 52px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px 12px;
+}
+.source-toolbar:has(.document-tabs) {
+  padding-bottom: 4px;
+}
+.source-toolbar .document-tabs {
+  order: 2;
+  flex: 1 0 100%;
+  padding: 4px 0;
+  gap: 4px;
+  scrollbar-width: none;
+}
+.document-tabs::-webkit-scrollbar {
+  display: none;
+}
+.source-toolbar .editor-actions {
+  margin-right: auto;
+}
+.source-toolbar > .source-tab {
+  margin-right: auto;
+}
+.source-tab,
+.document-tab.source-tab {
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+.document-tab {
+  padding: 6px 10px;
+  max-width: 180px;
+  font-size: 12px;
+}
+.source-toolbar .icon-button {
+  width: 32px;
+  height: 32px;
+  padding: 7px;
+}
+.source-toolbar .compile-source {
+  color: var(--icon-build);
+}
+.source-toolbar button[aria-label='References'] {
+  color: var(--icon-reference);
+}
+.source-toolbar button[aria-label='Open Git repository'] {
+  color: var(--icon-git);
+}
+.sidebar-footer {
+  min-height: 48px;
+  padding-block: 8px;
+  border: 0;
+}
+.agent-workspace-panel,
+.agent-workspace-panel .agent-conversation-heading {
+  border: 0;
+}
+.agent-workspace-panel {
+  border-radius: var(--radius-panel);
+}
+.agent-workspace-panel .agent-composer {
+  border-radius: var(--radius-panel);
+}
+.agent-prompt:focus-visible {
+  outline: none;
+}
+.agent-composer:focus-within {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.status-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+*::-webkit-scrollbar-button {
+  display: none;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  border: 0;
+}
+/* Native top-layer transitions retain the closing frame as well as the opening. */
+dialog {
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+  transition:
+    opacity var(--duration-panel) ease,
+    transform var(--duration-panel) var(--ease-standard),
+    display var(--duration-panel) allow-discrete,
+    overlay var(--duration-panel) allow-discrete;
+}
+dialog[open] {
+  animation: none;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+dialog::backdrop {
+  animation: none;
+  opacity: 0;
+  transition:
+    opacity var(--duration-panel) ease,
+    display var(--duration-panel) allow-discrete,
+    overlay var(--duration-panel) allow-discrete;
+}
+dialog[open]::backdrop {
+  opacity: 1;
+}
+@starting-style {
+  dialog[open] {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+.source-column {
+  view-transition-name: source-panel;
+}
+.sidebar {
+  view-transition-name: sidebar-panel;
+}
+.pdf-panel {
+  view-transition-name: pdf-panel;
+}
+::view-transition-group(*) {
+  animation-duration: var(--duration-panel);
+  animation-timing-function: var(--ease-standard);
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog,
+  dialog::backdrop {
+    transition: none !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

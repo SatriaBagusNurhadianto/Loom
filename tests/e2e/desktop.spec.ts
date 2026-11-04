@@ -783,7 +783,7 @@ test('file operations, root choice, search locations, find/replace and caret res
       .first()
       .evaluate((node) => getComputedStyle(node).backgroundImage),
   ).toBe('none');
-  expect(await findField.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('8px');
+  expect(await findField.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('12px');
   await page.screenshot({ path: 'artifacts/phase-2-find-panel.png', animations: 'disabled' });
   await dimensions(720, 540);
   await page.screenshot({ path: 'artifacts/phase-2-find-panel-small.png', animations: 'disabled' });
@@ -1114,4 +1114,39 @@ test('failed working-state persistence keeps the native window open', async () =
     ipcMain.removeHandler('loom:project:command');
     ipcMain.handle('loom:project:command', () => snapshot);
   }, snapshot);
+});
+
+test('beta workspace actions stay compact, discoverable and keyboard accessible', async () => {
+  await openSyntheticProject();
+  await expect(page.getByText('Local workspace', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toHaveCount(0);
+  const toolbar = page.locator('.source-toolbar');
+  await expect(toolbar.getByRole('button', { name: 'Open Git repository' })).toBeVisible();
+  const tab = toolbar.getByRole('button', { name: 'main.tex', exact: true });
+  expect(await tab.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const source = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await source.fill('Preserved while opening workspace actions.');
+  for (const width of [1440, 720]) {
+    await dimensions(width, width === 720 ? 540 : 900);
+    const overflow = page.getByRole('button', { name: 'More workspace actions' });
+    await overflow.focus();
+    await overflow.press('ArrowDown');
+    await page.getByRole('menuitem', { name: 'Scientific tools' }).press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
+    await expect(dialog).toBeVisible();
+    await page.screenshot({ path: `artifacts/beta-tools-${width}.png`, animations: 'disabled' });
+    await dialog.press('Escape');
+    await expect(overflow).toBeFocused();
+    await expect(source).toContainText('Preserved while opening workspace actions.');
+    expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({
+      path: `artifacts/beta-workspace-${width}.png`,
+      animations: 'disabled',
+    });
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'References', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'References', exact: true })).toBeVisible();
 });
