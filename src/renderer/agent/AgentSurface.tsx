@@ -5,6 +5,7 @@ import { MessageBody } from './MessageBody';
 import { ProviderLogo } from '../ui/ProviderLogo';
 import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
+import { imageMime } from '../../domain/images';
 export { AgentConnections } from './AgentConnections';
 
 const questionFieldId = (questionId: string, fieldKey: string) =>
@@ -634,7 +635,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
         </Show>
         <div class="composer-actions">
           <IconButton
-            label="Attach text or project files"
+            label="Attach paper files or images"
             icon="plus"
             disabled={!a.projects.project() || running()}
             onClick={() => void a.attachFiles().finally(() => input?.focus())}
@@ -649,6 +650,7 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
                 : !ready() ||
                   a.state()?.sessionUnavailable ||
                   !a.model() ||
+                  (a.attachments().some((path) => imageMime(path)) && !a.model()?.images) ||
                   !a.draft().trim() ||
                   a.busy()
             }
@@ -662,6 +664,14 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           </button>
         </div>
       </div>
+      <Show
+        when={a.attachments().some((path) => imageMime(path)) && a.model() && !a.model()?.images}
+      >
+        <div class="agent-inline-error" role="status">
+          This model does not report image support. Choose an image-capable model from the model
+          menu before sending.
+        </div>
+      </Show>
       <Show when={ready() && !a.state()?.models.length}>
         <div class="agent-inline-error">
           <span>No models available. Configure a model in your agent, then reconnect.</span>

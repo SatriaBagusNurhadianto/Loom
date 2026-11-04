@@ -28,6 +28,7 @@ import {
   type ServiceStatus,
 } from '../contracts/desktop';
 import { ServiceController } from './service-controller';
+import { imageMime } from '../domain/images';
 
 let window: BrowserWindow | undefined;
 let closeAllowed = false;
@@ -283,8 +284,23 @@ void app.whenReady().then(() => {
         properties: ['openFile', 'multiSelections'],
         filters: [
           {
-            name: 'Paper text and data',
-            extensions: ['tex', 'bib', 'txt', 'md', 'csv', 'tsv', 'json', 'sty', 'cls'],
+            name: 'Paper files and images',
+            extensions: [
+              'tex',
+              'bib',
+              'txt',
+              'md',
+              'csv',
+              'tsv',
+              'json',
+              'sty',
+              'cls',
+              'png',
+              'jpg',
+              'jpeg',
+              'webp',
+              'gif',
+            ],
           },
         ],
       });
@@ -299,13 +315,16 @@ void app.whenReady().then(() => {
         paths.some(
           (path) =>
             !current.value!.files.some(
-              (file) => file.path === path && !file.deleted && file.diskKind === 'text',
+              (file) =>
+                file.path === path &&
+                !file.deleted &&
+                (file.diskKind === 'text' || (file.diskKind === 'binary' && imageMime(path))),
             ),
         )
       )
         return failure(
           'INVALID_REQUEST',
-          'Choose up to 20 text files inside this paper folder. Image and PDF attachments are not supported yet.',
+          'Choose up to 20 text files or supported images inside this paper folder.',
           false,
         );
       return { ok: true, value: { cancelled: false, paths } };

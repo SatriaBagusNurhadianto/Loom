@@ -1,6 +1,7 @@
 import { createClient } from '@opencode-ai/sdk/v2/gen/client';
 import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { imageMime } from '../../domain/images';
 import type { AgentMessage, AgentModel, AgentSettings } from '../../contracts/agent';
 import type { spawnOwnedTool } from '../latex/tools';
 import { list, object, privateEndpoint, string, type HarnessAdapter } from './opencode';
@@ -264,7 +265,7 @@ export class OpenCodeClassicAdapter implements HarnessAdapter {
         { type: 'text', text: prompt },
         ...files.map((path) => ({
           type: 'file',
-          mime: 'text/plain',
+          mime: imageMime(path) ?? 'text/plain',
           filename: basename(path),
           url: pathToFileURL(path).href,
         })),

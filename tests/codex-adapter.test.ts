@@ -31,6 +31,28 @@ function fixture() {
 }
 
 describe('Codex adapter protocol boundaries', () => {
+  it('sends images as native image inputs and text files as paths', async () => {
+    const { adapter } = fixture();
+    adapter.rpc = vi.fn(async (method) =>
+      method === 'thread/start' ? { thread: { id: 'thread' } } : { turn: { id: 'turn' } },
+    );
+    await adapter.create('/paper');
+    await adapter.submit(
+      'thread',
+      'Transcribe',
+      { id: 'model', providerId: 'openai', name: 'Model', images: true, tools: true },
+      ['/paper/main.tex', '/paper/board.png'],
+    );
+    expect(adapter.rpc).toHaveBeenCalledWith(
+      'turn/start',
+      expect.objectContaining({
+        input: [
+          { type: 'text', text: expect.stringContaining('/paper/main.tex'), text_elements: [] },
+          { type: 'localImage', path: '/paper/board.png' },
+        ],
+      }),
+    );
+  });
   it('replays early turn, stream and approval events and sends native decisions', async () => {
     const { adapter, child } = fixture();
     adapter.rpc = vi.fn(async () => ({ thread: { id: 'thread' } }));

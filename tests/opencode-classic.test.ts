@@ -115,7 +115,7 @@ it('uses the classic API for directory-bound turns, permissions, questions and t
       },
     ]);
     expect(await adapter.create('/paper')).toBe('ses_1');
-    await adapter.submit('ses_1', 'Edit it', models[0], ['/paper/paper.tex'], {
+    await adapter.submit('ses_1', 'Edit it', models[0], ['/paper/paper.tex', '/paper/board.PNG'], {
       permissionMode: 'auto-accept-edits',
       reasoning: 'high',
     });
@@ -156,6 +156,7 @@ it('uses the classic API for directory-bound turns, permissions, questions and t
       parts: [
         { type: 'text', text: 'Edit it' },
         { type: 'file', url: 'file:///paper/paper.tex' },
+        { type: 'file', mime: 'image/png', url: 'file:///paper/board.PNG' },
       ],
     });
     expect((await adapter.pending('ses_1')).permissions).toEqual([

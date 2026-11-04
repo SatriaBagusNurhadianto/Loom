@@ -27,9 +27,15 @@
 | 3 — LaTeX/PDF                 | Complete    | Snapshot build/language/PDF/navigation/export gates passed; evidence below                                                          |
 | 4 — Selectable native agents  | Complete    | OpenCode/Codex live revisions, six structured-harness Electron workflows, real PDF/review/revert and packaged smoke; evidence below |
 | 5 — Literature/Zotero         | Complete    | arXiv/evidence/citations, local Zotero fixture, native agent/real PDF, recovery, desktop/package and Terra review                   |
-| 6 — Scientific content/images | Not started | Requirements only                                                                                                                   |
+| 6 — Scientific content/images | In progress | Project-image attachment transport and unsupported-model guidance; conversion, paste, comparison and live verification remain       |
 | 7 — Git/export                | Not started | No product clone/commit/push/export UI; source already remains ordinary portable files                                              |
 | 8 — Hardening/pilot           | Not started | Full performance/IME, installed distribution, cross-platform and end-to-end release acceptance remain                               |
+
+## Phase 6 progress — image attachment transport
+
+- The composer accepts supported images already in the open paper (PNG, JPEG, GIF and WebP), alongside text files. Native model capability metadata gates image submission, with model-switch guidance and draft retention. Image format signatures, 10 MiB size and project path are checked in the utility process; Codex receives `localImage` inputs and classic OpenCode receives the appropriate file MIME. OpenCode 2 uses its existing native file URI transport.
+- `npm run check` passed (151 deterministic tests passed, 24 skipped). Two focused Electron attachment cases passed, including unsupported-model guidance and draft retention at 720×540; picker responses and model server were synthetic. The Phase 2 document-saving regression passed (4 tests). The Codex image shape was checked against the installed app-server generated schema. An independent Terra review identified and helped fix early model gating, image validation and a path edge case.
+- This is not Phase 6 completion. Paste/import of outside images, image comparison and correction, supported-model conversion, computation evidence, compilation/recovery end-to-end and live image-capable harness verification remain. Next: implement a recoverable image ingestion and comparison workflow, then exercise supported conversion and builds. No image model or provider was exercised live in this unit.
 
 ## Phase 2 implementation
 

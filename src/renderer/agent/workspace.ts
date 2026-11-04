@@ -8,6 +8,7 @@ import {
   type HarnessKind,
 } from '../../contracts/agent';
 import type { ProjectWorkspace } from '../editor/documents';
+import { imageMime } from '../../domain/images';
 export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: string) => void) {
   const [state, setState] = createSignal<AgentState | null>(null),
     [error, setError] = createSignal(''),
@@ -227,6 +228,9 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       state()?.sessionUnavailable
     )
       return;
+    if (attachments().some((path) => imageMime(path)) && !chosen.images) {
+      return;
+    }
     const current = generation;
     setBusy(true);
     setSubmitting(true);

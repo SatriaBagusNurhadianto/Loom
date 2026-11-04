@@ -20,6 +20,8 @@ import { OpenCodeAdapter, object, string, list, type HarnessAdapter } from './op
 import { OpenCodeClassicAdapter } from './opencode-classic';
 import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
+import { imageMime } from '../../domain/images';
+import { validateImage } from './images';
 
 type SessionRef = ConversationRef;
 type Connection = {
@@ -562,11 +564,17 @@ export class AgentService {
         const context = await this.projects.run(async () => {
           const context = this.projects.buildContext(command.projectId);
           for (const path of command.attachments) {
-            const file = context.files.find((f) => f.path === path && f.diskKind === 'text');
-            if (!file)
+            const file = context.files.find(
+              (f) =>
+                f.path === path &&
+                (f.diskKind === 'text' || (f.diskKind === 'binary' && imageMime(path))),
+            );
+            if (!file) throw new Error('Attach a text file or supported image from this paper.');
+            if (imageMime(path) && !model.images)
               throw new Error(
-                'Attach a text file from this paper. Image workflows arrive separately.',
+                'This model does not report image input support. Choose an image-capable model before sending.',
               );
+            if (imageMime(path)) await validateImage(context.root, path);
           }
           if (
             command.selection &&

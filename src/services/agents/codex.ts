@@ -8,6 +8,7 @@ import {
 } from '../../contracts/agent';
 import { harnessExecutable } from './runtime';
 import { StringDecoder } from 'node:string_decoder';
+import { imageMime } from '../../domain/images';
 
 type Session = {
   directory: string;
@@ -461,10 +462,12 @@ export class CodexAdapter implements HarnessAdapter {
   ) {
     const s = this.sessions.get(sessionId);
     if (!s) throw new Error('Reconnect this conversation.');
+    const imageFiles = files.filter((path) => imageMime(path));
+    const textFiles = files.filter((path) => !imageMime(path));
     const text =
       prompt +
-      (files.length
-        ? '\n\nExplicitly attached project files (inspect these paths):\n' + files.join('\n')
+      (textFiles.length
+        ? '\n\nExplicitly attached project files (inspect these paths):\n' + textFiles.join('\n')
         : '');
     s.running = true;
     s.outcome = '';
@@ -472,7 +475,10 @@ export class CodexAdapter implements HarnessAdapter {
       const response = object(
         await this.rpc('turn/start', {
           threadId: sessionId,
-          input: [{ type: 'text', text, text_elements: [] }],
+          input: [
+            { type: 'text', text, text_elements: [] },
+            ...imageFiles.map((path) => ({ type: 'localImage', path })),
+          ],
           model: model.id,
           cwd: s.directory,
           ...codexTurnPolicy(settings),

@@ -376,7 +376,7 @@ async function connect(requireModel = true) {
 test('real Electron agent flow: context, permissions, retained questions, streaming, safe review and newer writing', async () => {
   await connect();
   await stubNativeOpenDialog([join(root, 'main.tex')]);
-  await page.getByRole('button', { name: 'Attach text or project files' }).click();
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
   await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
@@ -704,7 +704,7 @@ test('native questions preserve decimal input, validate blank and integer answer
 });
 
 test('native attachment picker preserves cancellation, rejects outside-paper files and retains source selections', async () => {
-  const plus = page.getByRole('button', { name: 'Attach text or project files', exact: true });
+  const plus = page.getByRole('button', { name: 'Attach paper files or images', exact: true });
   await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Keep this draft');
   await stubNativeOpenDialog([join(root, 'main.tex')]);
   await plus.click();
@@ -726,6 +726,29 @@ test('native attachment picker preserves cancellation, rejects outside-paper fil
   await page.keyboard.press('Control+a');
   await page.getByRole('button', { name: 'Attach selected text', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+});
+
+test('image attachment explains unsupported model and preserves the draft at a small size', async () => {
+  await writeFile(
+    join(root, 'board.png'),
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]),
+  );
+  await connect();
+  await dimensions(720, 540);
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Transcribe this');
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await expect(page.getByText(/This model does not report image support/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send to agent' })).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).press('Control+Enter');
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Transcribe this',
+  );
+  await expect(page.getByRole('button', { name: 'Remove attached file board.png' })).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-image-unsupported-small.png'),
+    animations: 'disabled',
+  });
 });
 
 test('agent messages render supported Markdown as safe native elements', async () => {
