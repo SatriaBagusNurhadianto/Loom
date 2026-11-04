@@ -1540,7 +1540,10 @@ test('a stream that closes during initial connection is reported as interrupted'
   await dialog.getByLabel('Server address').fill(endpoint);
   await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
   await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Agent connection interrupted. Reconnect');
+  // Setup failure and stream interruption can race to report the same closed connection.
+  await expect(dialog.getByRole('alert')).toHaveText(
+    /^(?:The agent connection closed during setup\. Reconnect and try again\.|Agent connection interrupted\. Reconnect to recover the conversation and review partial changes\.)$/,
+  );
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
   await expect(page.getByText('Agent interrupted', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Stop agent request', exact: true })).toHaveCount(
