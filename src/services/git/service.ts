@@ -416,6 +416,19 @@ export class GitService {
       return this.command({ type: 'status', projectId: command.projectId });
     }
     if (command.type === 'commit') {
+      const stateBeforeCommit = await this.command({
+        type: 'status',
+        projectId: command.projectId,
+      });
+      if (stateBeforeCommit.kind !== 'status' || stateBeforeCommit.truncated)
+        throw new Error(
+          'Git status is incomplete. Reduce the changed file list before committing.',
+        );
+      const repoRoot = await runTool(executable, ['rev-parse', '--show-toplevel'], {
+        cwd: context.root,
+        timeoutMs: 10_000,
+      });
+      if (repoRoot.code !== 0) throw new Error('Could not inspect the repository root.');
       const tree = await runTool(executable, ['write-tree'], {
         cwd: context.root,
         timeoutMs: 10_000,
@@ -427,7 +440,7 @@ export class GitService {
           'The staged files changed after review. Refresh and review the current staged diff before committing.',
         );
       const names = await runTool(executable, ['diff', '--cached', '--name-only', '-z'], {
-        cwd: context.root,
+        cwd: repoRoot.stdout.trim(),
         timeoutMs: 10_000,
         maxOutputBytes: pathListLimit + 1,
       });
@@ -438,6 +451,11 @@ export class GitService {
         );
       const paths = names.stdout.split('\0').filter(Boolean);
       if (!paths.length) throw new Error('There are no staged changes to commit.');
+      const prefix = relative(repoRoot.stdout.trim(), context.root).split(sep).join('/');
+      if (prefix && paths.some((path) => !path.startsWith(`${prefix}/`)))
+        throw new Error(
+          'The index contains staged files outside this project. Unstage them or open the repository root before committing.',
+        );
       const unsafe = paths.filter(privatePath);
       if (unsafe.length)
         throw new Error(

@@ -500,6 +500,11 @@ export function GitWorkspace(props: {
               Open each staged diff below. Loom rechecks the index before commit. It will not push
               this commit.
             </p>
+            <Show when={status()?.truncated}>
+              <p role="alert">
+                Reduce the changed file list before committing; this list is incomplete.
+              </p>
+            </Show>
             <ul>
               {staged().map((file) => (
                 <li>
@@ -529,6 +534,7 @@ export function GitWorkspace(props: {
                   busy() ||
                   !commitMessage().trim() ||
                   !status()?.indexTree ||
+                  status()?.truncated ||
                   staged().some((file) => !reviewedPaths().includes(file.path))
                 }
                 onClick={() => void commit()}

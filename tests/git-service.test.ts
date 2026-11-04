@@ -26,6 +26,29 @@ afterEach(async () => {
 });
 
 describe('Git status and diff service', () => {
+  it('refuses to commit staged files outside a nested open project', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const project = join(setup.root, 'paper');
+    await mkdir(project);
+    await writeFile(join(project, 'main.tex'), 'paper\n');
+    await writeFile(join(setup.root, 'outside.txt'), 'outside\n');
+    expect((await runTool(setup.git, ['-C', setup.root, 'add', '.'])).code).toBe(0);
+    const service = new GitService(() => ({ root: project, projectId: 'p', paths: ['main.tex'] }));
+    const state = await service.command({ type: 'status', projectId: 'p' });
+    if (state.kind !== 'status' || !state.indexTree) throw new Error('Missing index tree');
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'paper',
+        expectedIndexTree: state.indexTree,
+      }),
+    ).rejects.toThrow('staged files outside this project');
+    expect(
+      (await runTool(setup.git, ['-C', setup.root, 'rev-parse', '--verify', 'HEAD'])).code,
+    ).not.toBe(0);
+  });
   it('reports branch, untracked Unicode paths, and distinct index/worktree diffs', async () => {
     const setup = await repository();
     if (!setup) return;
