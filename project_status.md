@@ -1,6 +1,6 @@
 # Loom project status
 
-**Updated:** 4 November 2026
+**Updated:** 5 November 2026
 
 **Overall:** Phases 0–5 and 7 are complete for the exercised Linux x86_64 desktop target. Phase 6 remains in progress on computation-input provenance; Phase 8 hardening/pilot remains. Ordinary projects, local PDF tools, native OpenCode/Codex agents, safe revision recovery, literature/citation workflows, native Git collaboration and portable source export are implemented. See [Phase 7 testing](docs/phase-7-testing.md) for reproducible Git/export evidence and limitations.
 
@@ -19,17 +19,17 @@
 
 ## Build progress
 
-| Phase                         | Status      | Evidence                                                                                                                                                        |
-| ----------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Repository/readiness      | Complete    | Existing documented/private remote baseline                                                                                                                     |
-| 1 — Scaffold/workspace        | Complete    | Existing shell, security/lifecycle/layout acceptance, reference screenshots and package evidence; regressions retained                                          |
-| 2 — Projects/persistence      | Complete    | 53 deterministic tests, 18 real Electron cases, latest package smoke, visual checks and Luna/Terra reviews                                                      |
-| 3 — LaTeX/PDF                 | Complete    | Snapshot build/language/PDF/navigation/export gates passed; evidence below                                                                                      |
-| 4 — Selectable native agents  | Complete    | OpenCode/Codex live revisions, six structured-harness Electron workflows, real PDF/review/revert and packaged smoke; evidence below                             |
-| 5 — Literature/Zotero         | Complete    | arXiv/evidence/citations, local Zotero fixture, native agent/real PDF, recovery, desktop/package and Terra review                                               |
-| 6 — Scientific content/images | In progress | Image conversion, scientific edits, builds and recovery verified; complete computation-input provenance remains open                                            |
-| 7 — Git/export                | Complete    | Native Git status/diff/stage/commit/clone/exchange/conflict UI and source preflight/ZIP; packaged Git smoke, local compile and read-only GitHub access verified |
-| 8 — Hardening/pilot           | Not started | Full performance/IME, installed distribution, cross-platform and end-to-end release acceptance remain                                                           |
+| Phase                         | Status      | Evidence                                                                                                                                                                |
+| ----------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Repository/readiness      | Complete    | Existing documented/private remote baseline                                                                                                                             |
+| 1 — Scaffold/workspace        | Complete    | Existing shell, security/lifecycle/layout acceptance, reference screenshots and package evidence; regressions retained                                                  |
+| 2 — Projects/persistence      | Complete    | 53 deterministic tests, 18 real Electron cases, latest package smoke, visual checks and Luna/Terra reviews                                                              |
+| 3 — LaTeX/PDF                 | Complete    | Snapshot build/language/PDF/navigation/export gates passed; evidence below                                                                                              |
+| 4 — Selectable native agents  | Complete    | OpenCode/Codex live revisions, six structured-harness Electron workflows, real PDF/review/revert and packaged smoke; evidence below                                     |
+| 5 — Literature/Zotero         | Complete    | arXiv/evidence/citations, local Zotero fixture, native agent/real PDF, recovery, desktop/package and Terra review                                                       |
+| 6 — Scientific content/images | In progress | Image conversion, scientific edits, builds and recovery verified; complete computation-input provenance remains open                                                    |
+| 7 — Git/export                | Complete    | Native Git status/diff/stage/commit/clone/exchange/conflict UI and source preflight/ZIP; packaged Git smoke, local compile and read-only GitHub access verified         |
+| 8 — Hardening/pilot           | In progress | Focused recovery/agent/research/Git and package smoke passed; large-workload measurement, normal AppImage installation, physical IME and full release acceptance remain |
 
 ## Phase 6 progress — image attachment transport
 
