@@ -43,6 +43,7 @@ export function Modal(props: {
   onClose: () => void;
   children: JSX.Element;
   initialFocus?: string;
+  icon?: IconName;
 }) {
   const titleId = createUniqueId();
   let dialog!: HTMLDialogElement;
@@ -82,7 +83,10 @@ export function Modal(props: {
       }}
     >
       <div class="modal-heading">
-        <h2 id={titleId}>{props.title}</h2>
+        <h2 id={titleId}>
+          {props.icon && <Icon name={props.icon} size={21} />}
+          {props.title}
+        </h2>
         <IconButton label="Close dialog" icon="close" onClick={props.onClose} />
       </div>
       <div class="modal-body">{props.children}</div>

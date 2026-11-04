@@ -102,10 +102,6 @@ dialog:has(.agent-connections) .modal-body {
   border-radius: 9px;
 }
 
-.agent-provider-mark.opencode {
-  color: var(--accent-text);
-}
-
 .agent-provider-mark.codex {
   color: var(--text-primary);
 }
@@ -238,6 +234,10 @@ dialog:has(.agent-connections) .modal-body {
 }
 
 .agent-connection-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   min-width: 72px;
   padding: 6px 10px;
   color: var(--text-muted);

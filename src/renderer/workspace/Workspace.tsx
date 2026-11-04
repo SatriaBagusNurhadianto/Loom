@@ -387,6 +387,7 @@ export function Workspace() {
                     classList={{ selected: layout().tab === 'files' }}
                     onClick={() => update({ tab: 'files' })}
                   >
+                    <Icon name="folder" size={15} />
                     Files
                   </button>
                   <button
@@ -394,6 +395,7 @@ export function Workspace() {
                     classList={{ selected: layout().tab === 'chats' }}
                     onClick={() => update({ tab: 'chats' })}
                   >
+                    <Icon name="chat" size={15} />
                     Chats
                   </button>
                 </div>
@@ -1032,7 +1034,12 @@ export function Workspace() {
         onOpenPaperFolder={() => void openProject('main-folder', true)}
         onFiles={() => setDialog('files')}
       />
-      <Modal open={dialog() === 'projects'} title="Projects" onClose={() => setDialog(null)}>
+      <Modal
+        open={dialog() === 'projects'}
+        title="Projects"
+        icon="folder"
+        onClose={() => setDialog(null)}
+      >
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
           <p>The workspace example is read-only. Open or create a project to edit files.</p>
@@ -1175,7 +1182,12 @@ export function Workspace() {
           </details>
         </Show>
       </Modal>
-      <Modal open={dialog() === 'files'} title="Project files" onClose={() => setDialog(null)}>
+      <Modal
+        open={dialog() === 'files'}
+        title="Project files"
+        icon="folder"
+        onClose={() => setDialog(null)}
+      >
         <div class="navigator-heading">
           <span>{projects.project()?.name}</span>
           <button class="text-button" onClick={() => setDialog('projects')}>

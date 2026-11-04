@@ -2,6 +2,8 @@ import { createMemo, createSignal, createUniqueId, For, onCleanup, Show, type JS
 import type { AgentWorkspace } from './workspace';
 import { modelIdentity } from './workspace';
 import { Icon, type IconName } from '../ui/Icon';
+import { ProviderLogo, providerName } from '../ui/ProviderLogo';
+import type { HarnessKind } from '../../contracts/agent';
 import { IconButton } from '../ui/primitives';
 import './menus.css';
 
@@ -10,6 +12,7 @@ function ChoicePopover(props: {
   label: string;
   text: string;
   icon: IconName;
+  provider?: HarnessKind;
   disabled?: boolean;
   children: (close: () => void) => JSX.Element;
 }) {
@@ -57,7 +60,9 @@ function ChoicePopover(props: {
           }
         }}
       >
-        <Icon name={props.icon} size={16} />
+        <Show when={props.provider} fallback={<Icon name={props.icon} size={16} />}>
+          {(provider) => <ProviderLogo provider={provider()} size={20} />}
+        </Show>
         <span>{props.text}</span>
         <Icon name="down" size={12} />
       </button>
@@ -124,7 +129,7 @@ const modes = [
     id: 'supervised',
     name: 'Supervised',
     description: 'Ask before commands and file changes.',
-    icon: 'info',
+    icon: 'lock',
   },
   {
     id: 'auto-accept-edits',
@@ -136,13 +141,13 @@ const modes = [
     id: 'auto',
     name: 'Auto',
     description: 'Let Codex review routine actions using its native approval reviewer.',
-    icon: 'tools',
+    icon: 'shieldCheck',
   },
   {
     id: 'full-access',
     name: 'Full access',
     description: 'Allow commands and edits without prompts, including outside the paper folder.',
-    icon: 'warning',
+    icon: 'unlock',
   },
 ] as const;
 
@@ -189,7 +194,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
         when={ready()}
         fallback={
           <button class="agent-choice-trigger" onClick={props.onConnect}>
-            <Icon name="chat" size={16} />
+            <Icon name="plug" size={16} />
             Connect agent
             <Icon name="down" size={12} />
           </button>
@@ -199,6 +204,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
           label="Choose agent model"
           text={a.model()?.name ?? 'Choose model'}
           icon="chat"
+          provider={a.state()?.harness}
           disabled={disabled()}
         >
           {(close) => (
@@ -207,6 +213,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 <button
                   classList={{ selected: favoritesOnly() }}
                   aria-label="Favorite models"
+                  title="Favorite models"
                   aria-pressed={favoritesOnly()}
                   onClick={() => setFavoritesOnly(!favoritesOnly())}
                 >
@@ -215,10 +222,11 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 <button
                   classList={{ selected: !favoritesOnly() }}
                   aria-label="All connected models"
+                  title="All connected models"
                   aria-pressed={!favoritesOnly()}
                   onClick={() => setFavoritesOnly(false)}
                 >
-                  <Icon name={a.state()?.harness === 'codex' ? 'chat' : 'tools'} />
+                  <ProviderLogo provider={a.state()?.harness ?? 'opencode'} size={22} />
                 </button>
                 <button
                   aria-label="Agent connections"
@@ -254,7 +262,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                   </Show>
                 </div>
                 <p class="agent-menu-caption">
-                  {a.state()?.harness === 'codex' ? 'Codex' : 'OpenCode'} · {models().length} models
+                  {providerName(a.state()?.harness ?? 'opencode')} · {models().length} models
                 </p>
                 <div class="agent-model-results">
                   <For each={models()}>
@@ -269,7 +277,15 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                             void a.setModelKey(modelIdentity(model)).then(() => close());
                           }}
                         >
-                          <span>{model.name}</span>
+                          <span class="agent-model-choice-name" title={model.name}>
+                            <Icon name="cpu" size={15} />
+                            <span>{model.name}</span>
+                            <Show
+                              when={a.model() && modelIdentity(a.model()!) === modelIdentity(model)}
+                            >
+                              <Icon name="check" size={14} />
+                            </Show>
+                          </span>
                           <small>
                             {model.providerId} · {model.id}
                           </small>
@@ -313,7 +329,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
         <ChoicePopover
           label="Reasoning"
           text={reasoning() ? effortLabel(reasoning()) : 'Default'}
-          icon="section"
+          icon="brain"
           disabled={disabled()}
         >
           {(close) => (
@@ -331,7 +347,7 @@ export function AgentChatMenus(props: { agent: AgentWorkspace; onConnect: () => 
                 <small>
                   {a.model()?.defaultReasoning
                     ? effortLabel(a.model()!.defaultReasoning!) + ' · selected by the harness'
-                    : 'Use this model’s native settings.'}
+                    : 'Use this model’s own settings.'}
                 </small>
               </button>
               <For each={a.model()?.reasoningEfforts ?? []}>

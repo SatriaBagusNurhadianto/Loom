@@ -289,6 +289,7 @@ export function ProjectPanel(props: {
             classList={{ selected: tab() === 'files' }}
             onClick={() => changeTab('files')}
           >
+            <Icon name="folder" size={15} />
             Files
           </button>
           <button
@@ -296,6 +297,7 @@ export function ProjectPanel(props: {
             classList={{ selected: tab() === 'chats' }}
             onClick={() => changeTab('chats')}
           >
+            <Icon name="chat" size={15} />
             Chats
           </button>
         </div>

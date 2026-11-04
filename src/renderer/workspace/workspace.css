@@ -223,6 +223,9 @@ h3 {
   gap: var(--space-3);
 }
 .tab-buttons button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-muted);
   border-radius: 0;
   padding: 5px 0 8px;
@@ -732,6 +735,7 @@ h3 {
 }
 .primary-button,
 .secondary-button {
+  gap: var(--space-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2290,6 +2294,9 @@ kbd {
   font-size: 11px;
 }
 .agent-composer-status .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 3px 0;
   font-size: inherit;
 }
@@ -2376,7 +2383,9 @@ kbd {
   overflow-wrap: anywhere;
 }
 .agent-message small {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 10px;
   margin-bottom: 4px;
@@ -2703,4 +2712,14 @@ kbd {
   .workspace-origin {
     max-width: 160px;
   }
+}
+
+.modal-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.modal-heading h2 > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
 }

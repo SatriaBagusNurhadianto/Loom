@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
+import { ProviderLogo } from '../ui/ProviderLogo';
 import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
 export { AgentConnections } from './AgentConnections';
@@ -51,7 +52,7 @@ export function AgentChats(props: {
                     });
                   }}
                 >
-                  <Icon name="chat" size={16} />
+                  <ProviderLogo provider={ref.harness} size={20} />
                   <span>
                     {ref.title}
                     <small>{ref.harness === 'codex' ? 'Codex' : 'OpenCode'}</small>
@@ -173,6 +174,23 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                   }}
                 >
                   <small>
+                    <Show
+                      when={message.role === 'assistant'}
+                      fallback={
+                        <Icon
+                          name={
+                            message.role === 'user'
+                              ? 'user'
+                              : message.role === 'tool'
+                                ? 'terminal'
+                                : 'info'
+                          }
+                          size={13}
+                        />
+                      }
+                    >
+                      <ProviderLogo provider={a.state()?.harness ?? 'opencode'} size={17} />
+                    </Show>
                     {message.role === 'user'
                       ? 'You'
                       : message.role === 'assistant'
@@ -594,6 +612,7 @@ export function AgentComposer(props: {
         </span>
         <Show when={changed()}>
           <button class="text-button" onClick={props.onReview}>
+            <Icon name="edit" size={13} />
             Review {changed()} change{changed() === 1 ? '' : 's'}
           </button>
         </Show>
@@ -606,7 +625,12 @@ export function AgentComposer(props: {
           </button>
         </div>
       </Show>
-      <Modal open={attachOpen()} title="Attach context" onClose={() => setAttachOpen(false)}>
+      <Modal
+        open={attachOpen()}
+        title="Attach context"
+        icon="fileText"
+        onClose={() => setAttachOpen(false)}
+      >
         <p>
           Add a selected passage or source files for this request. The agent can also inspect
           relevant files in your paper.
@@ -664,7 +688,7 @@ export function AgentReview(props: {
   const [confirm, setConfirm] = createSignal<{ turnId: string; path: string } | null>(null);
   const turns = () => a.state()?.turns.filter((t) => t.changes.length) ?? [];
   return (
-    <Modal open={props.open} title="Review file changes" onClose={props.onClose}>
+    <Modal open={props.open} title="Review file changes" icon="edit" onClose={props.onClose}>
       <p>
         These files changed during an agent request. Edits are already on disk; this is review after
         writing. Changes may also include other edits made during the request.

@@ -1,15 +1,13 @@
 import { createEffect, createMemo, createSignal, For, Show, createUniqueId } from 'solid-js';
 import type { HarnessKind } from '../../contracts/agent';
-import { Icon, type IconName } from '../ui/Icon';
+import { Icon } from '../ui/Icon';
+import { ProviderLogo, providerName as harnessName } from '../ui/ProviderLogo';
 import { Modal } from '../ui/primitives';
 import { type AgentWorkspace } from './workspace';
 import './connections.css';
 
 type ConnectionsTab = 'overview' | 'models' | 'runtime';
 const harnesses: HarnessKind[] = ['opencode', 'codex'];
-
-const harnessName = (harness: HarnessKind) => (harness === 'codex' ? 'Codex' : 'OpenCode');
-const harnessIcon = (harness: HarnessKind): IconName => (harness === 'codex' ? 'chat' : 'tools');
 
 export function AgentConnections(props: {
   agent: AgentWorkspace;
@@ -168,6 +166,7 @@ export function AgentConnections(props: {
     <Modal
       open={props.open}
       title="Agent connections"
+      icon="plug"
       onClose={props.onClose}
       initialFocus='.agent-provider-option[aria-pressed="true"]'
     >
@@ -175,7 +174,7 @@ export function AgentConnections(props: {
         <aside class="agent-provider-rail" aria-label="Supported agents">
           <div class="agent-provider-rail-heading">
             <strong>Providers</strong>
-            <span>Available harnesses</span>
+            <span>Choose your agent</span>
           </div>
           <div class="agent-provider-list" role="group" aria-label="Agent providers">
             <For each={harnesses}>
@@ -191,7 +190,7 @@ export function AgentConnections(props: {
                   }}
                 >
                   <span class={`agent-provider-mark ${harness}`} aria-hidden="true">
-                    <Icon name={harnessIcon(harness)} size={17} />
+                    <ProviderLogo provider={harness} size={22} />
                   </span>
                   <span class="agent-provider-option-copy">
                     <span class="agent-provider-name-line">
@@ -222,14 +221,14 @@ export function AgentConnections(props: {
             </For>
           </div>
           <p class="agent-provider-rail-note">
-            Loom connects to these installed agents and uses their own model access.
+            Loom uses each agent’s existing account and models.
           </p>
         </aside>
 
         <section class="agent-connection-detail" aria-label={`${harnessName(selected())} settings`}>
           <header class="agent-connection-heading">
             <span class={`agent-provider-mark large ${selected()}`} aria-hidden="true">
-              <Icon name={harnessIcon(selected())} size={19} />
+              <ProviderLogo provider={selected()} size={26} />
             </span>
             <div class="agent-connection-heading-copy">
               <h3>{harnessName(selected())}</h3>
@@ -269,6 +268,10 @@ export function AgentConnections(props: {
                     onClick={() => selectTab(item)}
                     onKeyDown={tabKeyDown}
                   >
+                    <Icon
+                      name={item === 'overview' ? 'info' : item === 'models' ? 'cpu' : 'terminal'}
+                      size={15}
+                    />
                     {item === 'runtime' ? 'Runtime' : item[0].toUpperCase() + item.slice(1)}
                   </button>
                 )}
@@ -309,7 +312,7 @@ export function AgentConnections(props: {
                           : !a.state()?.models.length
                             ? `No models were reported. Configure one in ${harnessName(selected())}, then reconnect.`
                             : provider()?.auth === 'available'
-                              ? 'The harness reports an account. Model access is checked when you send.'
+                              ? 'Your agent reports a configured account. Model access is checked when you send.'
                               : `${a.state()?.models.length ?? 0} models were reported by the harness. Access is checked when you send.`
                         : !provider() || provider()?.version === 'Not checked'
                           ? `Checking ${harnessName(selected())} on this device.`
@@ -438,7 +441,7 @@ export function AgentConnections(props: {
                         {(model) => (
                           <div class="agent-model-row" role="listitem">
                             <span class="agent-model-glyph" aria-hidden="true">
-                              <Icon name="section" size={16} />
+                              <Icon name="cpu" size={16} />
                             </span>
                             <span class="agent-model-copy">
                               <strong title={model.name}>{model.name}</strong>
@@ -593,6 +596,7 @@ export function AgentConnections(props: {
                     disabled={a.busy() || !!a.state()?.running}
                     onClick={onConnect}
                   >
+                    <Icon name={isSetupRequired() ? 'bookOpen' : 'plug'} size={16} />
                     {connectLabel()}
                   </button>
                 }
@@ -612,6 +616,7 @@ export function AgentConnections(props: {
                       });
                   }}
                 >
+                  <Icon name="disconnect" size={16} />
                   Disconnect
                 </button>
               </Show>
@@ -620,6 +625,7 @@ export function AgentConnections(props: {
                 disabled={!a.projects.project()}
                 onClick={() => void window.loom?.openSetup(selected())}
               >
+                <Icon name="bookOpen" size={16} />
                 Setup guide
               </button>
             </div>

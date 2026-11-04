@@ -418,6 +418,10 @@ test('provider settings, source and composer remain usable at 720 by 540 with ke
   await page.getByRole('button', { name: 'Choose agent model', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose agent model', exact: true });
   await expect(picker.getByRole('textbox', { name: 'Search models' })).toBeFocused();
+  await page.screenshot({
+    path: resolve('artifacts/phase-4-provider-logos-model-picker.png'),
+    animations: 'disabled',
+  });
   await picker.getByRole('textbox', { name: 'Search models' }).press('ArrowUp');
   await page.keyboard.press('Enter');
   await expect(picker).not.toBeVisible();

@@ -200,6 +200,14 @@ PDF text selection uses `--pdf-selection` from the canonical runtime tokens; can
 
 Automatic PDF updates follow pauses in actual typing, independently of background save acknowledgments or polling. Routine typing/saving must not produce error banners. A manual update requested while typing remains pending; it retains clean-rebuild intent and cannot cross project changes or survive cancellation. Real save failures and genuine overlapping external edits remain visible with preserved versions.
 
+## Provider identity and navigation icons
+
+The user requested recognizable provider logos and clearer navigation on 4 November 2026. The canonical provider identity is `ui/ProviderLogo.tsx`: OpenCode’s own square mark and the monochrome OpenAI mark identifying Codex. The locally bundled shapes retain their original aspect ratio and pair with visible provider names in connection settings, the composer/model picker, chat history and assistant message headers. Marks identify integrations; Loom retains its own branding. Provenance belongs in `ui/provider-assets/README.md`. No remote logo requests or new icon dependencies are introduced.
+
+General actions remain in the shared `ui/Icon.tsx` line-icon family. Files/folder and Chats/bubble icons accompany the existing labels. Reasoning uses a brain, supervised access a lock, full access an open lock, native auto review a checked shield, model catalogs a chip and advanced runtime settings a terminal. Text still explains each permission's actual scope. Settings tabs and Connect/Disconnect/Setup guide pair icons with the same existing action names. These additions provide recognition without introducing extra menus or changing the native policies.
+
+The shared Modal accepts an optional decorative title icon for agent connections, attachment/review, projects and PDF settings. SVGs are hidden from assistive names when adjacent text supplies the label; icon-only controls keep accessible names and titles. Provider marks reserve fixed space, long model names truncate with full-value titles, and the selected model has a check as well as a pressed background. All colors, focus, sizing and scrollbar behavior follow the existing owners; the bottom-center composer and narrow-window focus modes stay canonical.
+
 ## Phase 4 agent interactions
 
 The user supplied T3 Code's provider settings as inspiration on 4 November 2026. Loom adopts a provider picker and a detail pane with installed version, actual connection/account/model status and optional runtime details. The Prism workspace, palette and typography remain canonical. **OpenCode** and **Codex** are native harnesses; a selected model belongs to that harness. Do not imply arbitrary executable compatibility or that the catalog proves model entitlement.

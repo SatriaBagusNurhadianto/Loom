@@ -79,7 +79,7 @@ export function BuildDialog(props: {
     </label>
   );
   return (
-    <Modal title="PDF settings" open={props.open} onClose={props.onClose}>
+    <Modal title="PDF settings" icon="fileText" open={props.open} onClose={props.onClose}>
       <div class="pdf-settings-intro">
         <h3>{pdfStatus(props.latex.state(), props.latex.stale())}</h3>
         <p class="muted">
