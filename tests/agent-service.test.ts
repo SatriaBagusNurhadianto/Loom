@@ -19,7 +19,7 @@ function fixture(adapter: object) {
   const changes = {
     running: () => turn,
     unsettledExternal: () => undefined,
-    linkSubmittedImages: vi.fn(),
+    linkSubmittedAttachments: vi.fn(),
     observe: vi.fn(async () => {}),
     finish: vi.fn(async () => {}),
     views: () => [],

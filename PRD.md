@@ -220,7 +220,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 - Project-wide context means relevant content can be accessed and traced across files. It does not promise that every project byte is sent in every request.
 - Allow users to attach selected text, files, and supported images and inspect which explicit attachments accompany a request.
 - Keep project conversations discoverable through the Chats area, with retained session identity and continuation. An idle conversation can switch between connected OpenCode and Codex agents, retaining separate native sessions and permissions with shared public context. Offer explicit conversation deletion with confirmation; preserve manuscript files, change recovery and harness-owned history.
-- Keep each submitted image preview attached to its originating author message across conversation refresh, switching and application restart. The preview must use the protected submitted copy, so later edits to the project asset cannot silently change what the author sent.
+- Keep submitted file cards and each image preview attached to their originating author message across conversation refresh, switching and application restart. The preview must use the protected submitted copy, so later edits to the project asset cannot silently change what the author sent.
 - Label unavailable capabilities and interrupted work clearly. Preserve messages and author input across recoverable failures.
 - Distinguish an unexecuted suggestion from an actual computation or tool result. Do not report an experiment or verification as performed without evidence.
 

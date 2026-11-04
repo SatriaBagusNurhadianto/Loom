@@ -27,6 +27,51 @@ afterEach(async () => {
   store.close();
   await rm(dir, { recursive: true, force: true });
 });
+it('keeps submitted file associations across restart without attaching them to older messages', async () => {
+  await changes.begin(
+    'native-session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    [],
+    ['older-user'],
+    ['main.tex'],
+  );
+  changes.linkSubmittedAttachments([{ id: 'older-user', role: 'user' }], 'native-session');
+  expect(changes.views()[0].messageId).toBeUndefined();
+  changes.linkSubmittedAttachments(
+    [
+      { id: 'older-user', role: 'user' },
+      { id: 'new-user', role: 'user' },
+    ],
+    'native-session',
+  );
+  await changes.finish('succeeded');
+  const reloaded = new AgentChanges(projects, join(dir, 'recovery'));
+  await reloaded.bind(id);
+  expect(reloaded.views()[0]).toMatchObject({
+    attachments: ['main.tex'],
+    messageId: 'new-user',
+    messageAssociationResolved: true,
+  });
+});
+it('does not associate explicitly rejected file attachments with a later request', async () => {
+  await changes.begin(
+    'native-session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    [],
+    [],
+    ['main.tex'],
+  );
+  await changes.finish('failed', false);
+  changes.linkSubmittedAttachments([{ id: 'later-user', role: 'user' }], 'native-session');
+  expect(changes.views()[0].messageId).toBeUndefined();
+  expect(changes.views()[0].messageAssociationResolved).toBe(true);
+});
 it('retains and verifies the exact submitted image through recovery and rejects altered checkpoints', async () => {
   const original = await readFile('tests/fixtures/whiteboard-equation.png');
   await writeFile(join(root, 'board.png'), original);

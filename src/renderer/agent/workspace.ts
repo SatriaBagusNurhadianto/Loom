@@ -9,6 +9,19 @@ import {
 } from '../../contracts/agent';
 import type { ProjectWorkspace } from '../editor/documents';
 import { imageMime } from '../../domain/images';
+async function createImageThumbnail(mime: string, data: string) {
+  const source = new Image();
+  source.src = `data:${mime};base64,${data}`;
+  await source.decode();
+  const scale = Math.min(1, 260 / source.naturalWidth, 180 / source.naturalHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/webp', 0.82);
+}
 export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: string) => void) {
   const [state, setState] = createSignal<AgentState | null>(null),
     [error, setError] = createSignal(''),
@@ -416,6 +429,21 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setError('');
     }
   }
+  async function projectImageThumbnail(path: string) {
+    const projectId = projects.project()?.id,
+      current = generation;
+    if (!projectId || !window.loom) return null;
+    try {
+      const result = await window.loom.project({ type: 'preview-image', projectId, path });
+      if (!result.ok || current !== generation || projects.project()?.id !== projectId) return null;
+      const preview = result.value?.imagePreview;
+      if (!preview) return null;
+      const thumbnail = await createImageThumbnail(preview.mime, preview.data);
+      return current === generation && projects.project()?.id === projectId ? thumbnail : null;
+    } catch {
+      return null;
+    }
+  }
   async function submittedImageThumbnail(turnId: string, path: string) {
     const projectId = projects.project()?.id,
       sessionId = state()?.sessionId,
@@ -443,17 +471,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
           return null;
         const preview = result.value.imagePreview;
         if (!preview) return null;
-        const source = new Image();
-        source.src = `data:${preview.mime};base64,${preview.data}`;
-        await source.decode();
-        const scale = Math.min(1, 260 / source.naturalWidth, 180 / source.naturalHeight);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
-        canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
-        const context = canvas.getContext('2d');
-        if (!context) return null;
-        context.drawImage(source, 0, 0, canvas.width, canvas.height);
-        const thumbnail = canvas.toDataURL('image/webp', 0.82);
+        const thumbnail = await createImageThumbnail(preview.mime, preview.data);
+        if (current !== generation || state()?.sessionId !== sessionId) return null;
         imageThumbnailCache.set(key, thumbnail);
         return thumbnail;
       } catch {
@@ -632,6 +651,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     closeImage,
     showSubmittedImage,
     submittedImageThumbnail,
+    projectImageThumbnail,
     showImage,
     pasteImage,
     setAttachments,

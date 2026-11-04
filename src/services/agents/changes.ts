@@ -130,6 +130,7 @@ export class AgentChanges {
     conversationId?: string,
     imagePaths: string[] = [],
     knownMessageIds: string[] = [],
+    attachmentPaths: string[] = imagePaths,
   ) {
     if (this.unsettled()) throw new Error('Recover the previous request before starting another.');
     if (!external && (!supervisorPid || !Number.isSafeInteger(supervisorPid) || supervisorPid <= 1))
@@ -145,6 +146,9 @@ export class AgentChanges {
     )
       throw new Error('Your paper changed while preparing the request. Save and try again.');
     const files = await this.projects.agentFiles(this.projectId);
+    const attachments = [...new Set([...attachmentPaths, ...imagePaths])];
+    if (attachments.length > 20 || attachments.some((path) => !files.has(path)))
+      throw new Error('An attached file is unavailable. Attach it again.');
     const images = imagePaths.map((path) => {
       const bytes = files.get(path),
         mime = imageMime(path);
@@ -169,10 +173,10 @@ export class AgentChanges {
         status: 'running',
         startedAt: new Date().toISOString(),
         revision,
-        ...(conversationId ? { conversationId, images } : {}),
+        ...(conversationId ? { conversationId, images, attachments } : {}),
         changes: [],
       },
-      ...(images.length ? { knownMessageIds: knownMessageIds.slice(-200) } : {}),
+      ...(attachments.length ? { knownMessageIds: knownMessageIds.slice(-200) } : {}),
       before,
       after: {},
       human: [],
@@ -184,18 +188,20 @@ export class AgentChanges {
     this.persist();
     return turn;
   }
-  linkSubmittedImages(messages: { id: string; role: string }[], sessionId: string) {
+  linkSubmittedAttachments(messages: { id: string; role: string }[], sessionId: string) {
     const unlinked = this.turns
       .filter(
         (turn) =>
           turn.view.sessionId === sessionId &&
-          turn.view.images?.length &&
+          (turn.view.attachments?.length || turn.view.images?.length) &&
           turn.knownMessageIds !== undefined &&
           !turn.view.messageAssociationResolved &&
           !turn.view.messageId,
       )
       .sort((a, b) => b.view.startedAt.localeCompare(a.view.startedAt));
-    const used = new Set<string>();
+    const used = new Set(
+      this.turns.flatMap((turn) => (turn.view.messageId ? [turn.view.messageId] : [])),
+    );
     let changed = false;
     for (const turn of unlinked) {
       const message = [...messages]

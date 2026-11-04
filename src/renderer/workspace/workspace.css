@@ -2325,12 +2325,17 @@ kbd {
   font-size: 12px;
   line-height: 1.5;
 }
-.agent-attachments {
+.agent-draft-attachments {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-height: 65px;
-  overflow: auto;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 6px;
+  scroll-padding-inline: 4px;
 }
 .agent-image-preview {
   position: absolute;
@@ -2387,20 +2392,6 @@ dialog:has(.agent-image-expanded-canvas) {
   display: block;
   max-width: none;
   height: auto;
-}
-.agent-attachments button {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: 3px 6px;
-  color: var(--text-muted);
-}
-.agent-attachments button:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
 }
 .agent-conversation {
   flex: 0 1 38%;
@@ -2867,69 +2858,170 @@ dialog:has(.agent-image-expanded-canvas) {
 }
 .agent-message-attachments {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin-bottom: 10px;
+  white-space: normal;
 }
-.agent-message-image {
-  display: flex;
-  width: min(260px, 100%);
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
+.agent-attachment-card {
+  position: relative;
+  flex: 0 0 auto;
+  width: 220px;
+  max-width: 100%;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-editor);
+  white-space: normal;
+}
+.agent-attachment-card.is-compact {
+  width: 196px;
+}
+.agent-attachment-card.is-compact.is-image {
+  width: 88px;
+}
+.agent-attachment-preview {
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
   color: var(--text-muted);
   text-align: left;
   cursor: pointer;
 }
-.agent-message-image:hover {
-  border-color: var(--focus);
+.agent-attachment-preview:hover {
+  outline: 1px solid var(--focus);
   color: var(--text-primary);
 }
-.agent-message-image:focus-visible {
+.agent-attachment-preview:focus-visible,
+.agent-attachment-remove:focus-visible {
   outline: 1px solid var(--focus);
   outline-offset: 2px;
 }
-.agent-message-image img,
-.agent-message-image-placeholder {
+.agent-attachment-preview:active:not(:disabled),
+.agent-attachment-remove:active:not(:disabled) {
+  opacity: 0.75;
+}
+.agent-attachment-preview img,
+.agent-attachment-placeholder {
   display: block;
   width: 100%;
-  height: 150px;
+  height: 140px;
   object-fit: contain;
   background: var(--surface-editor);
 }
-.agent-message-image-placeholder {
+.is-compact .agent-attachment-preview img,
+.is-compact .agent-attachment-placeholder {
+  height: 62px;
+}
+.agent-attachment-placeholder {
   display: flex;
+  flex-direction: column;
+  gap: 4px;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  background: var(--surface-editor);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
 }
-.agent-message-image-caption {
+.agent-attachment-caption {
+  display: block;
+  overflow: hidden;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.is-compact .agent-attachment-caption {
+  padding: 4px 6px;
+  font-size: 10px;
+}
+.agent-attachment-file {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 8px;
-  border-top: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  gap: 10px;
+  min-height: 74px;
+  padding: 12px;
 }
-.agent-message-image-placeholder,
-.agent-message-image-caption {
-  pointer-events: none;
+.is-compact .agent-attachment-file {
+  min-height: 88px;
+  padding-right: 30px;
+}
+.agent-attachment-file-icon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+.agent-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-attachment-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.agent-attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.agent-attachment-remove:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 .agent-message-user .agent-message-attachments {
   justify-content: flex-end;
 }
-.agent-message-user .agent-message-image-caption {
-  justify-content: flex-start;
+.agent-earlier-attachments {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 18px;
+}
+.agent-earlier-attachments h4 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.agent-earlier-attachments p {
+  margin: 3px 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.agent-earlier-attachments time {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 .agent-message > .icon-button {
   display: flex;
@@ -3015,6 +3107,24 @@ dialog:has(.agent-image-expanded-canvas) {
   .agent-workspace-panel .agent-prompt {
     min-height: 34px;
     font-size: 15px;
+  }
+  .agent-workspace-panel.expanded:has(.agent-draft-attachments):has(.agent-inline-error) {
+    height: max(var(--chat-height, 68%), 74%);
+    max-height: calc(100% - 110px);
+  }
+  .agent-workspace-panel .agent-composer:has(.agent-draft-attachments) {
+    gap: 6px;
+  }
+  .agent-workspace-panel .agent-composer:has(.agent-draft-attachments) .agent-prompt {
+    flex: 0 1 auto;
+    height: 34px;
+  }
+  .is-compact .agent-attachment-preview img,
+  .is-compact .agent-attachment-placeholder {
+    height: 40px;
+  }
+  .is-compact .agent-attachment-file {
+    min-height: 66px;
   }
 }
 /* A narrow visible handle keeps a generous pointer/keyboard target. */

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 let app: ElectronApplication,
   page: Page,
   directory: string,
@@ -802,7 +803,9 @@ test('native attachment picker preserves cancellation, rejects outside-paper fil
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+a');
   await page.getByRole('button', { name: 'Attach selected text', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Remove selected passage main.tex' }),
+  ).toBeVisible();
 });
 
 test('picker copies outside images and retains project files in a mixed selection', async () => {
@@ -815,6 +818,9 @@ test('picker copies outside images and retains project files in a mixed selectio
   await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
   const chip = page.getByRole('button', { name: /Remove attached file loom-import-.*\.png/ });
   await expect(chip).toBeVisible();
+  const tray = page.getByRole('group', { name: 'Attachments to send' });
+  await expect(tray.locator('img')).toBeVisible();
+  await expect(tray.locator('.agent-attachment-file')).toContainText('main.tex');
   const name = (await chip.getAttribute('aria-label'))!.replace('Remove attached file ', '');
   expect(await readFile(join(root, name))).toEqual(bytes);
   expect(await readFile(external)).toEqual(bytes);
@@ -833,6 +839,11 @@ test('picker copies outside images and retains project files in a mixed selectio
     path: resolve('artifacts/phase-6-import-image-small.png'),
     animations: 'disabled',
   });
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  await expect(chip).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeFocused();
+  expect(await readFile(join(root, name))).toEqual(bytes);
 });
 
 test('picker reports a partial import without attaching an unimported file', async () => {
@@ -952,6 +963,14 @@ test('pasting an image saves an ordinary project asset and keeps clipboard text'
   });
   await page.getByRole('button', { name: 'Close image' }).click();
   await expect(image).toHaveCount(0);
+  const thumbnail = page.getByRole('button', { name: `View image ${name}` }).locator('img');
+  const originalThumbnail = await thumbnail.getAttribute('src');
+  await writeFile(
+    join(root, name),
+    await readFile(resolve('tests/fixtures/whiteboard-diagram.png')),
+  );
+  await expect.poll(() => thumbnail.getAttribute('src')).not.toBe(originalThumbnail);
+  await expect(thumbnail).toBeVisible();
 });
 
 test('submitted image snapshot stays available after the project file changes and after restart', async () => {
@@ -959,7 +978,7 @@ test('submitted image snapshot stays available after the project file changes an
   const bytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
   await writeFile(join(root, 'board.png'), bytes);
   await connect();
-  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await stubNativeOpenDialog([join(root, 'board.png'), join(root, 'main.tex')]);
   await page.getByRole('button', { name: 'Attach paper files or images' }).click();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
@@ -969,6 +988,14 @@ test('submitted image snapshot stays available after the project file changes an
   await expect(sentImage).toBeVisible();
   await sentImage.scrollIntoViewIfNeeded();
   await expect(sentImage.locator('img')).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-attachment-file')).toContainText(
+    'main.tex',
+  );
+  const fileCard = page.locator('.agent-message-user .agent-attachment-card:not(.is-image)');
+  expect((await fileCard.boundingBox())!.height).toBeLessThan(
+    (await sentImage.boundingBox())!.height,
+  );
+  await expect(page.locator('.composer-area [aria-label="Submitted images"]')).toHaveCount(0);
   await page.screenshot({
     path: resolve('artifacts/phase-6-sent-image-message-small.png'),
     animations: 'disabled',
@@ -1007,7 +1034,64 @@ test('submitted image snapshot stays available after the project file changes an
   await expect(restoredImage).toBeVisible();
   await restoredImage.scrollIntoViewIfNeeded();
   await expect(restoredImage.locator('img')).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-attachment-file')).toContainText(
+    'main.tex',
+  );
   await restoredImage.click();
+  await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+});
+
+test('older image records use conversation thumbnails instead of rows below the composer', async () => {
+  imageModel = true;
+  await writeFile(
+    join(root, 'board.png'),
+    await readFile(resolve('tests/fixtures/whiteboard-equation.png')),
+  );
+  await connect();
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(page.getByRole('button', { name: 'View submitted image board.png' })).toBeVisible();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().forEach((window) => window.destroy()),
+  );
+  await app.close();
+  // Reproduce a pre-association recovery record, without changing its saved image bytes.
+  const db = new DatabaseSync(join(directory, 'data', 'metadata.sqlite'));
+  try {
+    const row = db
+      .prepare("SELECT key,value FROM preferences WHERE key LIKE 'agent-turns:%'")
+      .get() as { key: string; value: string };
+    const record = JSON.parse(row.value);
+    for (const turn of record.turns) {
+      delete turn.knownMessageIds;
+      delete turn.view.messageId;
+      delete turn.view.messageAssociationResolved;
+      delete turn.view.attachments;
+    }
+    db.prepare('UPDATE preferences SET value=? WHERE key=?').run(JSON.stringify(record), row.key);
+  } finally {
+    db.close();
+  }
+  await launchElectron();
+  await openProjectIfNeeded();
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Show conversation' }).click();
+  const earlier = page.getByRole('region', { name: 'Earlier request attachments' });
+  const thumbnail = earlier.getByRole('button', { name: 'View submitted image board.png' });
+  await thumbnail.scrollIntoViewIfNeeded();
+  await expect(thumbnail.locator('img')).toBeVisible();
+  await expect(page.locator('.composer-area [aria-label="Submitted images"]')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-legacy-attachment-cards-small.png'),
+    animations: 'disabled',
+  });
+  await thumbnail.focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
 });
 
@@ -1029,11 +1113,11 @@ test('a rejected image request keeps the session connected and retains the draft
   await expect(page.getByRole('alert')).toContainText('HTTP 413');
   await expect(page.getByRole('alert')).toContainText('Use a smaller image');
   await dimensions(720, 540);
-  await expect(page.getByRole('alert')).toBeInViewport();
   await page.screenshot({
     path: resolve('artifacts/phase-6-image-rejection-small.png'),
     animations: 'disabled',
   });
+  await expect(page.getByRole('alert')).toBeInViewport();
   await expect(page.getByText('Agent connected', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
@@ -1045,7 +1129,7 @@ test('a rejected image request keeps the session connected and retains the draft
   await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue without image.');
   await page.getByRole('button', { name: 'Send to agent' }).click();
   await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
-  await expect(page.locator('.agent-message-user .agent-message-image')).toHaveCount(0);
+  await expect(page.locator('.agent-message-user .agent-attachment-card.is-image')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /View submitted image board\.png/ })).toHaveCount(
     0,
   );
@@ -1160,7 +1244,9 @@ test('scientific request templates preserve the draft and selected source', asyn
   await dialog.getByRole('button', { name: 'Convert image' }).focus();
   await page.keyboard.press('Enter');
   await expect(input).toHaveValue(/My existing note\.[\s\S]*Convert the attached image/);
-  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Remove selected passage main.tex' }),
+  ).toBeVisible();
   await expect(input).toBeFocused();
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+Home');

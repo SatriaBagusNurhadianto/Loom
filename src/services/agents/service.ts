@@ -131,11 +131,11 @@ export class AgentService {
     const ref = this.sessions?.find((ref) => ref.id === this.state?.sessionId);
     if (!ref) {
       this.state!.messages = clean;
-      this.changes.linkSubmittedImages(clean, nativeSessionKey(this.state!.harness, nativeId));
+      this.changes.linkSubmittedAttachments(clean, nativeSessionKey(this.state!.harness, nativeId));
       return;
     }
     this.state!.messages = mergeConversation(ref, this.state!.harness, nativeId, clean);
-    this.changes.linkSubmittedImages(
+    this.changes.linkSubmittedAttachments(
       clean.map((message) => ({
         ...message,
         id: nativeSessionKey(this.state!.harness, nativeId + '\0' + message.id),
@@ -630,6 +630,7 @@ export class AgentService {
             command.sessionId,
             command.attachments.filter((path) => imageMime(path)),
             s.messages.map((message) => message.id),
+            command.attachments,
           );
           return { context, turn };
         });

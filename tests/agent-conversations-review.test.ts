@@ -45,7 +45,7 @@ function make() {
     connections: new Map([['opencode', connection]]),
     generation: 0,
     refreshBusy: false,
-    changes: { unsettledExternal: () => undefined, linkSubmittedImages: vi.fn() },
+    changes: { unsettledExternal: () => undefined, linkSubmittedAttachments: vi.fn() },
   });
   return { service, adapter, tools, connection, state };
 }
@@ -131,7 +131,7 @@ it('switches pooled providers without changing the Loom conversation or mixing n
       ['opencode', { adapter: opencode, tools: {}, models: [model], interrupted: false }],
       ['codex', { adapter: codex, tools: {}, models: [model], interrupted: false }],
     ]),
-    changes: { unsettledExternal: () => undefined, linkSubmittedImages: vi.fn() },
+    changes: { unsettledExternal: () => undefined, linkSubmittedAttachments: vi.fn() },
     projects: {
       run: async (f: () => unknown) => f(),
       buildContext: () => ({ root: '/paper' }),
@@ -215,7 +215,7 @@ it.skipIf(process.env.LOOM_LATEX_LIVE !== '1')(
           observe: async () => {},
           finish: async () => {},
           views: () => [],
-          linkSubmittedImages: vi.fn(),
+          linkSubmittedAttachments: vi.fn(),
         },
       });
       await Promise.race([
@@ -286,7 +286,7 @@ it('passes earlier public conversation context to the newly selected harness wit
       unsettled: () => false,
       begin: async () => {},
       views: () => [],
-      linkSubmittedImages: vi.fn(),
+      linkSubmittedAttachments: vi.fn(),
     },
     projects: {
       run: async (f: () => unknown) => f(),

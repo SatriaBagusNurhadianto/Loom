@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
 import { MessageBody } from './MessageBody';
@@ -6,10 +6,14 @@ import { ProviderLogo } from '../ui/ProviderLogo';
 import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
 import { imageMime } from '../../domain/images';
+import type { AgentTurn } from '../../contracts/agent';
+import { AgentAttachmentCard } from './AgentAttachmentCard';
 export { AgentConnections } from './AgentConnections';
 
 const questionFieldId = (questionId: string, fieldKey: string) =>
   `agent-question-${encodeURIComponent(questionId)}-${encodeURIComponent(fieldKey)}`;
+const attachedPaths = (turn: AgentTurn) =>
+  turn.attachments ?? turn.images?.map((image) => image.path) ?? [];
 
 export function AgentChats(props: {
   agent: AgentWorkspace;
@@ -131,6 +135,18 @@ export function AgentChats(props: {
 }
 export function AgentConversation(props: { agent: AgentWorkspace }) {
   const a = props.agent;
+  const earlierAttachments = createMemo(() =>
+    a
+      .state()
+      ?.turns.filter(
+        (turn) =>
+          turn.conversationId === a.state()?.sessionId &&
+          attachedPaths(turn).length &&
+          !turn.messageId &&
+          !turn.messageAssociationResolved &&
+          turn.status !== 'running',
+      ),
+  );
   let scroller!: HTMLDivElement;
   const [copyError, setCopyError] = createSignal('');
   const [copiedMessage, setCopiedMessage] = createSignal('');
@@ -279,33 +295,20 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                           : 'Request status'}
                     {message.state ? ' · ' + message.state : ''}
                   </small>
-                  <MessageBody text={message.text} />
                   <Show when={message.role === 'user'}>
-                    <div class="agent-message-attachments">
-                      <For
-                        each={a
-                          .state()
-                          ?.turns.filter(
-                            (turn) =>
-                              turn.conversationId === a.state()?.sessionId &&
-                              turn.messageId === message.id,
-                          )}
-                      >
-                        {(turn) => (
-                          <For each={turn.images}>
-                            {(image) => (
-                              <AgentSubmittedImage
-                                agent={a}
-                                turnId={turn.id}
-                                path={image.path}
-                                submittedAt={turn.startedAt}
-                              />
-                            )}
-                          </For>
+                    <For
+                      each={a
+                        .state()
+                        ?.turns.filter(
+                          (turn) =>
+                            turn.conversationId === a.state()?.sessionId &&
+                            turn.messageId === message.id,
                         )}
-                      </For>
-                    </div>
+                    >
+                      {(turn) => <AgentTurnAttachments agent={a} turn={turn} />}
+                    </For>
                   </Show>
+                  <MessageBody text={message.text} />
                   <Show when={message.execution}>
                     {(execution) => (
                       <details
@@ -356,6 +359,22 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                 </div>
               )}
             </For>
+          </Show>
+          <Show when={earlierAttachments()?.length}>
+            <section class="agent-earlier-attachments" aria-label="Earlier request attachments">
+              <h4>Earlier attachments</h4>
+              <p>Saved with earlier requests in this conversation.</p>
+              <For each={earlierAttachments()?.slice().reverse()}>
+                {(turn) => (
+                  <div>
+                    <time dateTime={turn.startedAt}>
+                      {new Date(turn.startedAt).toLocaleString()}
+                    </time>
+                    <AgentTurnAttachments agent={a} turn={turn} compact />
+                  </div>
+                )}
+              </For>
+            </section>
           </Show>
           <Show when={copyError()}>
             <p role="alert" class="agent-inline-error">
@@ -644,60 +663,30 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
   );
 }
 
-function AgentSubmittedImage(props: {
+function AgentTurnAttachments(props: {
   agent: AgentWorkspace;
-  turnId: string;
-  path: string;
-  submittedAt: string;
+  turn: AgentTurn;
+  compact?: boolean;
 }) {
-  const [thumbnail, setThumbnail] = createSignal<string | null>(null),
-    [failed, setFailed] = createSignal(false);
-  let card!: HTMLButtonElement;
-  onMount(() => {
-    let observer: IntersectionObserver | undefined;
-    const load = async () => {
-      const result = await props.agent.submittedImageThumbnail(props.turnId, props.path);
-      if (result) setThumbnail(result);
-      else setFailed(true);
-    };
-    if ('IntersectionObserver' in window) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((entry) => entry.isIntersecting)) {
-            observer?.disconnect();
-            void load();
-          }
-        },
-        { root: card.closest('.agent-messages'), rootMargin: '160px' },
-      );
-      observer.observe(card);
-    } else void load();
-    onCleanup(() => observer?.disconnect());
-  });
   return (
-    <button
-      ref={card}
-      type="button"
-      class="agent-message-image"
-      aria-label={`View submitted image ${props.path}`}
-      title={`${props.path} · submitted ${props.submittedAt.replace('T', ' ').slice(0, 19)} UTC`}
-      onClick={() => void props.agent.showSubmittedImage(props.turnId, props.path)}
-    >
-      <Show
-        when={thumbnail()}
-        fallback={
-          <span class="agent-message-image-placeholder" aria-hidden="true">
-            <Icon name="fileImage" size={22} />
-          </span>
-        }
-      >
-        {(src) => <img src={src()} alt="" aria-hidden="true" />}
-      </Show>
-      <span class="agent-message-image-caption">
-        <Icon name={failed() ? 'warning' : 'fileImage'} size={13} />
-        {failed() ? 'Preview unavailable' : props.path.split('/').at(-1)}
-      </span>
-    </button>
+    <div class="agent-message-attachments" role="group" aria-label="Message attachments">
+      <For each={attachedPaths(props.turn)}>
+        {(path) => (
+          <AgentAttachmentCard
+            path={path}
+            compact={props.compact}
+            image={props.turn.images?.some((image) => image.path === path)}
+            previewLabel={`View submitted image ${path}`}
+            thumbnail={
+              imageMime(path)
+                ? () => props.agent.submittedImageThumbnail(props.turn.id, path)
+                : undefined
+            }
+            onPreview={() => void props.agent.showSubmittedImage(props.turn.id, path)}
+          />
+        )}
+      </For>
+    </div>
   );
 }
 export function AgentImagePreview(props: { agent: AgentWorkspace }) {
@@ -845,6 +834,44 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             </Show>
           </div>
         </Show>
+        <Show when={a.attachments().length || a.selection()}>
+          <div class="agent-draft-attachments" role="group" aria-label="Attachments to send">
+            <For each={a.attachments()}>
+              {(path) => (
+                <AgentAttachmentCard
+                  path={path}
+                  image={!!imageMime(path)}
+                  compact
+                  thumbnail={imageMime(path) ? () => a.projectImageThumbnail(path) : undefined}
+                  revision={
+                    a.projects.project()?.files.find((file) => file.path === path)?.diskRevision
+                  }
+                  onPreview={() => void a.showImage(path)}
+                  disabled={a.busy() || running()}
+                  onRemove={() => {
+                    a.setAttachments((old) => old.filter((p) => p !== path));
+                    input?.focus();
+                  }}
+                />
+              )}
+            </For>
+            <Show when={a.selection()}>
+              {(selected) => (
+                <AgentAttachmentCard
+                  path={selected().path}
+                  compact
+                  detail="Selected passage"
+                  removeLabel={`Remove selected passage ${selected().path}`}
+                  disabled={a.busy() || running()}
+                  onRemove={() => {
+                    a.setSelection(null);
+                    input?.focus();
+                  }}
+                />
+              )}
+            </Show>
+          </div>
+        </Show>
         <textarea
           ref={input}
           class="agent-prompt resize-none"
@@ -873,37 +900,6 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             }
           }}
         />
-        <Show when={a.attachments().length || a.selection()}>
-          <div class="agent-attachments">
-            <For each={a.attachments()}>
-              {(path) => (
-                <>
-                  <Show when={imageMime(path)}>
-                    <button
-                      title={`View project image ${path}`}
-                      aria-label={`View image ${path}`}
-                      onClick={() => void a.showImage(path)}
-                    >
-                      View
-                    </button>
-                  </Show>
-                  <button
-                    title={`Remove attached file ${path}`}
-                    aria-label={`Remove attached file ${path}`}
-                    onClick={() => a.setAttachments((old) => old.filter((p) => p !== path))}
-                  >
-                    {path} ×
-                  </button>
-                </>
-              )}
-            </For>
-            <Show when={a.selection()}>
-              <button title={a.selection()?.text} onClick={() => a.setSelection(null)}>
-                Selected passage · {a.selection()?.path} ×
-              </button>
-            </Show>
-          </div>
-        </Show>
         <Show
           when={
             a.projects.file() &&
@@ -975,35 +971,6 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           </button>
         </div>
       </div>
-      <Show
-        when={a
-          .state()
-          ?.turns.some(
-            (turn) => turn.conversationId === a.state()?.sessionId && turn.images?.length,
-          )}
-      >
-        <div class="agent-attachments" aria-label="Submitted images">
-          <For
-            each={a.state()?.turns.filter((turn) => turn.conversationId === a.state()?.sessionId)}
-          >
-            {(turn) =>
-              turn.messageId || turn.messageAssociationResolved ? null : (
-                <For each={turn.images}>
-                  {(image) => (
-                    <button
-                      title={`View image ${image.path} submitted ${turn.startedAt}`}
-                      onClick={() => void a.showSubmittedImage(turn.id, image.path)}
-                    >
-                      View submitted image {image.path} ·{' '}
-                      {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
-                    </button>
-                  )}
-                </For>
-              )
-            }
-          </For>
-        </div>
-      </Show>
       <Show
         when={a.attachments().some((path) => imageMime(path)) && a.model() && !a.model()?.images}
       >
