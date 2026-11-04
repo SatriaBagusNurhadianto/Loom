@@ -72,6 +72,7 @@ export function AgentChats(props: {
 export function AgentConversation(props: { agent: AgentWorkspace; onReview: () => void }) {
   const a = props.agent;
   let scroller!: HTMLDivElement;
+  const [copyError, setCopyError] = createSignal('');
   const [follow, setFollow] = createSignal(true),
     [questionErrors, setQuestionErrors] = createSignal<
       Record<string, { message: string; fieldId: string }>
@@ -123,11 +124,19 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
     <Show when={a.open()}>
       <section class="agent-conversation" aria-label="Conversation about this paper">
         <div class="agent-conversation-heading">
+          <IconButton
+            icon="down"
+            label="Hide conversation"
+            onClick={() => {
+              a.setOpen(false);
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+              );
+            }}
+          />
           <span>
-            <Icon name="chat" size={14} />{' '}
             {a.state()?.sessions.find((s) => s.id === a.state()?.sessionId)?.title ??
-              'New conversation'}{' '}
-            · {a.projects.project()?.name ?? 'Paper'}
+              'New conversation'}
           </span>
           <div>
             <Show when={changed()}>
@@ -136,14 +145,10 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
               </button>
             </Show>
             <IconButton
-              icon="close"
-              label="Hide conversation"
-              onClick={() => {
-                a.setOpen(false);
-                requestAnimationFrame(() =>
-                  document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
-                );
-              }}
+              icon="plus"
+              label="New conversation"
+              disabled={a.busy() || a.state()?.running || a.state()?.connection !== 'connected'}
+              onClick={() => void a.newChat()}
             />
           </div>
         </div>
@@ -203,9 +208,29 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                     {message.state ? ' · ' + message.state : ''}
                   </small>
                   <div>{message.text}</div>
+                  <Show when={message.role === 'assistant' || message.role === 'user'}>
+                    <IconButton
+                      icon="copy"
+                      label="Copy message"
+                      onClick={() => {
+                        void navigator.clipboard
+                          .writeText(message.text)
+                          .catch(() =>
+                            setCopyError(
+                              'Could not copy this message. Select its text and copy it instead.',
+                            ),
+                          );
+                      }}
+                    />
+                  </Show>
                 </div>
               )}
             </For>
+          </Show>
+          <Show when={copyError()}>
+            <p role="alert" class="agent-inline-error">
+              {copyError()}
+            </p>
           </Show>
           <Show when={a.state()?.running}>
             <p class="agent-activity" role="status">
@@ -213,7 +238,7 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
                 ? 'Waiting for your permission'
                 : a.state()?.questions.length
                   ? 'Waiting for your answer'
-                  : 'Working on your request…'}
+                  : 'Thinking…'}
             </p>
           </Show>
           <For each={a.state()?.permissions}>
@@ -511,7 +536,7 @@ export function AgentComposer(props: {
           class="agent-prompt resize-none"
           aria-label="Ask about your paper"
           placeholder={
-            a.projects.project() ? 'Ask about your paper…' : 'Open a paper to work with an agent…'
+            a.projects.project() ? 'Ask anything' : 'Open a paper to work with an agent…'
           }
           rows={2}
           style={{ resize: 'none' }}

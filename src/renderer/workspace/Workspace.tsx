@@ -55,6 +55,8 @@ export function Workspace() {
   const projects = createProjectWorkspace(setNotice);
   const latex = createLatexWorkspace(projects, setNotice);
   const agent = createAgentWorkspace(projects, setNotice);
+  const [chatHeight, setChatHeight] = createSignal(68);
+  const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
   const [reviewOpen, setReviewOpen] = createSignal(false);
   const agentConnect = () => setConnectionsOpen(true);
@@ -822,13 +824,43 @@ export function Workspace() {
                 </span>
               </Show>
             </div>
-            <AgentConversation agent={agent} onReview={() => setReviewOpen(true)} />
-            <div class="composer-area">
-              <AgentComposer
-                agent={agent}
-                onConnect={agentConnect}
-                onReview={() => setReviewOpen(true)}
-              />
+            <div
+              class="agent-workspace-panel"
+              classList={{ expanded: agent.open() }}
+              style={{ '--chat-height': `${chatHeight()}%` }}
+            >
+              <Show when={agent.open()}>
+                <button
+                  class="agent-panel-grip"
+                  aria-label="Resize conversation"
+                  title="Drag to resize · Arrow keys to adjust"
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      resizeChat(chatHeight() + (event.key === 'ArrowUp' ? 4 : -4));
+                    }
+                  }}
+                  onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                  onPointerMove={(event) => {
+                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const bounds = event.currentTarget
+                      .closest('.source-column')!
+                      .getBoundingClientRect();
+                    resizeChat(((bounds.bottom - event.clientY) / bounds.height) * 100);
+                  }}
+                  onPointerUp={(event) =>
+                    event.currentTarget.releasePointerCapture(event.pointerId)
+                  }
+                />
+              </Show>
+              <AgentConversation agent={agent} onReview={() => setReviewOpen(true)} />
+              <div class="composer-area">
+                <AgentComposer
+                  agent={agent}
+                  onConnect={agentConnect}
+                  onReview={() => setReviewOpen(true)}
+                />
+              </div>
             </div>
           </main>
         </Show>

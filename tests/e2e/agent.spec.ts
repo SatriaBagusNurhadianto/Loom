@@ -339,6 +339,12 @@ test('real Electron agent flow: context, permissions, retained questions, stream
     page.getByText('Updated main.tex for your selected audience.', { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
+  const panel = page.locator('.agent-workspace-panel');
+  const initialHeight = (await panel.boundingBox())!.height;
+  await page.getByRole('button', { name: 'Resize conversation', exact: true }).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await panel.boundingBox())!.height).toBeLessThan(initialHeight);
+  await page.keyboard.press('ArrowUp');
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toContain('Agent revision');
   // Wait for the filesystem bridge before authoring a compatible edit to the revised source.
   await expect(page.locator('.cm-content')).toContainText('Agent revision for researchers.');
