@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cloneRepository, GitService } from '../src/services/git/service';
@@ -142,6 +142,21 @@ describe('Git status and diff service', () => {
     ).toMatchObject({ output: '.env\n' });
   });
 
+  it('blocks common disposable TeX outputs from staging and commit review', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const generated = ['main.aux', 'main.toc', 'main.fls', 'main.fdb_latexmk'];
+    for (const path of generated) await writeFile(join(setup.root, path), 'synthetic output\n');
+    const service = new GitService(() => ({ root: setup.root, projectId: 'p', paths: generated }));
+    for (const path of generated)
+      await expect(service.command({ type: 'stage', projectId: 'p', path })).rejects.toThrow(
+        /private or generated/,
+      );
+    expect(
+      (await runTool(setup.git, ['-C', setup.root, 'diff', '--cached', '--name-only'])).stdout,
+    ).toBe('');
+  });
+
   it('commits only the reviewed index and creates a branch without pushing', async () => {
     const setup = await repository();
     if (!setup) return;
@@ -265,5 +280,316 @@ describe('Git status and diff service', () => {
       mergeInProgress: true,
       files: [expect.objectContaining({ path: 'main.tex', index: 'M', worktree: ' ' })],
     });
+  });
+
+  it('treats wildcard filenames literally and leaves unrelated private files unstaged', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, '*'), 'literal name\n');
+    await writeFile(join(setup.root, 'paper.tex'), 'ordinary source\n');
+    await writeFile(join(setup.root, '.env'), 'TOKEN=synthetic\n');
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['*', 'paper.tex', '.env'],
+    }));
+    await service.command({ type: 'stage', projectId: 'p', path: '*' });
+    const names = await runTool(setup.git, ['-C', setup.root, 'diff', '--cached', '--name-only']);
+    expect(names.stdout.trim()).toBe('*');
+    expect(await service.command({ type: 'status', projectId: 'p' })).toMatchObject({
+      files: expect.arrayContaining([
+        expect.objectContaining({ path: 'paper.tex', index: '?' }),
+        expect.objectContaining({ path: '.env', index: '?' }),
+      ]),
+    });
+  });
+
+  it('stages tracked files deleted from the live project inventory', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'baseline\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'main.tex'],
+      ['-C', setup.root, 'commit', '-qm', 'baseline'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    await rm(join(setup.root, 'main.tex'));
+    const service = new GitService(() => ({ root: setup.root, projectId: 'p', paths: [] }));
+    const diff = await service.command({
+      type: 'diff',
+      projectId: 'p',
+      path: 'main.tex',
+      area: 'worktree',
+    });
+    expect(diff).toMatchObject({ kind: 'diff', text: expect.stringContaining('baseline') });
+    await service.command({ type: 'stage', projectId: 'p', path: 'main.tex' });
+    expect(
+      await runTool(setup.git, ['-C', setup.root, 'diff', '--cached', '--name-status']),
+    ).toMatchObject({
+      stdout: 'D\tmain.tex\n',
+    });
+  });
+
+  it('normalizes repository-root paths for a project opened in a nested folder', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const project = join(setup.root, 'paper');
+    await mkdir(project);
+    await writeFile(join(project, 'main.tex'), 'baseline\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'paper/main.tex'],
+      ['-C', setup.root, 'commit', '-qm', 'baseline'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    await writeFile(join(project, 'main.tex'), 'nested revision\n');
+    const service = new GitService(() => ({ root: project, projectId: 'p', paths: ['main.tex'] }));
+    const status = await service.command({ type: 'status', projectId: 'p' });
+    expect(status).toMatchObject({
+      kind: 'status',
+      repositoryPrefix: `paper`,
+      files: [expect.objectContaining({ path: 'main.tex', worktree: 'M' })],
+    });
+    expect(
+      await service.command({ type: 'diff', projectId: 'p', path: 'main.tex', area: 'worktree' }),
+    ).toMatchObject({ text: expect.stringContaining('nested revision') });
+  });
+
+  it('unstages newly staged paths in an unborn repository', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'still on disk\n');
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['main.tex'],
+    }));
+    await service.command({ type: 'stage', projectId: 'p', path: 'main.tex' });
+    await service.command({ type: 'unstage', projectId: 'p', path: 'main.tex' });
+    expect(await runTool(setup.git, ['-C', setup.root, 'status', '--porcelain'])).toMatchObject({
+      stdout: '?? main.tex\n',
+    });
+  });
+
+  it('exposes add/add conflicts and resolves a missing base stage without source loss', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'README'), 'base\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'README'],
+      ['-C', setup.root, 'commit', '-qm', 'base'],
+      ['-C', setup.root, 'config', 'user.name', 'Loom Test'],
+      ['-C', setup.root, 'config', 'user.email', 'loom@example.invalid'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const mainBranch = await runTool(setup.git, ['-C', setup.root, 'branch', '--show-current']);
+    expect(mainBranch.code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'branch', 'theirs'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'switch', 'theirs'])).code).toBe(0);
+    await writeFile(join(setup.root, 'new.tex'), 'theirs\n');
+    expect((await runTool(setup.git, ['-C', setup.root, 'add', '--', 'new.tex'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'commit', '-qm', 'theirs'])).code).toBe(0);
+    expect(
+      (await runTool(setup.git, ['-C', setup.root, 'switch', mainBranch.stdout.trim()])).code,
+    ).toBe(0);
+    await writeFile(join(setup.root, 'new.tex'), 'ours\n');
+    expect((await runTool(setup.git, ['-C', setup.root, 'add', '--', 'new.tex'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'commit', '-qm', 'ours'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'merge', 'theirs'])).code).toBe(1);
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['README', 'new.tex'],
+    }));
+    const status = await service.command({ type: 'status', projectId: 'p' });
+    expect(status).toMatchObject({
+      kind: 'status',
+      files: [
+        expect.objectContaining({ path: 'new.tex', index: 'A', worktree: 'A', conflict: true }),
+      ],
+    });
+    expect(
+      await service.command({ type: 'diff', projectId: 'p', path: 'new.tex', area: 'base' }),
+    ).toMatchObject({ text: expect.stringContaining('No base version') });
+    await service.command({ type: 'resolve', projectId: 'p', path: 'new.tex', choice: 'ours' });
+    expect(await runTool(setup.git, ['-C', setup.root, 'status', '--porcelain'])).toMatchObject({
+      stdout: '',
+    });
+  });
+
+  it('resolves a delete/modify conflict by choosing the side that deleted the file', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'base\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'main.tex'],
+      ['-C', setup.root, 'commit', '-qm', 'base'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const mainBranch = await runTool(setup.git, ['-C', setup.root, 'branch', '--show-current']);
+    expect((await runTool(setup.git, ['-C', setup.root, 'branch', 'deleted'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'switch', 'deleted'])).code).toBe(0);
+    await rm(join(setup.root, 'main.tex'));
+    expect((await runTool(setup.git, ['-C', setup.root, 'commit', '-qam', 'delete'])).code).toBe(0);
+    expect(
+      (await runTool(setup.git, ['-C', setup.root, 'switch', mainBranch.stdout.trim()])).code,
+    ).toBe(0);
+    await writeFile(join(setup.root, 'main.tex'), 'modified\n');
+    expect((await runTool(setup.git, ['-C', setup.root, 'commit', '-qam', 'modify'])).code).toBe(0);
+    expect((await runTool(setup.git, ['-C', setup.root, 'merge', 'deleted'])).code).toBe(1);
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['main.tex'],
+    }));
+    expect(await service.command({ type: 'status', projectId: 'p' })).toMatchObject({
+      kind: 'status',
+      files: [expect.objectContaining({ path: 'main.tex', conflict: true })],
+    });
+    await service.command({ type: 'resolve', projectId: 'p', path: 'main.tex', choice: 'theirs' });
+    await expect(readFile(join(setup.root, 'main.tex'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(
+      await runTool(setup.git, ['-C', setup.root, 'diff', '--cached', '--name-status']),
+    ).toMatchObject({
+      stdout: 'D\tmain.tex\n',
+    });
+  });
+
+  it('rejects configured force and mirror pushes and can publish a new branch safely', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const bare = join(setup.root, 'remote.git');
+    const author = join(setup.root, 'author');
+    await mkdir(author);
+    await writeFile(join(author, 'main.tex'), 'baseline\n');
+    for (const args of [
+      ['-C', author, 'init', '-q', '-b', 'main'],
+      ['-C', author, 'config', 'user.name', 'Loom Test'],
+      ['-C', author, 'config', 'user.email', 'loom@example.invalid'],
+      ['init', '--bare', '-q', bare],
+      ['-C', author, 'add', '--', 'main.tex'],
+      ['-C', author, 'commit', '-qm', 'baseline'],
+      ['-C', author, 'remote', 'add', 'origin', bare],
+      ['-C', author, 'push', '-qu', 'origin', 'HEAD'],
+      ['--git-dir', bare, 'symbolic-ref', 'HEAD', 'refs/heads/main'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const partner = join(setup.root, 'partner');
+    expect((await runTool(setup.git, ['clone', '-q', '--', bare, partner])).code).toBe(0);
+    for (const args of [
+      ['-C', partner, 'config', 'user.name', 'Loom Test'],
+      ['-C', partner, 'config', 'user.email', 'loom@example.invalid'],
+      ['-C', partner, 'fetch', 'origin'],
+      ['-C', partner, 'switch', '-c', 'new-branch'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const service = new GitService(() => ({ root: partner, projectId: 'p', paths: ['main.tex'] }));
+    await service.command({ type: 'push', projectId: 'p', remote: 'origin' });
+    expect(
+      await runTool(setup.git, ['-C', partner, 'rev-parse', '--abbrev-ref', '@{upstream}']),
+    ).toMatchObject({
+      stdout: 'origin/new-branch\n',
+    });
+    const writer = join(setup.root, 'writer');
+    expect((await runTool(setup.git, ['clone', '-q', '--', bare, writer])).code).toBe(0);
+    for (const args of [
+      ['-C', writer, 'config', 'user.name', 'Loom Test'],
+      ['-C', writer, 'config', 'user.email', 'loom@example.invalid'],
+      ['-C', writer, 'switch', '--track', 'origin/new-branch'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    await writeFile(join(writer, 'main.tex'), 'remote advance\n');
+    expect(
+      (await runTool(setup.git, ['-C', writer, 'commit', '-qam', 'remote advance'])).code,
+    ).toBe(0);
+    expect((await runTool(setup.git, ['-C', writer, 'push'])).code).toBe(0);
+    await writeFile(join(partner, 'main.tex'), 'local divergence\n');
+    expect(
+      (await runTool(setup.git, ['-C', partner, 'commit', '-qam', 'local divergence'])).code,
+    ).toBe(0);
+    await runTool(setup.git, [
+      '-C',
+      partner,
+      'config',
+      'remote.origin.push',
+      '+refs/heads/new-branch:refs/heads/new-branch',
+    ]);
+    await expect(service.command({ type: 'push', projectId: 'p' })).rejects.toThrow(
+      /non-fast-forward|rejected/i,
+    );
+    await runTool(setup.git, ['-C', partner, 'config', 'remote.origin.mirror', 'true']);
+    await expect(service.command({ type: 'push', projectId: 'p' })).rejects.toThrow(
+      /mirror pushes/,
+    );
+  });
+
+  it('reports when a Git hook changes the committed tree after index review', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'baseline\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'main.tex'],
+      ['-C', setup.root, 'commit', '-qm', 'baseline'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const hooks = join(setup.root, 'hooks');
+    await mkdir(hooks);
+    const hook = join(hooks, 'pre-commit');
+    await writeFile(hook, '#!/bin/sh\nprintf "hook change\\n" > hook.txt\ngit add hook.txt\n');
+    await chmod(hook, 0o755);
+    for (const args of [
+      ['-C', setup.root, 'config', 'core.hooksPath', hooks],
+      ['-C', setup.root, 'config', 'user.name', 'Loom Test'],
+      ['-C', setup.root, 'config', 'user.email', 'loom@example.invalid'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    await writeFile(join(setup.root, 'main.tex'), 'reviewed\n');
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['main.tex', 'hook.txt'],
+    }));
+    await service.command({ type: 'stage', projectId: 'p', path: 'main.tex' });
+    const status = await service.command({ type: 'status', projectId: 'p' });
+    if (status.kind !== 'status' || !status.indexTree) throw new Error('Missing index tree.');
+    const committed = await service.command({
+      type: 'commit',
+      projectId: 'p',
+      message: 'reviewed',
+      expectedIndexTree: status.indexTree,
+    });
+    expect(committed).toMatchObject({
+      kind: 'status',
+      commitNotice: expect.stringContaining('hook changed'),
+    });
+  });
+
+  it('validates the entire staged path list even when it exceeds the ordinary tool-output buffer', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'baseline\n');
+    for (const args of [
+      ['-C', setup.root, 'add', '--', 'main.tex'],
+      ['-C', setup.root, 'commit', '-qm', 'baseline'],
+    ])
+      expect((await runTool(setup.git, args)).code).toBe(0);
+    const paths = Array.from(
+      { length: 1000 },
+      (_, index) => `ordinary-${index}-${'x'.repeat(180)}.tex`,
+    );
+    for (const path of paths) await writeFile(join(setup.root, path), 'synthetic\n');
+    await writeFile(join(setup.root, '.env'), 'TOKEN=synthetic\n');
+    expect((await runTool(setup.git, ['-C', setup.root, 'add', '--all'])).code).toBe(0);
+    const all = [...paths, '.env'];
+    const service = new GitService(() => ({ root: setup.root, projectId: 'p', paths: all }));
+    const status = await service.command({ type: 'status', projectId: 'p' });
+    if (status.kind !== 'status' || !status.indexTree) throw new Error('Missing staged tree.');
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'large reviewed set',
+        expectedIndexTree: status.indexTree,
+      }),
+    ).rejects.toThrow(/may be private/);
   });
 });

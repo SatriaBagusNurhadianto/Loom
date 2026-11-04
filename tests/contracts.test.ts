@@ -352,4 +352,46 @@ describe('project round-trip lifecycle', () => {
     controller.stop();
     vi.useRealTimers();
   });
+
+  it('keeps background project refreshes alive while a reviewed Git mutation is running', async () => {
+    vi.useFakeTimers();
+    const transport = new FakeTransport();
+    const controller = new ServiceController(() => transport);
+    const ready = controller.start();
+    transport.ready();
+    await ready;
+    const gitOperation = controller.git({
+      type: 'commit',
+      projectId: 'p',
+      message: 'reviewed',
+      expectedIndexTree: '0'.repeat(40),
+    });
+    await Promise.resolve();
+    const gitRequest = transport.messages.at(-1) as { id: string };
+    const projectOperation = controller.project({ type: 'current' });
+    await Promise.resolve();
+    const projectRequest = transport.messages.at(-1) as { id: string };
+    await vi.advanceTimersByTimeAsync(40_000);
+    const statusOperation = controller.getStatus();
+    transport.pong();
+    expect(await statusOperation).toMatchObject({ ok: true, value: { state: 'ready' } });
+    expect(transport.killed).toBe(false);
+    transport.message({
+      type: 'git-result',
+      id: gitRequest.id,
+      result: {
+        ok: false,
+        error: { code: 'GIT_ERROR', message: 'hook finished', retryable: true },
+      },
+    });
+    transport.message({
+      type: 'project-result',
+      id: projectRequest.id,
+      result: { ok: true, value: null },
+    });
+    await expect(gitOperation).resolves.toMatchObject({ ok: false });
+    await expect(projectOperation).resolves.toEqual({ ok: true, value: null });
+    controller.stop();
+    vi.useRealTimers();
+  });
 });

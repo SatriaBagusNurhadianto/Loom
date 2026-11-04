@@ -244,6 +244,14 @@ port.on('message', (event: { data: unknown }) => {
     }
     void (async () => {
       try {
+        if (fileMutation) {
+          const recoveryError = await agentReady;
+          if (recoveryError) throw new Error(recoveryError);
+          if (agents.active())
+            throw new Error(
+              'Stop the active agent request before changing the Git index or working tree.',
+            );
+        }
         if (command.type === 'preflight' || command.type === 'archive') {
           const captured = await projects.run(async () => {
             await projects.refresh();
@@ -284,6 +292,7 @@ port.on('message', (event: { data: unknown }) => {
         const executor = new GitService(() => context);
         let value = await executor.command(command);
         if (fileMutation) {
+          const commitNotice = value.kind === 'status' ? value.commitNotice : null;
           const refreshed = await projects.run(async () => {
             await projects.refresh();
             const current = projects.buildContext(command.projectId);
@@ -297,6 +306,7 @@ port.on('message', (event: { data: unknown }) => {
             type: 'status',
             projectId: command.projectId,
           });
+          if (value.kind === 'status') value.commitNotice = commitNotice;
         }
         port.postMessage({
           type: 'git-result',
@@ -389,6 +399,10 @@ port.on('message', (event: { data: unknown }) => {
     });
     void (async () => {
       try {
+        const recoveryError = await agentReady;
+        if (recoveryError) throw new Error(recoveryError);
+        if (agents.active())
+          throw new Error('Finish the active agent request before opening the cloned project.');
         await cloneRepository(cloneRequest.url, cloneRequest.destination);
         const value = await projects.run(() => projects.open(cloneRequest.destination));
         const location = projects.nativeLocation();

@@ -6,11 +6,16 @@ dialog:has(.git-workspace) {
   width: min(100%, 1050px);
   min-width: 0;
   box-sizing: border-box;
-  max-height: min(76vh, 700px);
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow: auto;
+}
+.git-publish-remote {
+  display: grid;
+  gap: 4px;
+  min-width: 120px;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 .git-toolbar {
   display: flex;
@@ -88,9 +93,6 @@ dialog:has(.git-workspace) {
   margin: 0;
 }
 .git-commit-review ul {
-  max-height: 90px;
-  overflow: auto;
-  overflow-x: hidden;
   max-width: 100%;
   padding-left: 20px;
   font-size: 11px;
@@ -117,15 +119,11 @@ dialog:has(.git-workspace) {
   cursor: pointer;
 }
 .git-publication details ul {
-  max-height: 90px;
-  overflow: auto;
   margin: 6px 0;
   padding-left: 20px;
   overflow-wrap: anywhere;
 }
 .git-preflight-warnings {
-  max-height: 100px;
-  overflow: auto;
   margin: 0;
   padding-left: 18px;
   color: var(--text-muted);
@@ -207,7 +205,6 @@ dialog:has(.git-workspace) {
   .git-workspace {
     width: 100%;
     min-width: 0;
-    max-height: 78vh;
   }
   .git-review-grid {
     height: 48vh;

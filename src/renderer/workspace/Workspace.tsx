@@ -71,6 +71,27 @@ export function Workspace() {
   const [referencesOpen, setReferencesOpen] = createSignal(false);
   const [gitOpen, setGitOpen] = createSignal(false);
   const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
+  const [cloneUrl, setCloneUrl] = createSignal('');
+  const [cloneBusy, setCloneBusy] = createSignal(false);
+  const [cloneError, setCloneError] = createSignal('');
+  const cloneFromChooser = async () => {
+    const url = cloneUrl().trim();
+    if (!url || !window.loom) return;
+    if (!(await projects.flushPending())) return;
+    setCloneBusy(true);
+    setCloneError('');
+    const result = await window.loom.cloneGit({ url });
+    setCloneBusy(false);
+    if (!result.ok) {
+      setCloneError(result.error.message);
+      return;
+    }
+    if (result.value) {
+      setCloneUrl('');
+      await projects.command({ type: 'current' });
+      setDialog(null);
+    }
+  };
   let gitProjectId: string | undefined;
   createEffect(() => {
     const id = projects.project()?.id;
@@ -1191,11 +1212,15 @@ export function Workspace() {
           agent.setDraft(previous ? `${previous}\n\n${starter}` : starter);
           agent.setOpen(true);
         }}
-        onSelectPath={(path) => {
+        onSelectPath={async (path) => {
           const file = projects
             .project()
             ?.files.find((entry) => entry.path === path && !entry.deleted);
-          if (file) void projects.select(file.id);
+          if (file) {
+            await projects.select(file.id);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            document.querySelector<HTMLElement>('.cm-content')?.focus();
+          }
         }}
       />
       <AgentConnections
@@ -1300,6 +1325,33 @@ export function Workspace() {
             </span>
           </button>
         </div>
+        <div class="project-clone">
+          <label class="project-clone-field">
+            Clone a Git repository
+            <input
+              aria-label="Repository URL to clone"
+              value={cloneUrl()}
+              maxLength={2000}
+              placeholder="HTTPS, SSH, or local file URL"
+              disabled={cloneBusy()}
+              onInput={(event) => setCloneUrl(event.currentTarget.value)}
+            />
+            <small>Uses your configured Git credential helper or SSH key.</small>
+          </label>
+          <button
+            class="secondary-button"
+            aria-label="Clone repository"
+            disabled={cloneBusy() || !cloneUrl().trim()}
+            onClick={() => void cloneFromChooser()}
+          >
+            {cloneBusy() ? 'Cloning…' : 'Choose location and clone'}
+          </button>
+        </div>
+        <Show when={cloneError()}>
+          <p class="inline-error" role="alert">
+            {cloneError()}
+          </p>
+        </Show>
         <details class="sample-library">
           <summary>More sample papers</summary>
           <div class="project-choices">

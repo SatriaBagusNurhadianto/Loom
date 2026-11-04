@@ -71,7 +71,8 @@ export const gitCommandSchema = z.discriminatedUnion('type', [
       expectedIndexTree: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     })
     .strict(),
-  z.object({ type: z.enum(['fetch', 'pull', 'push']), projectId }).strict(),
+  z.object({ type: z.enum(['fetch', 'pull']), projectId }).strict(),
+  z.object({ type: z.literal('push'), projectId, remote: z.string().max(255).optional() }).strict(),
   z.object({ type: z.literal('preflight'), projectId }).strict(),
   z
     .object({ type: z.literal('archive'), projectId, expectedRevision: z.string().min(1).max(128) })
@@ -93,6 +94,7 @@ const fileSchema = z
     index: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'U', '?', '!']),
     worktree: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'U', '?', '!']),
     originalPath: gitPath.nullable(),
+    conflict: z.boolean(),
   })
   .strict();
 export const gitStatusSchema = z
@@ -100,6 +102,7 @@ export const gitStatusSchema = z
     kind: z.literal('status'),
     repository: z.boolean(),
     rootName: z.string().max(255).nullable(),
+    repositoryPrefix: z.string().max(1024),
     branch: z.string().max(1024).nullable(),
     upstream: z.string().max(1024).nullable(),
     detached: z.boolean(),
@@ -114,6 +117,8 @@ export const gitStatusSchema = z
       .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
       .nullable(),
     branches: z.array(z.string().max(1024)).max(500),
+    remotes: z.array(z.string().max(255)).max(100),
+    commitNotice: z.string().max(500).nullable(),
   })
   .strict();
 export const gitDiffSchema = z
@@ -124,6 +129,10 @@ export const gitDiffSchema = z
     text: z.string().max(200_000),
     binary: z.boolean(),
     truncated: z.boolean(),
+    indexTree: z
+      .string()
+      .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
+      .nullable(),
   })
   .strict();
 export const sourcePreflightSchema = z

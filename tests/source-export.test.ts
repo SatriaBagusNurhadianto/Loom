@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { sourceArchive, sourcePreflight } from '../src/services/git/export';
+import { gitResultSchema } from '../src/contracts/git';
 import { writeSourceExport } from '../src/main/source-export';
 
 describe('portable source export', () => {
@@ -50,6 +52,28 @@ describe('portable source export', () => {
     expect(report.warnings.join('\n')).toContain('Missing local figure');
     expect(report.warnings.join('\n')).toContain('Unresolved labels');
     expect(report.warnings.join('\n')).toContain('Missing bibliography files');
+  });
+
+  it('bounds preflight warning strings to the renderer response contract', () => {
+    const refs = Array.from({ length: 20 }, (_, index) => `missing-${index}-${'x'.repeat(45)}`);
+    const source = refs.map((key) => `\\ref{${key}}`).join('\n');
+    const report = sourcePreflight(new Map([['main.tex', Buffer.from(source)]]), 'revision-long');
+    expect(report.warnings.every((warning) => warning.length <= 500)).toBe(true);
+    expect(gitResultSchema.safeParse({ ok: true, value: report }).success).toBe(true);
+  });
+
+  it('rejects a source snapshot that exceeds the expanded archive limit', () => {
+    const oversized = Buffer.alloc(128 * 1024 * 1024 + 1);
+    expect(() => sourcePreflight(new Map([['large.bin', oversized]]), 'revision-large')).toThrow(
+      /128 MiB expanded/,
+    );
+  });
+
+  it('rejects an incompressible archive that exceeds the compressed export limit', () => {
+    const incompressible = randomBytes(64 * 1024 * 1024 + 1);
+    expect(() => sourceArchive(new Map([['asset.bin', incompressible]]), 'revision-large')).toThrow(
+      /64 MiB compressed/,
+    );
   });
 
   it('writes atomically outside the project and does not truncate a linked source file', async () => {

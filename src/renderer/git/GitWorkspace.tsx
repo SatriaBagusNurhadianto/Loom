@@ -13,7 +13,7 @@ export function GitWorkspace(props: {
   onCloned: () => Promise<void>;
   onStatus: (status: GitStatus | null) => void;
   onPreparePublication: () => void;
-  onSelectPath: (path: string) => void;
+  onSelectPath: (path: string) => void | Promise<void>;
 }) {
   const [status, setStatus] = createSignal<GitStatus | null>(null);
   const [selected, setSelected] = createSignal<{
@@ -30,9 +30,15 @@ export function GitWorkspace(props: {
   const [reviewedPaths, setReviewedPaths] = createSignal<string[]>([]);
   const [branchName, setBranchName] = createSignal('');
   const [remoteUrl, setRemoteUrl] = createSignal('');
+  const [pushRemote, setPushRemote] = createSignal('');
+  let diffGeneration = 0;
   const [preflight, setPreflight] = createSignal<SourcePreflight | null>(null);
   const [buildState, setBuildState] = createSignal<BuildState | null>(null);
   const id = () => props.projectId();
+  createEffect(() => {
+    const firstRemote = status()?.remotes[0];
+    if (!pushRemote() && firstRemote) setPushRemote(firstRemote);
+  });
   const refresh = async () => {
     const projectId = id();
     if (!projectId || !window.loom) return;
@@ -63,6 +69,7 @@ export function GitWorkspace(props: {
   createEffect(() => {
     if (props.open()) void refresh();
     else {
+      diffGeneration++;
       setSelected(null);
       setDiff(null);
     }
@@ -74,7 +81,9 @@ export function GitWorkspace(props: {
       ) ?? [],
   );
   const staged = createMemo(
-    () => status()?.files.filter((file) => ![' ', '?', '!', 'U'].includes(file.index)) ?? [],
+    () =>
+      status()?.files.filter((file) => !file.conflict && ![' ', '?', '!'].includes(file.index)) ??
+      [],
   );
   const stageAction = async (type: 'stage' | 'unstage', path: string) => {
     const projectId = id();
@@ -94,7 +103,11 @@ export function GitWorkspace(props: {
     if ((type === 'pull' || type === 'push') && !(await props.beforeMutation())) return;
     setBusy(true);
     setError('');
-    const result = await window.loom.git({ type, projectId });
+    const result = await window.loom.git({
+      type,
+      projectId,
+      ...(type === 'push' && !status()?.upstream && pushRemote() ? { remote: pushRemote() } : {}),
+    });
     setBusy(false);
     if (id() !== projectId) return;
     if (!result.ok) setError(result.error.message);
@@ -117,6 +130,8 @@ export function GitWorkspace(props: {
     if (id() !== projectId) return;
     if (!result.ok) setError(result.error.message);
     else {
+      if (result.value.kind === 'status' && result.value.commitNotice)
+        setNotice(result.value.commitNotice);
       setCommitOpen(false);
       setCommitMessage('');
       setReviewedPaths([]);
@@ -202,18 +217,50 @@ export function GitWorkspace(props: {
   ) => {
     const projectId = id();
     if (!projectId || !window.loom) return;
+    const request = ++diffGeneration;
     setSelected({ path, area });
     setDiff(null);
     setError('');
     const result = await window.loom.git({ type: 'diff', projectId, path, area });
-    if (id() !== projectId || selected()?.path !== path || selected()?.area !== area) return;
+    if (
+      id() !== projectId ||
+      request !== diffGeneration ||
+      selected()?.path !== path ||
+      selected()?.area !== area
+    )
+      return;
     if (!result.ok) {
       setError(result.error.message);
       return;
     }
-    if (result.value.kind === 'diff') setDiff(result.value);
-    if (result.value.kind === 'diff' && area === 'index')
-      setReviewedPaths((paths) => (paths.includes(path) ? paths : [...paths, path]));
+    if (result.value.kind !== 'diff') return;
+    if (area === 'index' && result.value.indexTree) {
+      const latest = await window.loom.git({ type: 'status', projectId });
+      if (id() !== projectId || request !== diffGeneration || selected()?.path !== path) return;
+      if (!latest.ok || latest.value.kind !== 'status') {
+        setError(
+          latest.ok
+            ? 'Could not refresh Git status after loading the staged diff.'
+            : latest.error.message,
+        );
+        return;
+      }
+      setStatus(latest.value);
+      props.onStatus(latest.value);
+      if (reviewedTree() !== latest.value.indexTree) {
+        setReviewedTree(latest.value.indexTree);
+        setReviewedPaths([]);
+      }
+      setDiff(result.value);
+      if (result.value.indexTree === latest.value.indexTree)
+        setReviewedPaths((paths) => (paths.includes(path) ? paths : [...paths, path]));
+      else
+        setError(
+          'The Git index changed while opening this diff. Refresh and review the staged file again.',
+        );
+      return;
+    }
+    setDiff(result.value);
   };
   const resolveConflict = async (path: string, choice: 'working' | 'ours' | 'theirs') => {
     const projectId = id();
@@ -299,6 +346,28 @@ export function GitWorkspace(props: {
           >
             Push committed revisions
           </button>
+          <Show when={!status()?.upstream && status()?.branch && status()?.remotes.length}>
+            <label class="git-publish-remote">
+              Publish branch to
+              <select
+                aria-label="Publish branch to remote"
+                value={pushRemote() || status()?.remotes[0] || ''}
+                disabled={busy()}
+                onChange={(event) => setPushRemote(event.currentTarget.value)}
+              >
+                <For each={status()?.remotes}>
+                  {(remote) => <option value={remote}>{remote}</option>}
+                </For>
+              </select>
+            </label>
+            <button
+              class="secondary-button"
+              disabled={busy() || !(pushRemote() || status()?.remotes[0]) || status()?.detached}
+              onClick={() => void operation('push')}
+            >
+              Publish branch
+            </button>
+          </Show>
           <button
             class="primary-button"
             disabled={busy() || !staged().length}
@@ -517,7 +586,7 @@ export function GitWorkspace(props: {
                         Stage
                       </button>
                     </Show>
-                    <Show when={![' ', '?', '!', 'U'].includes(file.index)}>
+                    <Show when={!file.conflict && ![' ', '?', '!'].includes(file.index)}>
                       <button
                         class="text-button"
                         disabled={busy()}
@@ -536,7 +605,7 @@ export function GitWorkspace(props: {
                     >
                       Working · {label(file.worktree)}
                     </button>
-                    <Show when={file.index === 'U'}>
+                    <Show when={file.conflict}>
                       <div class="git-conflict-actions">
                         <button
                           class="text-button"
@@ -558,10 +627,11 @@ export function GitWorkspace(props: {
                         </button>
                         <button
                           class="text-button"
-                          onClick={() => {
-                            props.onSelectPath(file.path);
+                          onClick={async () => {
+                            await props.onSelectPath(file.path);
                             setSelected(null);
                             setDiff(null);
+                            props.onClose();
                           }}
                         >
                           Edit in source pane
@@ -634,6 +704,11 @@ export function GitWorkspace(props: {
         <Show when={notice()}>
           <p class="git-callout" role="status">
             {notice()}
+          </p>
+        </Show>
+        <Show when={status()?.commitNotice}>
+          <p class="git-callout" role="status">
+            {status()?.commitNotice}
           </p>
         </Show>
         <p class="muted">

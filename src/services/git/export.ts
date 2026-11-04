@@ -128,7 +128,7 @@ function preflightWarnings(files: Map<string, Buffer>, included: string[]) {
     );
   if (!included.some((path) => /\.tex$/i.test(path)))
     warnings.push('No .tex source file was found in the exported project.');
-  return warnings;
+  return warnings.map((warning) => (warning.length <= 500 ? warning : `${warning.slice(0, 496)}…`));
 }
 
 export function sourcePreflight(files: Map<string, Buffer>, revision: string): SourcePreflight {

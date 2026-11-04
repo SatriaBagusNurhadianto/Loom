@@ -51,7 +51,7 @@ async function setContentSize(width: number, height: number) {
   );
 }
 
-test.beforeEach(async () => {
+test.beforeEach(async ({}, testInfo) => {
   git = (await findExecutable('git')) ?? '';
   test.skip(!git, 'Git is required for this local integration test.');
   dir = await mkdtemp(join(tmpdir(), 'loom-git-e2e-'));
@@ -82,6 +82,7 @@ test.beforeEach(async () => {
   for (const clone of [root, partner]) {
     await gitAt(clone, 'config', 'user.name', 'Loom Local Test');
     await gitAt(clone, 'config', 'user.email', 'loom@example.invalid');
+    await gitAt(clone, 'config', 'branch.autoSetupMerge', 'false');
   }
   const env = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -100,6 +101,7 @@ test.beforeEach(async () => {
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
+  if (testInfo.title.includes('initial project chooser')) return;
   await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder', exact: true }).click();
   await expect(page.locator('.cm-content')).toBeVisible();
@@ -131,8 +133,7 @@ test('review, selective stage, commit, branch, and export a portable source ZIP 
   await expect(dialog.locator('.git-diff')).toContainText('Choose a staged or working tree diff');
 
   const mainFile = dialog.locator('.git-file').filter({ hasText: 'main.tex' });
-  await mainFile.getByRole('button', { name: 'Stage', exact: true }).focus();
-  await page.keyboard.press('Enter');
+  await mainFile.getByRole('button', { name: 'Stage', exact: true }).click();
   await expect(mainFile).toContainText('Staged · M');
   await dialog.getByRole('button', { name: /Review staged commit/ }).click();
   await mainFile.getByRole('button', { name: /Review staged changes/ }).click();
@@ -161,6 +162,11 @@ test('review, selective stage, commit, branch, and export a portable source ZIP 
   await dialog.getByLabel('New branch', { exact: true }).fill('codex/e2e-review');
   await dialog.getByRole('button', { name: 'Create and switch', exact: true }).click();
   await expect(dialog.locator('.git-toolbar')).toContainText('codex/e2e-review');
+  await expect(dialog.getByRole('button', { name: 'Publish branch', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Publish branch', exact: true }).click();
+  await expect(
+    dialog.getByRole('button', { name: 'Push committed revisions', exact: true }),
+  ).toBeEnabled();
 
   await dialog.getByRole('button', { name: 'Run preflight', exact: true }).click();
   await expect(dialog.getByText('Included files', { exact: true })).toBeVisible();
@@ -293,4 +299,23 @@ test('clone through the native destination picker and open the completed project
     .poll(() => gitAt(join(destinationParent, 'remote'), 'rev-parse', '--is-inside-work-tree'))
     .toBe('true');
   await expect(page.getByRole('button', { name: /^Git ·/ })).toContainText('master');
+});
+
+test('clone is available from the initial project chooser before any project is open', async () => {
+  const destinationParent = join(dir, 'initial-clone');
+  await mkdir(destinationParent);
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, destinationParent);
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  const projects = page.getByRole('dialog', { name: 'Projects', exact: true });
+  await projects
+    .getByLabel('Repository URL to clone', { exact: true })
+    .fill(pathToFileURL(join(dir, 'remote.git')).href);
+  await projects.getByRole('button', { name: 'Clone repository', exact: true }).click();
+  await expect(page.locator('.cm-content')).toContainText('Baseline');
+  await expect
+    .poll(() => gitAt(join(destinationParent, 'remote'), 'rev-parse', '--is-inside-work-tree'))
+    .toBe('true');
+  await expect(projects).toBeHidden();
 });

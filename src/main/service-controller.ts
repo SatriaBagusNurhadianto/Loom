@@ -51,6 +51,7 @@ export class ServiceController {
     string,
     { resolve: (result: GitResult) => void; timer: ReturnType<typeof setTimeout> }
   >();
+  private gitMutationsPending = 0;
   private pending = new Map<string, Pending>();
   private startup: Promise<Result<ServiceStatus>> | undefined;
   private startupResolve: ((result: Result<ServiceStatus>) => void) | undefined;
@@ -289,6 +290,12 @@ export class ServiceController {
     if (!ready.ok) return ready;
     if (this.projectPending.size >= 32) return failure('BUSY', 'Too many project operations.');
     const id = `${this.generation}:project:${++this.nextId}`;
+    const clone =
+      typeof command === 'object' &&
+      command !== null &&
+      'type' in command &&
+      command.type === 'native-git-clone';
+    if (clone) this.gitMutationsPending++;
     return new Promise((resolve) => {
       const timer = setTimeout(
         () => {
@@ -297,14 +304,16 @@ export class ServiceController {
             'Project operation interrupted. Restart the service and reopen the project to recover.',
           );
         },
-        typeof command === 'object' &&
-          command !== null &&
-          'type' in command &&
-          command.type === 'native-git-clone'
-          ? 250_000
-          : 30000,
+        clone ? 300_000 : this.gitMutationsPending > 0 ? 300_000 : 30_000,
       );
-      this.projectPending.set(id, { resolve, timer });
+      let settled = false;
+      const complete = (result: ProjectResult) => {
+        if (settled) return;
+        settled = true;
+        if (clone) this.gitMutationsPending--;
+        resolve(result);
+      };
+      this.projectPending.set(id, { resolve: complete, timer });
       try {
         this.transport!.postMessage({ type: 'project', id, command });
       } catch {
@@ -360,15 +369,26 @@ export class ServiceController {
     const ready = await this.start();
     if (!ready.ok) return ready;
     if (this.gitPending.size >= 16) return failure('BUSY', 'Too many Git requests.');
+    const mutation = ['stage', 'unstage', 'commit', 'pull', 'branch', 'resolve'].includes(
+      command.type,
+    );
+    if (mutation) this.gitMutationsPending++;
     const id = `${this.generation}:git:${++this.nextId}`;
     return new Promise((resolve) => {
+      let settled = false;
+      const complete = (result: GitResult) => {
+        if (settled) return;
+        settled = true;
+        if (mutation) this.gitMutationsPending--;
+        resolve(result);
+      };
       const timer = setTimeout(() => {
         this.gitPending.delete(id);
-        resolve(
+        complete(
           failure('TIMEOUT', 'Git operation timed out. Refresh repository status before retrying.'),
         );
       }, 250_000);
-      this.gitPending.set(id, { resolve, timer });
+      this.gitPending.set(id, { resolve: complete, timer });
       try {
         this.transport!.postMessage({ type: 'git', id, command });
       } catch {

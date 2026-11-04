@@ -1,11 +1,13 @@
-import { basename, resolve } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import { promises as fs } from 'node:fs';
 import type { GitCommand, GitValue } from '../../contracts/git';
 import { findExecutable, runTool } from '../latex/tools';
 
 const outputLimit = 200_000;
 const fileLimit = 5000;
+const pathListLimit = 16 * 1024 * 1024;
 type GitContext = { root: string; projectId: string; paths: string[] };
+const literal = (...args: string[]) => ['--literal-pathspecs', ...args];
 
 export async function cloneRepository(url: string, destination: string): Promise<void> {
   const executable = await findExecutable('git');
@@ -33,7 +35,22 @@ const privatePath = (path: string) =>
     path,
   ) ||
   /(^|\/)(?:out|release|artifacts|coverage|dist|\.turbo)(\/|$)/i.test(path) ||
-  /\.(?:log|sqlite|sqlite3|db-wal|db-shm)$/i.test(path);
+  /\.(?:aux|log|out|toc|lof|lot|fls|fdb_latexmk|synctex\.gz|blg|bcf|run\.xml|nav|snm|vrb|sqlite|sqlite3|db-wal|db-shm)$/i.test(
+    path,
+  );
+async function conflictStages(executable: string, cwd: string, path: string) {
+  const result = await runTool(executable, literal('ls-files', '-u', '-z', '--', path), {
+    cwd,
+    timeoutMs: 10_000,
+  });
+  if (result.code !== 0) throw new Error('Could not inspect the unresolved conflict stages.');
+  return new Set(
+    result.stdout
+      .split('\0')
+      .filter(Boolean)
+      .map((entry) => entry.split('\t', 1)[0]!.trim().split(' ').at(-1)!),
+  );
+}
 const safeGitOutput = (text: string) =>
   text
     .replace(/(https?:\/\/)[^/@\s]+@/gi, '$1[credentials hidden]@')
@@ -51,7 +68,9 @@ function parseStatus(raw: string) {
     index: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'U' | '?' | '!';
     worktree: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'U' | '?' | '!';
     originalPath: string | null;
+    conflict: boolean;
   }[] = [];
+  const conflictPairs = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
   for (let i = 0; i < fields.length; i++) {
     const row = fields[i]!;
     if (!row) continue;
@@ -76,13 +95,20 @@ function parseStatus(raw: string) {
         index: row[0] === '?' ? '?' : '!',
         worktree: row[0] === '?' ? '?' : '!',
         originalPath: null,
+        conflict: false,
       });
       continue;
     }
     const path = row.slice(3);
     let originalPath: string | null = null;
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') originalPath = fields[++i] || null;
-    files.push({ path, index: x as never, worktree: y as never, originalPath });
+    files.push({
+      path,
+      index: x as never,
+      worktree: y as never,
+      originalPath,
+      conflict: conflictPairs.has(`${x}${y}`),
+    });
   }
   return { branch, upstream, ahead, behind, detached, files, truncated: files.length > fileLimit };
 }
@@ -101,6 +127,7 @@ export class GitService {
           kind: 'status' as const,
           repository: false,
           rootName: null,
+          repositoryPrefix: '',
           branch: null,
           upstream: null,
           detached: false,
@@ -112,6 +139,8 @@ export class GitService {
           gitAvailable: false,
           indexTree: null,
           branches: [],
+          remotes: [],
+          commitNotice: null,
         };
       throw new Error('Git is unavailable. Install Git and reopen Loom.');
     }
@@ -125,6 +154,7 @@ export class GitService {
           kind: 'status' as const,
           repository: false,
           rootName: null,
+          repositoryPrefix: '',
           branch: null,
           upstream: null,
           detached: false,
@@ -136,6 +166,8 @@ export class GitService {
           gitAvailable: true,
           indexTree: null,
           branches: [],
+          remotes: [],
+          commitNotice: null,
         };
       const status = await runTool(
         executable,
@@ -143,14 +175,29 @@ export class GitService {
         { cwd: context.root, timeoutMs: 15_000, maxOutputBytes: 8 * 1024 * 1024 },
       );
       if (status.code !== 0) throw new Error(status.output.slice(-1000) || 'Git status failed.');
+      const projectPrefix = relative(root.stdout.trim(), context.root).split(sep).join('/');
       const parsed = parseStatus(status.stdout);
-      const gitPath = await runTool(executable, ['rev-parse', '--git-path', 'MERGE_HEAD'], {
+      const projectFiles = projectPrefix
+        ? parsed.files.flatMap((file) => {
+            const prefix = `${projectPrefix}/`;
+            if (!file.path.startsWith(prefix)) return [];
+            const originalPath = file.originalPath?.startsWith(prefix)
+              ? file.originalPath.slice(prefix.length)
+              : null;
+            return [{ ...file, path: file.path.slice(prefix.length), originalPath }];
+          })
+        : parsed.files;
+      const remotes = await runTool(executable, ['remote'], {
+        cwd: context.root,
+        timeoutMs: 10_000,
+      });
+      const gitPath = await runTool(executable, ['rev-parse', '--absolute-git-dir'], {
         cwd: context.root,
         timeoutMs: 10_000,
       });
       const mergeHead =
         gitPath.code === 0
-          ? resolve(context.root, gitPath.stdout.trim())
+          ? resolve(gitPath.stdout.trim(), 'MERGE_HEAD')
           : resolve(context.root, '.git', 'MERGE_HEAD');
       const merge = await fs.access(mergeHead).then(
         () => true,
@@ -169,20 +216,24 @@ export class GitService {
         kind: 'status' as const,
         repository: true,
         rootName: basename(root.stdout.trim()),
+        repositoryPrefix: projectPrefix,
         branch: parsed.branch,
         upstream: parsed.upstream,
         detached: parsed.detached,
         mergeInProgress: merge,
         ahead: parsed.ahead,
         behind: parsed.behind,
-        files: parsed.files.slice(0, fileLimit),
-        truncated: parsed.truncated || status.stdout.length >= 8 * 1024 * 1024,
+        files: projectFiles.slice(0, fileLimit),
+        truncated: projectFiles.length > fileLimit || status.stdout.length >= 8 * 1024 * 1024,
         gitAvailable: true,
         indexTree,
         branches:
           branchResult.code === 0
             ? branchResult.stdout.split(/\r?\n/).filter(Boolean).slice(0, 500)
             : [],
+        remotes:
+          remotes.code === 0 ? remotes.stdout.split(/\r?\n/).filter(Boolean).slice(0, 100) : [],
+        commitNotice: null,
       };
     }
     if (
@@ -191,26 +242,59 @@ export class GitService {
       command.type === 'unstage' ||
       command.type === 'resolve'
     ) {
-      const tracked = context.paths.includes(command.path);
-      if (!tracked) throw new Error('Choose a file in the open project.');
+      const inProject = context.paths.includes(command.path);
+      let tracked = false;
+      if (!inProject) {
+        const result = await runTool(
+          executable,
+          literal('ls-files', '--error-unmatch', '--', command.path),
+          { cwd: context.root, timeoutMs: 10_000 },
+        );
+        tracked = result.code === 0;
+      }
+      if (!inProject && !tracked) throw new Error('Choose a file in the open project.');
       if (command.type === 'diff') {
         const conflictStage = { base: '1', ours: '2', theirs: '3' } as const;
         let args: string[];
-        if (command.area in conflictStage)
-          args = [
-            'show',
-            `:${conflictStage[command.area as keyof typeof conflictStage]}:${command.path}`,
-          ];
-        else if (command.area === 'worktree') {
+        let indexTree: string | null = null;
+        if (command.area === 'index') {
+          const tree = await runTool(executable, ['write-tree'], {
+            cwd: context.root,
+            timeoutMs: 10_000,
+          });
+          if (tree.code !== 0) throw new Error('The Git index is not available for review.');
+          indexTree = tree.stdout.trim();
+        }
+        if (command.area in conflictStage) {
+          const prefix = await runTool(executable, ['rev-parse', '--show-prefix'], {
+            cwd: context.root,
+            timeoutMs: 10_000,
+          });
+          const repoPath = `${prefix.stdout.trimEnd()}${command.path}`;
+          const stage = conflictStage[command.area as keyof typeof conflictStage];
+          const stages = await conflictStages(executable, context.root, command.path);
+          if (!stages.has(stage))
+            return {
+              kind: 'diff' as const,
+              path: command.path,
+              area: command.area,
+              text: `No ${command.area} version exists for this conflict stage.`,
+              binary: false,
+              truncated: false,
+              indexTree: null,
+            };
+          args = literal('show', `:${stage}:${repoPath}`);
+        } else if (command.area === 'worktree') {
           const tracked = await runTool(
             executable,
-            ['ls-files', '--error-unmatch', '--', command.path],
+            literal('ls-files', '--error-unmatch', '--', command.path),
             { cwd: context.root, timeoutMs: 10_000 },
           );
           args =
             tracked.code === 0
-              ? ['diff', '--no-ext-diff', '--no-color', '--', command.path]
+              ? literal('diff', '--no-ext-diff', '--no-color', '--', command.path)
               : [
+                  '--literal-pathspecs',
                   'diff',
                   '--no-index',
                   '--no-ext-diff',
@@ -219,15 +303,42 @@ export class GitService {
                   process.platform === 'win32' ? 'NUL' : '/dev/null',
                   command.path,
                 ];
-        } else args = ['diff', '--cached', '--no-ext-diff', '--no-color', '--', command.path];
+        } else
+          args = literal('diff', '--cached', '--no-ext-diff', '--no-color', '--', command.path);
         const diff = await runTool(executable, args, {
           cwd: context.root,
           timeoutMs: 15_000,
           maxOutputBytes: outputLimit + 1,
         });
+        if (command.area in conflictStage) {
+          if (diff.code !== 0)
+            throw new Error(
+              safeGitOutput(diff.output.slice(-500)) || 'Git could not read this conflict stage.',
+            );
+          const text = diff.stdout.slice(0, outputLimit);
+          return {
+            kind: 'diff' as const,
+            path: command.path,
+            area: command.area,
+            text,
+            binary: text.includes('\0'),
+            truncated: diff.stdout.length > outputLimit,
+            indexTree: null,
+          };
+        }
         if (diff.code !== 0 && !(command.area === 'worktree' && diff.code === 1))
           throw new Error('Git could not read this diff. Refresh status and retry.');
         const text = diff.stdout.slice(0, outputLimit);
+        if (indexTree) {
+          const after = await runTool(executable, ['write-tree'], {
+            cwd: context.root,
+            timeoutMs: 10_000,
+          });
+          if (after.code !== 0 || after.stdout.trim() !== indexTree)
+            throw new Error(
+              'The Git index changed while loading this diff. Refresh and review again.',
+            );
+        }
         return {
           kind: 'diff' as const,
           path: command.path,
@@ -238,38 +349,48 @@ export class GitService {
             text.includes('Binary files ') ||
             text.includes('GIT binary patch'),
           truncated: diff.stdout.length > outputLimit,
+          indexTree,
         };
       }
       if (command.type === 'resolve') {
-        const unmerged = await runTool(executable, ['ls-files', '-u', '-z', '--', command.path], {
-          cwd: context.root,
-          timeoutMs: 10_000,
-        });
-        if (unmerged.code !== 0 || !unmerged.stdout)
+        const stages = await conflictStages(executable, context.root, command.path);
+        if (!stages.size)
           throw new Error(
             'This path is no longer an unresolved merge conflict. Refresh repository status.',
           );
         if (command.choice === 'working') {
-          const content = await fs.readFile(resolve(context.root, command.path));
-          if (content.includes(0))
-            throw new Error(
-              'This is a binary conflict. Choose Use ours or Use theirs to resolve it.',
-            );
-          const text = content.toString('utf8');
-          if (/^(?:<<<<<<< |=======\s*$|>>>>>>> )/m.test(text))
-            throw new Error(
-              'Conflict markers remain. Edit the file in the source pane, save it, then mark the edited file resolved.',
-            );
+          try {
+            const content = await fs.readFile(resolve(context.root, command.path));
+            if (content.includes(0))
+              throw new Error(
+                'This is a binary conflict. Choose Use ours or Use theirs to resolve it.',
+              );
+            const text = content.toString('utf8');
+            if (/^(?:<<<<<<< |=======\s*$|>>>>>>> )/m.test(text))
+              throw new Error(
+                'Conflict markers remain. Edit the file in the source pane, save it, then mark the edited file resolved.',
+              );
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
         } else {
-          const checkout = await runTool(
-            executable,
-            ['checkout', command.choice === 'ours' ? '--ours' : '--theirs', '--', command.path],
-            { cwd: context.root, timeoutMs: 15_000 },
-          );
-          if (checkout.code !== 0)
-            throw new Error(`Git could not select ${command.choice} for this conflict.`);
+          const selectedStage = command.choice === 'ours' ? '2' : '3';
+          if (stages.has(selectedStage)) {
+            const checkout = await runTool(
+              executable,
+              literal(
+                'checkout',
+                command.choice === 'ours' ? '--ours' : '--theirs',
+                '--',
+                command.path,
+              ),
+              { cwd: context.root, timeoutMs: 15_000 },
+            );
+            if (checkout.code !== 0)
+              throw new Error(`Git could not select ${command.choice} for this conflict.`);
+          } else await fs.rm(resolve(context.root, command.path), { force: true });
         }
-        const add = await runTool(executable, ['add', '--', command.path], {
+        const add = await runTool(executable, literal('add', '--', command.path), {
           cwd: context.root,
           timeoutMs: 30_000,
         });
@@ -286,8 +407,8 @@ export class GitService {
       const result = await runTool(
         executable,
         command.type === 'stage'
-          ? ['add', '--', command.path]
-          : ['restore', '--staged', '--', command.path],
+          ? literal('add', '--', command.path)
+          : await this.unstageArgs(executable, command.path, context.root),
         { cwd: context.root, timeoutMs: 30_000 },
       );
       if (result.code !== 0)
@@ -308,8 +429,13 @@ export class GitService {
       const names = await runTool(executable, ['diff', '--cached', '--name-only', '-z'], {
         cwd: context.root,
         timeoutMs: 10_000,
+        maxOutputBytes: pathListLimit + 1,
       });
       if (names.code !== 0) throw new Error('Could not inspect the staged file list.');
+      if (names.stdout.length > pathListLimit)
+        throw new Error(
+          'The staged path list is too large to validate safely. Unstage files and retry.',
+        );
       const paths = names.stdout.split('\0').filter(Boolean);
       if (!paths.length) throw new Error('There are no staged changes to commit.');
       const unsafe = paths.filter(privatePath);
@@ -334,7 +460,17 @@ export class GitService {
           safeGitOutput(result.output.slice(-1500)) ||
             'Commit failed. Check Git identity, hooks and the staged diff.',
         );
-      return this.command({ type: 'status', projectId: command.projectId });
+      const state = await this.command({ type: 'status', projectId: command.projectId });
+      const committedTree = await runTool(executable, ['rev-parse', 'HEAD^{tree}'], {
+        cwd: context.root,
+        timeoutMs: 10_000,
+      });
+      if (state.kind === 'status')
+        state.commitNotice =
+          committedTree.code === 0 && committedTree.stdout.trim() === command.expectedIndexTree
+            ? null
+            : 'A Git hook changed the commit contents after review. Inspect the commit before publishing.';
+      return state;
     }
     if (command.type === 'fetch' || command.type === 'pull' || command.type === 'push') {
       if (command.type === 'pull' || command.type === 'push') {
@@ -345,16 +481,17 @@ export class GitService {
           throw new Error(
             'Save or commit the working-tree changes before pull. Loom will not stash or discard them.',
           );
-        if (command.type === 'push' && !state.upstream)
-          throw new Error(
-            'No upstream is configured. Push this branch with an upstream using Git, then refresh.',
-          );
+        if (command.type === 'push' && !state.upstream && !command.remote)
+          throw new Error('Choose a remote to publish this branch for the first time.');
         if (command.type === 'pull' && !state.upstream)
           throw new Error(
             'No upstream is configured. Configure a tracking branch using Git, then refresh.',
           );
       }
-      const args = command.type === 'pull' ? ['pull', '--no-rebase'] : [command.type];
+      let args = command.type === 'pull' ? ['pull', '--no-rebase'] : [command.type];
+      if (command.type === 'push') {
+        args = await this.pushArgs(executable, context.root, command);
+      }
       const result = await runTool(executable, args, { cwd: context.root, timeoutMs: 180_000 });
       if (result.code !== 0)
         throw new Error(
@@ -380,5 +517,79 @@ export class GitService {
       return this.command({ type: 'status', projectId: command.projectId });
     }
     throw new Error('Unsupported Git operation.');
+  }
+
+  private async unstageArgs(executable: string, path: string, cwd: string): Promise<string[]> {
+    const head = await runTool(executable, ['rev-parse', '--verify', 'HEAD'], {
+      cwd,
+      timeoutMs: 10_000,
+    });
+    return head.code === 0
+      ? literal('restore', '--staged', '--', path)
+      : literal('rm', '--cached', '--', path);
+  }
+
+  private async pushArgs(
+    executable: string,
+    cwd: string,
+    command: Extract<GitCommand, { type: 'push' }>,
+  ): Promise<string[]> {
+    const upstream = await runTool(
+      executable,
+      ['rev-parse', '--symbolic-full-name', '@{upstream}'],
+      {
+        cwd,
+        timeoutMs: 10_000,
+      },
+    );
+    let remote: string;
+    let destination: string;
+    let setUpstream = false;
+    if (upstream.code === 0 && upstream.stdout.trim().startsWith('refs/remotes/')) {
+      const trackingRef = upstream.stdout.trim().slice('refs/remotes/'.length);
+      const remotes = await runTool(executable, ['remote'], { cwd, timeoutMs: 10_000 });
+      remote =
+        remotes.stdout
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .sort((a, b) => b.length - a.length)
+          .find((name) => trackingRef.startsWith(`${name}/`)) ?? '';
+      if (!remote) throw new Error('Could not identify the current branch upstream remote.');
+      destination = `refs/heads/${trackingRef.slice(remote.length + 1)}`;
+    } else {
+      if (!command.remote) throw new Error('Choose a remote to publish this branch.');
+      const remotes = await runTool(executable, ['remote'], { cwd, timeoutMs: 10_000 });
+      if (!remotes.stdout.split(/\r?\n/).includes(command.remote))
+        throw new Error('Choose a configured Git remote.');
+      const branch = await runTool(executable, ['branch', '--show-current'], {
+        cwd,
+        timeoutMs: 10_000,
+      });
+      if (branch.code !== 0 || !branch.stdout.trim())
+        throw new Error('Switch to an attached branch before publishing.');
+      remote = command.remote;
+      destination = `refs/heads/${branch.stdout.trim()}`;
+      setUpstream = true;
+    }
+    const mirror = await runTool(
+      executable,
+      ['config', '--bool', '--get', `remote.${remote}.mirror`],
+      {
+        cwd,
+        timeoutMs: 10_000,
+      },
+    );
+    if (mirror.stdout.trim() === 'true')
+      throw new Error(
+        'This remote is configured for mirror pushes. Disable mirror mode before publishing from Loom.',
+      );
+    return [
+      'push',
+      '--no-force',
+      '--no-follow-tags',
+      ...(setUpstream ? ['--set-upstream'] : []),
+      remote,
+      `HEAD:${destination}`,
+    ];
   }
 }
