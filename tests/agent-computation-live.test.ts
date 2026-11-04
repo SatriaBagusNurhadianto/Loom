@@ -46,13 +46,18 @@ for (const harness of ['opencode', 'codex'] as const) {
         });
         const deadline = Date.now() + 110_000;
         while (state.running && Date.now() < deadline) {
-          for (const permission of state.permissions)
+          for (const permission of state.permissions) {
+            const requested = permission.resources.join(' ');
+            expect(requested).toContain('python3');
+            expect(requested).toContain('137');
+            expect(requested).toContain('29');
             await agents.command({
               type: 'permission',
               projectId,
               requestId: permission.id,
               reply: 'once',
             });
+          }
           await new Promise((resolve) => setTimeout(resolve, 750));
           state = await agents.command({ type: 'status', projectId });
         }
