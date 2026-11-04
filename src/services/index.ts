@@ -1,3 +1,5 @@
+import { researchCommandSchema, researchResultSchema } from '../contracts/research';
+import { ResearchService } from './research/service';
 import { agentCommandSchema, agentResultSchema } from '../contracts/agent';
 import { AgentService } from './agents/service';
 import { latexCommandSchema, latexResultSchema, type LatexValue } from '../contracts/latex';
@@ -14,6 +16,7 @@ if (!port) throw new Error('The Loom service requires a parent port.');
 const projects = new ProjectService(new MetadataStore(process.argv[2]));
 const builds = new BuildService(projects, join(process.argv[2], 'builds'));
 const agents = new AgentService(projects, builds, process.argv[2]);
+const research = new ResearchService(projects, () => agents.active());
 // Restore unresolved activity before a native project switch can escape its guard.
 const agentReady = agents.initialize().then(
   () => null,
@@ -59,6 +62,40 @@ port.on('message', (event: { data: unknown }) => {
   const ping = serviceRequestSchema.safeParse(event.data);
   if (ping.success) {
     port.postMessage({ type: 'pong', id: ping.data.id, pid: process.pid, version: '0.1.0' });
+    return;
+  }
+  const researchRequest = z
+    .object({ type: z.literal('research'), id: z.string(), command: researchCommandSchema })
+    .strict()
+    .safeParse(event.data);
+  if (researchRequest.success) {
+    const { id, command } = researchRequest.data;
+    void agentReady
+      .then((error) => {
+        if (error && command.type !== 'search' && command.type !== 'cancel') throw new Error(error);
+        return research.command(command);
+      })
+      .then(
+        (value) =>
+          port.postMessage({
+            type: 'research-result',
+            id,
+            result: researchResultSchema.parse({ ok: true, value }),
+          }),
+        (error) =>
+          port.postMessage({
+            type: 'research-result',
+            id,
+            result: {
+              ok: false,
+              error: {
+                code: 'RESEARCH_ERROR',
+                message: error instanceof Error ? error.message : 'Reference operation failed.',
+                retryable: true,
+              },
+            },
+          }),
+      );
     return;
   }
   const agent = agentRequest.safeParse(event.data);

@@ -1,3 +1,4 @@
+import { researchCommandSchema } from '../contracts/research';
 import { agentCommandSchema } from '../contracts/agent';
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
 import { writePdfExport } from './pdf-export';
@@ -180,6 +181,23 @@ void app.whenReady().then(() => {
     const command = latexCommandSchema.safeParse(payload);
     if (!command.success) return failure('INVALID_REQUEST', 'Invalid LaTeX command.', false);
     return service.latex(command.data);
+  });
+  ipcMain.handle(channels.research, async (event, payload: unknown) => {
+    if (!trustedSender(event))
+      return failure('FORBIDDEN', 'This window cannot access references.', false);
+    const command = researchCommandSchema.safeParse(payload);
+    if (!command.success) return failure('INVALID_REQUEST', 'Invalid reference request.', false);
+    return service.research(command.data);
+  });
+  ipcMain.handle(channels.openSource, async (event, payload: unknown) => {
+    if (!trustedSender(event) || typeof payload !== 'string' || payload.length > 2000) return;
+    try {
+      const url = new URL(payload);
+      if (url.protocol === 'https:' && !url.username && !url.password)
+        await shell.openExternal(url.href);
+    } catch {
+      /* Untrusted record URL. */
+    }
   });
   ipcMain.handle(channels.exportPdf, async (event, payload: unknown) => {
     if (!trustedSender(event))

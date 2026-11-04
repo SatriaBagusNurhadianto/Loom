@@ -1,3 +1,4 @@
+import { researchCommandSchema, researchResultSchema } from '../contracts/research';
 import { agentCommandSchema, agentResultSchema } from '../contracts/agent';
 import { latexCommandSchema, latexResultSchema, exportPdfSchema } from '../contracts/latex';
 import {
@@ -37,6 +38,21 @@ async function invoke(
 }
 
 const desktop: LoomDesktop = {
+  research: async (command) => {
+    const input = researchCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid reference request.', false);
+    try {
+      return researchResultSchema.parse(await ipcRenderer.invoke(channels.research, input.data));
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'Reference connection interrupted. Inspect citation recovery before retrying.',
+      );
+    }
+  },
+  openSource: async (url) => {
+    await ipcRenderer.invoke(channels.openSource, url);
+  },
   agent: async (command) => {
     const input = agentCommandSchema.safeParse(command);
     if (!input.success) return failure('INVALID_REQUEST', 'Invalid agent command.', false);

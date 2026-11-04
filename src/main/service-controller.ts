@@ -1,3 +1,4 @@
+import type { ResearchCommand, ResearchResult } from '../contracts/research';
 import type { AgentCommand, AgentResult } from '../contracts/agent';
 import type { LatexCommand, LatexResult } from '../contracts/latex';
 import type { ProjectResult } from '../contracts/project';
@@ -32,6 +33,10 @@ export class ServiceController {
   private projectPending = new Map<
     string,
     { resolve: (result: ProjectResult) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+  private researchPending = new Map<
+    string,
+    { resolve: (result: ResearchResult) => void; timer: ReturnType<typeof setTimeout> }
   >();
   private latexPending = new Map<
     string,
@@ -103,6 +108,11 @@ export class ServiceController {
       pending.resolve(result);
     }
     this.projectPending.clear();
+    for (const p of this.researchPending.values()) {
+      clearTimeout(p.timer);
+      p.resolve(result);
+    }
+    this.researchPending.clear();
     for (const pending of this.latexPending.values()) {
       clearTimeout(pending.timer);
       pending.resolve(result);
@@ -151,6 +161,15 @@ export class ServiceController {
           if (p) {
             clearTimeout(p.timer);
             this.agentPending.delete(data.id);
+            p.resolve(data.result);
+          }
+          return;
+        }
+        if (data.type === 'research-result') {
+          const p = this.researchPending.get(data.id);
+          if (p) {
+            clearTimeout(p.timer);
+            this.researchPending.delete(data.id);
             p.resolve(data.result);
           }
           return;
@@ -270,6 +289,27 @@ export class ServiceController {
     });
   }
 
+  async research(command: ResearchCommand): Promise<ResearchResult> {
+    const ready = await this.start();
+    if (!ready.ok) return ready;
+    if (this.researchPending.size >= 16)
+      return failure('BUSY', 'Too many References requests. Try again shortly.');
+    const id = `${this.generation}:research:${++this.nextId}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.researchPending.delete(id);
+        resolve(
+          failure('TIMEOUT', 'References request timed out. Retry or reconnect the service.'),
+        );
+      }, 25000);
+      this.researchPending.set(id, { resolve, timer });
+      try {
+        this.transport!.postMessage({ type: 'research', id, command });
+      } catch {
+        this.unavailable('SERVICE_UNAVAILABLE', 'References connection interrupted.');
+      }
+    });
+  }
   async latex(command: LatexCommand): Promise<LatexResult> {
     const ready = await this.start();
     if (!ready.ok) return ready;

@@ -1,3 +1,4 @@
+import { researchResultSchema, type ResearchCommand, type ResearchResult } from './research';
 import { agentResultSchema, type AgentCommand, type AgentResult } from './agent';
 import { latexResultSchema, type LatexCommand, type LatexResult } from './latex';
 import {
@@ -21,6 +22,8 @@ export const channels = {
   chooseFile: 'loom:project:choose-file',
   chooseAttachments: 'loom:agent:choose-attachments',
   agent: 'loom:agent:command',
+  research: 'loom:research:command',
+  openSource: 'loom:research:open-source',
   latex: 'loom:latex:command',
   setup: 'loom:latex:setup',
   exportPdf: 'loom:latex:export',
@@ -79,6 +82,8 @@ export const attachmentResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(false), error: operationErrorSchema }).strict(),
 ]);
 export interface LoomDesktop {
+  research(command: ResearchCommand): Promise<ResearchResult>;
+  openSource(url: string): Promise<void>;
   agent(command: AgentCommand): Promise<AgentResult>;
   openSetup(guide: 'tex' | 'texlab' | 'opencode' | 'codex'): Promise<void>;
   latex(command: LatexCommand): Promise<LatexResult>;
@@ -104,6 +109,9 @@ export const serviceRequestSchema = z
   })
   .strict();
 export const serviceMessageSchema = z.discriminatedUnion('type', [
+  z
+    .object({ type: z.literal('research-result'), id: z.string(), result: researchResultSchema })
+    .strict(),
   z.object({ type: z.literal('agent-result'), id: z.string(), result: agentResultSchema }).strict(),
   z.object({ type: z.literal('latex-result'), id: z.string(), result: latexResultSchema }).strict(),
   z
