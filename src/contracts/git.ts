@@ -91,9 +91,10 @@ export type GitCommand = z.infer<typeof gitCommandSchema>;
 const fileSchema = z
   .object({
     path: gitPath,
-    index: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'U', '?', '!']),
-    worktree: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'U', '?', '!']),
+    index: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'T', 'U', '?', '!']),
+    worktree: z.enum([' ', 'A', 'M', 'D', 'R', 'C', 'T', 'U', '?', '!']),
     originalPath: gitPath.nullable(),
+    crossesProjectBoundary: z.boolean(),
     conflict: z.boolean(),
   })
   .strict();
@@ -107,6 +108,7 @@ export const gitStatusSchema = z
     upstream: z.string().max(1024).nullable(),
     detached: z.boolean(),
     mergeInProgress: z.boolean(),
+    indexMatchesHead: z.boolean(),
     ahead: z.number().int().nonnegative(),
     behind: z.number().int().nonnegative(),
     files: z.array(fileSchema).max(5000),

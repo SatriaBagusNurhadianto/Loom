@@ -15,6 +15,7 @@ function selection(files: Map<string, Buffer>) {
   const included: string[] = [];
   const excluded: SourcePreflight['excluded'] = [];
   let total = 0;
+  const portableNames = new Map<string, { part: string; path: string }>();
   for (const [path, bytes] of files) {
     if (hasUnsafeName(path))
       throw new Error(
@@ -27,6 +28,17 @@ function selection(files: Map<string, Buffer>) {
     if (generated.test(path)) {
       excluded.push({ path, reason: 'Disposable compiler output' });
       continue;
+    }
+    const segments = path.split('/');
+    for (let i = 1; i <= segments.length; i++) {
+      const part = segments.slice(0, i).join('/');
+      const portable = part.normalize('NFC').toLowerCase();
+      const prior = portableNames.get(portable);
+      if (prior && prior.part !== part)
+        throw new Error(
+          `Source export paths collide on common filesystems: ${prior.path} and ${path}. Rename one before exporting.`,
+        );
+      portableNames.set(portable, { part, path });
     }
     total += bytes.byteLength;
     if (total > expandedLimit)
@@ -74,6 +86,10 @@ function preflightWarnings(files: Map<string, Buffer>, included: string[]) {
       }
     }
   }
+  const graphicsDirs: string[] = [];
+  for (const match of allLatex.matchAll(/\\graphicspath\s*\{((?:\s*\{[^{}]*\}\s*)+)\}/g))
+    for (const dir of match[1]!.matchAll(/\{([^{}]*)\}/g))
+      if (!/[\\$#]/.test(dir[1]!)) graphicsDirs.push(dir[1]!);
   const missingAssets = new Set<string>();
   const dynamicAsset = { value: false };
   for (const [sourcePath, source] of latex) {
@@ -83,12 +99,14 @@ function preflightWarnings(files: Map<string, Buffer>, included: string[]) {
         dynamicAsset.value = true;
         continue;
       }
-      const base = join(dirname(sourcePath), raw);
-      const candidates = /\.[A-Za-z0-9]+$/.test(base)
-        ? [base]
-        : ['.pdf', '.png', '.jpg', '.jpeg', '.eps', '.svg'].map(
-            (extension) => `${base}${extension}`,
-          );
+      const bases = [join(dirname(sourcePath), raw), ...graphicsDirs.map((dir) => join(dir, raw))];
+      const candidates = bases.flatMap((base) =>
+        /\.[A-Za-z0-9]+$/.test(base)
+          ? [base]
+          : ['.pdf', '.png', '.jpg', '.jpeg', '.eps', '.svg'].map(
+              (extension) => `${base}${extension}`,
+            ),
+      );
       if (!candidates.some((candidate) => includedSet.has(candidate))) missingAssets.add(raw);
     }
     for (const match of source.matchAll(/\\(?:input|include)\s*\{([^{}]+)\}/g)) {

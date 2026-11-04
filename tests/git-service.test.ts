@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gitResultSchema } from '../src/contracts/git';
 import { cloneRepository, GitService } from '../src/services/git/service';
 import { findExecutable, runTool } from '../src/services/latex/tools';
 
@@ -49,6 +50,179 @@ describe('Git status and diff service', () => {
       (await runTool(setup.git, ['-C', setup.root, 'rev-parse', '--verify', 'HEAD'])).code,
     ).not.toBe(0);
   });
+  it.each([
+    ['outside.tex', 'paper/renamed.tex'],
+    ['paper/inside.tex', 'outside-renamed.tex'],
+  ])(
+    'blocks a staged rename across the project boundary from %s to %s',
+    async (source, destination) => {
+      const setup = await repository();
+      if (!setup) return;
+      await mkdir(join(setup.root, 'paper'));
+      await writeFile(join(setup.root, source), 'rename content\n');
+      for (const args of [
+        ['add', '.'],
+        ['commit', '-qm', 'base'],
+      ])
+        expect((await runTool(setup.git, ['-C', setup.root, ...args])).code).toBe(0);
+      const head = (await runTool(setup.git, ['-C', setup.root, 'rev-parse', 'HEAD'])).stdout;
+      expect((await runTool(setup.git, ['-C', setup.root, 'mv', source, destination])).code).toBe(
+        0,
+      );
+      const service = new GitService(() => ({
+        root: join(setup.root, 'paper'),
+        projectId: 'p',
+        paths: ['renamed.tex', 'inside.tex'],
+      }));
+      const state = await service.command({ type: 'status', projectId: 'p' });
+      if (state.kind !== 'status' || !state.indexTree) throw new Error('Missing tree');
+      if (source === 'outside.tex')
+        expect(state.files).toContainEqual(
+          expect.objectContaining({ originalPath: source, crossesProjectBoundary: true }),
+        );
+      await expect(
+        service.command({
+          type: 'commit',
+          projectId: 'p',
+          message: 'rename',
+          expectedIndexTree: state.indexTree,
+        }),
+      ).rejects.toThrow('staged files outside this project');
+      expect((await runTool(setup.git, ['-C', setup.root, 'rev-parse', 'HEAD'])).stdout).toBe(head);
+    },
+  );
+
+  it('validates staged and unstaged type changes through the response contract', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    await writeFile(join(setup.root, 'main.tex'), 'text\n');
+    await runTool(setup.git, ['-C', setup.root, 'add', '.']);
+    await runTool(setup.git, ['-C', setup.root, 'commit', '-qm', 'base']);
+    await rm(join(setup.root, 'main.tex'));
+    await symlink('target', join(setup.root, 'main.tex'));
+    const service = new GitService(() => ({ root: setup.root, projectId: 'p', paths: [] }));
+    for (const area of ['worktree', 'index'] as const) {
+      if (area === 'index') await runTool(setup.git, ['-C', setup.root, 'add', 'main.tex']);
+      const state = await service.command({ type: 'status', projectId: 'p' });
+      expect(gitResultSchema.safeParse({ ok: true, value: state }).success).toBe(true);
+      expect(state).toMatchObject({ files: [expect.objectContaining({ [area]: 'T' })] });
+    }
+  });
+
+  it('finishes an ours-only merge but blocks unresolved and ordinary empty commits', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const git = async (...args: string[]) => runTool(setup.git, ['-C', setup.root, ...args]);
+    await writeFile(join(setup.root, 'main.tex'), 'base\n');
+    await git('add', '.');
+    await git('commit', '-qm', 'base');
+    await git('branch', 'theirs');
+    await git('switch', 'theirs');
+    await writeFile(join(setup.root, 'main.tex'), 'theirs\n');
+    await git('commit', '-qam', 'theirs');
+    await git('switch', '-');
+    await writeFile(join(setup.root, 'main.tex'), 'ours\n');
+    await git('commit', '-qam', 'ours');
+    const service = new GitService(() => ({
+      root: setup.root,
+      projectId: 'p',
+      paths: ['main.tex'],
+    }));
+    const initial = await service.command({ type: 'status', projectId: 'p' });
+    if (initial.kind !== 'status' || !initial.indexTree) throw new Error('Missing tree');
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'empty',
+        expectedIndexTree: initial.indexTree,
+      }),
+    ).rejects.toThrow('no staged changes');
+    expect((await git('merge', 'theirs')).code).toBe(1);
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'unresolved',
+        expectedIndexTree: initial.indexTree,
+      }),
+    ).rejects.toThrow();
+    const resolved = await service.command({
+      type: 'resolve',
+      projectId: 'p',
+      path: 'main.tex',
+      choice: 'ours',
+    });
+    if (resolved.kind !== 'status' || !resolved.indexTree) throw new Error('Missing tree');
+    expect(resolved).toMatchObject({ mergeInProgress: true, files: [] });
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'merge ours',
+        expectedIndexTree: resolved.indexTree,
+      }),
+    ).resolves.toMatchObject({ mergeInProgress: false });
+    expect(
+      (await git('rev-list', '--parents', '-n', '1', 'HEAD')).stdout.trim().split(' '),
+    ).toHaveLength(3);
+  });
+
+  it('preserves whitespace at the end of a repository root', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const root = join(setup.root, 'repo ');
+    await mkdir(root);
+    await runTool(setup.git, ['init', '-q', root]);
+    await runTool(setup.git, ['-C', root, 'config', 'user.name', 'Test']);
+    await runTool(setup.git, ['-C', root, 'config', 'user.email', 'test@example.invalid']);
+    await writeFile(join(root, 'main.tex'), 'text');
+    await runTool(setup.git, ['-C', root, 'add', '.']);
+    const service = new GitService(() => ({ root, projectId: 'p', paths: ['main.tex'] }));
+    const state = await service.command({ type: 'status', projectId: 'p' });
+    expect(state).toMatchObject({
+      repositoryPrefix: '',
+      files: [expect.objectContaining({ path: 'main.tex' })],
+    });
+    if (state.kind !== 'status' || !state.indexTree) throw new Error('Missing tree');
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'commit',
+        expectedIndexTree: state.indexTree,
+      }),
+    ).resolves.toMatchObject({ repository: true });
+  });
+
+  it('rejects externally staged gitlinks before committing', async () => {
+    const setup = await repository();
+    if (!setup) return;
+    const nested = join(setup.root, 'nested');
+    await mkdir(nested);
+    await runTool(setup.git, ['init', '-q', nested]);
+    await runTool(setup.git, ['-C', nested, 'config', 'user.name', 'Test']);
+    await runTool(setup.git, ['-C', nested, 'config', 'user.email', 'test@example.invalid']);
+    await writeFile(join(nested, '.env'), 'synthetic secret');
+    await runTool(setup.git, ['-C', nested, 'add', '.']);
+    await runTool(setup.git, ['-C', nested, 'commit', '-qm', 'nested']);
+    expect((await runTool(setup.git, ['-C', setup.root, 'add', 'nested'])).code).toBe(0);
+    const service = new GitService(() => ({ root: setup.root, projectId: 'p', paths: ['nested'] }));
+    const state = await service.command({ type: 'status', projectId: 'p' });
+    if (state.kind !== 'status' || !state.indexTree) throw new Error('Missing tree');
+    await expect(
+      service.command({
+        type: 'commit',
+        projectId: 'p',
+        message: 'gitlink',
+        expectedIndexTree: state.indexTree,
+      }),
+    ).rejects.toThrow('gitlinks');
+    expect(
+      (await runTool(setup.git, ['-C', setup.root, 'rev-parse', '--verify', 'HEAD'])).code,
+    ).not.toBe(0);
+  });
+
   it('reports branch, untracked Unicode paths, and distinct index/worktree diffs', async () => {
     const setup = await repository();
     if (!setup) return;

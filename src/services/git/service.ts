@@ -7,6 +7,7 @@ const outputLimit = 200_000;
 const fileLimit = 5000;
 const pathListLimit = 16 * 1024 * 1024;
 type GitContext = { root: string; projectId: string; paths: string[] };
+const gitLine = (value: string) => value.replace(/\r?\n$/, '');
 const literal = (...args: string[]) => ['--literal-pathspecs', ...args];
 
 export async function cloneRepository(url: string, destination: string): Promise<void> {
@@ -65,9 +66,10 @@ function parseStatus(raw: string) {
     detached = false;
   const files: {
     path: string;
-    index: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'U' | '?' | '!';
-    worktree: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'U' | '?' | '!';
+    index: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | '?' | '!';
+    worktree: ' ' | 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | '?' | '!';
     originalPath: string | null;
+    crossesProjectBoundary: boolean;
     conflict: boolean;
   }[] = [];
   const conflictPairs = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
@@ -95,6 +97,7 @@ function parseStatus(raw: string) {
         index: row[0] === '?' ? '?' : '!',
         worktree: row[0] === '?' ? '?' : '!',
         originalPath: null,
+        crossesProjectBoundary: false,
         conflict: false,
       });
       continue;
@@ -107,6 +110,7 @@ function parseStatus(raw: string) {
       index: x as never,
       worktree: y as never,
       originalPath,
+      crossesProjectBoundary: false,
       conflict: conflictPairs.has(`${x}${y}`),
     });
   }
@@ -132,6 +136,7 @@ export class GitService {
           upstream: null,
           detached: false,
           mergeInProgress: false,
+          indexMatchesHead: false,
           ahead: 0,
           behind: 0,
           files: [],
@@ -159,6 +164,7 @@ export class GitService {
           upstream: null,
           detached: false,
           mergeInProgress: false,
+          indexMatchesHead: false,
           ahead: 0,
           behind: 0,
           files: [],
@@ -175,16 +181,24 @@ export class GitService {
         { cwd: context.root, timeoutMs: 15_000, maxOutputBytes: 8 * 1024 * 1024 },
       );
       if (status.code !== 0) throw new Error(status.output.slice(-1000) || 'Git status failed.');
-      const projectPrefix = relative(root.stdout.trim(), context.root).split(sep).join('/');
+      const projectPrefix = relative(gitLine(root.stdout), context.root).split(sep).join('/');
       const parsed = parseStatus(status.stdout);
       const projectFiles = projectPrefix
         ? parsed.files.flatMap((file) => {
             const prefix = `${projectPrefix}/`;
             if (!file.path.startsWith(prefix)) return [];
-            const originalPath = file.originalPath?.startsWith(prefix)
-              ? file.originalPath.slice(prefix.length)
-              : null;
-            return [{ ...file, path: file.path.slice(prefix.length), originalPath }];
+            const originalInsideProject = file.originalPath?.startsWith(prefix) ?? false;
+            const originalPath = originalInsideProject
+              ? file.originalPath!.slice(prefix.length)
+              : file.originalPath;
+            return [
+              {
+                ...file,
+                path: file.path.slice(prefix.length),
+                originalPath,
+                crossesProjectBoundary: !!file.originalPath && !originalInsideProject,
+              },
+            ];
           })
         : parsed.files;
       const remotes = await runTool(executable, ['remote'], {
@@ -197,7 +211,7 @@ export class GitService {
       });
       const mergeHead =
         gitPath.code === 0
-          ? resolve(gitPath.stdout.trim(), 'MERGE_HEAD')
+          ? resolve(gitLine(gitPath.stdout), 'MERGE_HEAD')
           : resolve(context.root, '.git', 'MERGE_HEAD');
       const merge = await fs.access(mergeHead).then(
         () => true,
@@ -208,6 +222,10 @@ export class GitService {
         timeoutMs: 10_000,
       });
       const indexTree = treeResult.code === 0 ? treeResult.stdout.trim() : null;
+      const headTree = await runTool(executable, ['rev-parse', '--verify', 'HEAD^{tree}'], {
+        cwd: context.root,
+        timeoutMs: 10_000,
+      });
       const branchResult = await runTool(executable, ['branch', '--format=%(refname:short)'], {
         cwd: context.root,
         timeoutMs: 10_000,
@@ -215,12 +233,14 @@ export class GitService {
       return {
         kind: 'status' as const,
         repository: true,
-        rootName: basename(root.stdout.trim()),
+        rootName: basename(gitLine(root.stdout)),
         repositoryPrefix: projectPrefix,
         branch: parsed.branch,
         upstream: parsed.upstream,
         detached: parsed.detached,
         mergeInProgress: merge,
+        indexMatchesHead:
+          !!indexTree && headTree.code === 0 && indexTree === headTree.stdout.trim(),
         ahead: parsed.ahead,
         behind: parsed.behind,
         files: projectFiles.slice(0, fileLimit),
@@ -270,7 +290,7 @@ export class GitService {
             cwd: context.root,
             timeoutMs: 10_000,
           });
-          const repoPath = `${prefix.stdout.trimEnd()}${command.path}`;
+          const repoPath = `${gitLine(prefix.stdout)}${command.path}`;
           const stage = conflictStage[command.area as keyof typeof conflictStage];
           const stages = await conflictStages(executable, context.root, command.path);
           if (!stages.has(stage))
@@ -439,19 +459,44 @@ export class GitService {
         throw new Error(
           'The staged files changed after review. Refresh and review the current staged diff before committing.',
         );
-      const names = await runTool(executable, ['diff', '--cached', '--name-only', '-z'], {
-        cwd: repoRoot.stdout.trim(),
-        timeoutMs: 10_000,
-        maxOutputBytes: pathListLimit + 1,
-      });
+      const names = await runTool(
+        executable,
+        ['diff', '--cached', '--name-only', '-z', '--no-renames'],
+        {
+          cwd: gitLine(repoRoot.stdout),
+          timeoutMs: 10_000,
+          maxOutputBytes: pathListLimit + 1,
+        },
+      );
       if (names.code !== 0) throw new Error('Could not inspect the staged file list.');
       if (names.stdout.length > pathListLimit)
         throw new Error(
           'The staged path list is too large to validate safely. Unstage files and retry.',
         );
+      const modes = await runTool(executable, ['diff', '--cached', '--raw', '-z', '--no-renames'], {
+        cwd: gitLine(repoRoot.stdout),
+        timeoutMs: 10_000,
+        maxOutputBytes: pathListLimit + 1,
+      });
+      if (modes.code !== 0 || modes.stdout.length > pathListLimit)
+        throw new Error('Could not inspect staged file types safely.');
+      if (modes.stdout.split('\0').some((entry) => /^:\d{6} 160000 /.test(entry)))
+        throw new Error(
+          'Staged Git submodules (gitlinks) cannot be reviewed safely in Loom. Unstage them before committing.',
+        );
       const paths = names.stdout.split('\0').filter(Boolean);
-      if (!paths.length) throw new Error('There are no staged changes to commit.');
-      const prefix = relative(repoRoot.stdout.trim(), context.root).split(sep).join('/');
+      if (!paths.length && !stateBeforeCommit.mergeInProgress)
+        throw new Error('There are no staged changes to commit.');
+      if (stateBeforeCommit.mergeInProgress) {
+        const unresolved = await runTool(executable, ['ls-files', '-u', '-z'], {
+          cwd: gitLine(repoRoot.stdout),
+          timeoutMs: 10_000,
+          maxOutputBytes: pathListLimit + 1,
+        });
+        if (unresolved.code !== 0 || unresolved.stdout.length)
+          throw new Error('Resolve every merge conflict before completing the merge.');
+      }
+      const prefix = relative(gitLine(repoRoot.stdout), context.root).split(sep).join('/');
       if (prefix && paths.some((path) => !path.startsWith(`${prefix}/`)))
         throw new Error(
           'The index contains staged files outside this project. Unstage them or open the repository root before committing.',

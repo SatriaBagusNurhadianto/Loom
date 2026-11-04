@@ -54,6 +54,27 @@ describe('portable source export', () => {
     expect(report.warnings.join('\n')).toContain('Missing bibliography files');
   });
 
+  it('resolves literal graphicspath directories for figures', () => {
+    const files = new Map([
+      ['main.tex', Buffer.from('\\graphicspath{{figures/}{images/}}\n\\includegraphics{plot}')],
+      ['figures/plot.png', Buffer.from('image')],
+    ]);
+    expect(sourcePreflight(files, 'r').warnings.join('\n')).not.toContain('Missing local figure');
+  });
+
+  it.each([
+    ['Main.tex', 'main.tex'],
+    ['café.tex', 'cafe\u0301.tex'],
+    ['Figures/a.png', 'figures/b.png'],
+  ])('rejects portable filename collision %s and %s', (first, second) => {
+    const files = new Map([
+      [first, Buffer.from('one')],
+      [second, Buffer.from('two')],
+    ]);
+    expect(() => sourcePreflight(files, 'r')).toThrow(first);
+    expect(() => sourceArchive(files, 'r')).toThrow(second);
+  });
+
   it('bounds preflight warning strings to the renderer response contract', () => {
     const refs = Array.from({ length: 20 }, (_, index) => `missing-${index}-${'x'.repeat(45)}`);
     const source = refs.map((key) => `\\ref{${key}}`).join('\n');

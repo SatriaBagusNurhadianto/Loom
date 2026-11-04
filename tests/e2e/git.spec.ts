@@ -1,5 +1,5 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -225,6 +225,34 @@ test('review, selective stage, commit, branch, and export a portable source ZIP 
   await expect(page.locator('.workspace-statusbar button').last()).toBeFocused();
 });
 
+test('shows a Git type change for a symlink', async () => {
+  await rm(join(root, 'main.tex'));
+  await symlink('refs.bib', join(root, 'main.tex'));
+  await page.getByRole('button', { name: /^Git ·/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Git · repository review', exact: true });
+  await expect(dialog.locator('.git-file').filter({ hasText: 'main.tex' })).toContainText(
+    'Working · type changed',
+  );
+});
+
+test('reports incomplete preflight when PDF status is unavailable', async () => {
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('loom:latex:command');
+    ipcMain.handle('loom:latex:command', () => ({
+      ok: false,
+      error: { code: 'TEST_FAILURE', message: 'Unavailable', retryable: true },
+    }));
+  });
+  await page.getByRole('button', { name: /^Git ·/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Git · repository review', exact: true });
+  await dialog.getByRole('button', { name: 'Run preflight', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Could not check PDF/build status');
+  await expect(dialog.getByRole('alert')).toContainText('Preflight is incomplete');
+  await expect(
+    dialog.getByRole('button', { name: 'Export source ZIP', exact: true }),
+  ).toBeEnabled();
+});
+
 test('two local authors exchange commits, surface a conflict, and publish its explicit resolution', async () => {
   await writeFile(
     join(partner, 'main.tex'),
@@ -268,8 +296,13 @@ test('two local authors exchange commits, surface a conflict, and publish its ex
     .poll(() => readFile(join(root, 'main.tex'), 'utf8'))
     .toContain('Author two revision');
   await expect(page.locator('.cm-content')).toContainText('Author two revision');
+  await expect(conflict).toContainText('Staged · M');
+  await expect(
+    conflict.getByRole('button', { name: 'Resolve using theirs', exact: true }),
+  ).toHaveCount(0);
 
   await dialog.getByRole('button', { name: /Review staged commit/ }).click();
+  await expect(dialog.getByLabel('Commit message', { exact: true })).toBeVisible();
   await conflict.getByRole('button', { name: /Review staged changes/ }).click();
   await dialog.getByLabel('Commit message', { exact: true }).fill('resolve author conflict');
   await dialog.getByRole('button', { name: 'Commit reviewed changes', exact: true }).click();
@@ -279,6 +312,42 @@ test('two local authors exchange commits, surface a conflict, and publish its ex
   await expect
     .poll(() => readFile(join(partner, 'main.tex'), 'utf8'))
     .toContain('Author two revision');
+});
+
+test('finishes an ours-only merge through explicit review at a small window', async () => {
+  await writeFile(join(root, 'main.tex'), 'ours\n');
+  await gitRun('add', 'main.tex');
+  await gitRun('commit', '-m', 'ours');
+  await writeFile(join(partner, 'main.tex'), 'theirs\n');
+  await gitAt(partner, 'add', 'main.tex');
+  await gitAt(partner, 'commit', '-m', 'theirs');
+  await gitAt(partner, 'push');
+  await setContentSize(720, 540);
+  await page.getByRole('button', { name: /^Git ·/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Git · repository review', exact: true });
+  await dialog.getByRole('button', { name: 'Fetch', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Pull', exact: true }).click();
+  const conflict = dialog.locator('.git-file').filter({ hasText: 'main.tex' });
+  await expect(conflict).toContainText('Staged · U');
+  await conflict.getByRole('button', { name: 'Resolve using ours', exact: true }).click();
+  const review = dialog.getByRole('button', { name: 'Review merge completion' });
+  await expect(review).toBeEnabled();
+  await review.click();
+  await expect(dialog).toContainText(
+    'creates the merge commit without changes to the current tree content',
+  );
+  await dialog.getByLabel('Commit message', { exact: true }).fill('finish ours merge');
+  await dialog.getByRole('button', { name: 'Finish merge', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'artifacts/phase-7-merge-review-small.png' });
+  await dialog.getByRole('button', { name: 'Finish merge', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => gitRun('log', '-1', '--format=%s')).toBe('finish ours merge');
+  expect((await gitRun('rev-list', '--parents', '-n', '1', 'HEAD')).split(' ')).toHaveLength(3);
+  await dialog.getByRole('button', { name: 'Push committed revisions', exact: true }).click();
+  const mergedHead = await gitRun('rev-parse', 'HEAD');
+  await expect.poll(() => gitAt(join(dir, 'remote.git'), 'rev-parse', 'HEAD')).toBe(mergedHead);
+  await gitAt(partner, 'pull', '--ff-only');
+  expect(await readFile(join(partner, 'main.tex'), 'utf8')).toBe('ours\n');
 });
 
 test('clone through the native destination picker and open the completed project', async () => {

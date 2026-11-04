@@ -26,6 +26,7 @@ export function GitWorkspace(props: {
   const [notice, setNotice] = createSignal('');
   const [commitOpen, setCommitOpen] = createSignal(false);
   const [commitMessage, setCommitMessage] = createSignal('');
+  const [commitReviewTree, setCommitReviewTree] = createSignal<string | null>(null);
   const [reviewedTree, setReviewedTree] = createSignal<string | null>(null);
   const [reviewedPaths, setReviewedPaths] = createSignal<string[]>([]);
   const [branchName, setBranchName] = createSignal('');
@@ -34,6 +35,7 @@ export function GitWorkspace(props: {
   let diffGeneration = 0;
   const [preflight, setPreflight] = createSignal<SourcePreflight | null>(null);
   const [buildState, setBuildState] = createSignal<BuildState | null>(null);
+  const [buildStatusUnavailable, setBuildStatusUnavailable] = createSignal(false);
   const id = () => props.projectId();
   createEffect(() => {
     const firstRemote = status()?.remotes[0];
@@ -177,6 +179,7 @@ export function GitWorkspace(props: {
     setError('');
     setPreflight(null);
     setBuildState(null);
+    setBuildStatusUnavailable(false);
     const [sourceResult, buildResult] = await Promise.all([
       window.loom.git({ type: 'preflight', projectId }),
       window.loom.latex({ type: 'status', projectId, detect: false }),
@@ -194,6 +197,7 @@ export function GitWorkspace(props: {
     setPreflight(sourceResult.value);
     if (buildResult.ok && buildResult.value.kind === 'state')
       setBuildState(buildResult.value.state);
+    else setBuildStatusUnavailable(true);
   };
   const exportSource = async () => {
     const projectId = id(),
@@ -252,9 +256,10 @@ export function GitWorkspace(props: {
         setReviewedPaths([]);
       }
       setDiff(result.value);
-      if (result.value.indexTree === latest.value.indexTree)
+      if (result.value.indexTree === latest.value.indexTree) {
+        setCommitReviewTree(latest.value.indexTree);
         setReviewedPaths((paths) => (paths.includes(path) ? paths : [...paths, path]));
-      else
+      } else
         setError(
           'The Git index changed while opening this diff. Refresh and review the staged file again.',
         );
@@ -276,7 +281,15 @@ export function GitWorkspace(props: {
     } else await refresh();
   };
   const label = (code: string) =>
-    code === ' ' ? '—' : code === '?' ? 'untracked' : code === '!' ? 'ignored' : code;
+    code === ' '
+      ? '—'
+      : code === '?'
+        ? 'untracked'
+        : code === '!'
+          ? 'ignored'
+          : code === 'T'
+            ? 'type changed'
+            : code;
   return (
     <Modal
       title="Git · repository review"
@@ -370,10 +383,26 @@ export function GitWorkspace(props: {
           </Show>
           <button
             class="primary-button"
-            disabled={busy() || !staged().length}
-            onClick={() => setCommitOpen(true)}
+            disabled={
+              busy() ||
+              (!staged().length &&
+                !(
+                  status()?.mergeInProgress &&
+                  status()?.indexMatchesHead &&
+                  status()?.indexTree &&
+                  !status()?.files.some((file) => file.conflict)
+                ))
+            }
+            onClick={() => {
+              setCommitReviewTree(status()?.indexTree ?? null);
+              setReviewedTree(status()?.indexTree ?? null);
+              setReviewedPaths([]);
+              setCommitOpen(true);
+            }}
           >
-            Review staged commit ({staged().length})
+            {status()?.mergeInProgress && !staged().length
+              ? 'Review merge completion'
+              : `Review staged commit (${staged().length})`}
           </button>
         </div>
         <div class="git-branch-controls">
@@ -438,6 +467,12 @@ export function GitWorkspace(props: {
               {preflight()?.included.length} files included · {preflight()?.excluded.length} files
               excluded · source revision {preflight()?.revision.slice(0, 12)}
             </p>
+            <Show when={buildStatusUnavailable()}>
+              <p class="inline-error" role="alert">
+                Could not check PDF/build status. Preflight is incomplete; retry before relying on
+                PDF freshness.
+              </p>
+            </Show>
             <Show when={buildState()}>
               <p class="git-callout">
                 Latest successful PDF:{' '}
@@ -495,10 +530,17 @@ export function GitWorkspace(props: {
         </section>
         <Show when={commitOpen()}>
           <div class="git-commit-review" aria-label="Commit review">
-            <strong>Review actual staged changes</strong>
+            <strong>
+              {status()?.mergeInProgress && !staged().length
+                ? 'Review merge completion'
+                : 'Review actual staged changes'}
+            </strong>
+            <Show when={status()?.mergeInProgress && !staged().length}>
+              <p>This creates the merge commit without changes to the current tree content.</p>
+            </Show>
             <p class="muted">
-              Open each staged diff below. Loom rechecks the index before commit. It will not push
-              this commit.
+              {staged().length ? 'Open each staged diff below. ' : ''}Loom rechecks the index before
+              commit. It will not push this commit.
             </p>
             <Show when={status()?.truncated}>
               <p role="alert">
@@ -535,11 +577,20 @@ export function GitWorkspace(props: {
                   !commitMessage().trim() ||
                   !status()?.indexTree ||
                   status()?.truncated ||
+                  status()?.files.some((file) => file.conflict) ||
+                  reviewedTree() !== status()?.indexTree ||
+                  commitReviewTree() !== status()?.indexTree ||
+                  (!staged().length &&
+                    !(status()?.mergeInProgress && status()?.indexMatchesHead)) ||
                   staged().some((file) => !reviewedPaths().includes(file.path))
                 }
                 onClick={() => void commit()}
               >
-                {busy() ? 'Committing…' : 'Commit reviewed changes'}
+                {busy()
+                  ? 'Committing…'
+                  : status()?.mergeInProgress && !staged().length
+                    ? 'Finish merge'
+                    : 'Commit reviewed changes'}
               </button>
             </div>
           </div>
@@ -572,6 +623,14 @@ export function GitWorkspace(props: {
               {(file) => (
                 <article class="git-file">
                   <span class="git-file-path">{file.path}</span>
+                  <Show when={file.originalPath}>
+                    <p class="muted">
+                      From{' '}
+                      {file.crossesProjectBoundary
+                        ? `repository path ${file.originalPath} (outside this project; commit blocked)`
+                        : file.originalPath}
+                    </p>
+                  </Show>
                   <div>
                     <button
                       class="text-button"
