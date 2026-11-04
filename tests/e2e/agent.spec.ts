@@ -24,6 +24,7 @@ let sessions: Record<
   }
 >;
 let modelsAvailable = true;
+let closeNextEventStream = false;
 let includeSecondaryModel = false;
 let imageModel = false;
 let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
@@ -105,6 +106,7 @@ test.beforeEach(async () => {
   await writeFile(join(root, 'references.bib'), '@article{synthetic,title={Synthetic study}}\n');
   sessions = {};
   modelsAvailable = true;
+  closeNextEventStream = false;
   includeSecondaryModel = false;
   imageModel = false;
   requests = [];
@@ -125,6 +127,10 @@ test.beforeEach(async () => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: ' + JSON.stringify({ type: 'server.connected', data: {} }) + '\n\n');
       streams.push(res);
+      if (closeNextEventStream) {
+        closeNextEventStream = false;
+        setImmediate(() => res.destroy());
+      }
       return;
     }
     let body: Record<string, unknown> = {};
@@ -1139,6 +1145,68 @@ test('utility interruption preserves partial external writes and reconnects befo
   );
   expect(Object.values(sessions)[0].active).toBe(false);
 });
+test('agent stream interruption offers a safe reconnect path and preserves partial work', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Perform a partial operation.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByText('First file updated; continuing…', { exact: true })).toBeVisible();
+  streams[0].destroy();
+  await expect(page.getByRole('alert')).toContainText(
+    'Agent connection interrupted. Partial work is retained.',
+  );
+  await expect(page.getByText('Agent interrupted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toBeDisabled();
+  await dimensions(720, 540);
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-connection-interrupted-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('button', { name: 'Reconnect OpenCode', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Connection details', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await expect(dialog.getByLabel('Use an existing server')).toBeChecked();
+  await expect(dialog.getByText(/does not retain its address or password/i)).toBeVisible();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Reconnect OpenCode', exact: true }).click();
+  await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Merge Changes' })).toContainText(
+    'interrupted request',
+  );
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('Partial agent sentence.');
+});
+
+test('a stream that closes during initial connection is reported as interrupted', async () => {
+  closeNextEventStream = true;
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Use an existing server').check();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Agent connection interrupted. Reconnect');
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByText('Agent interrupted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Connection details', exact: true }).click();
+  const recovery = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await recovery.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await expect(recovery.getByLabel('Use an existing server')).toBeChecked();
+  await expect(recovery.getByText(/does not retain its address or password/i)).toBeVisible();
+});
+
 test('overlapping author and native writes preserve both versions in a conflict', async () => {
   await connect();
   await page

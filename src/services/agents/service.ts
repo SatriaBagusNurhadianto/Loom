@@ -450,30 +450,51 @@ export class AgentService {
                       undefined,
                   );
           this.adapter = adapter;
+          const connection: Connection = {
+            adapter,
+            tools: this.tools!,
+            models: [],
+            interrupted: false,
+          };
+          this.connections.set(command.harness, connection);
+          adapter.onLost = () => {
+            connection.interrupted = true;
+            s.providers = s.providers.map((provider) =>
+              provider.id === command.harness ? { ...provider, connected: false } : provider,
+            );
+            if (this.adapter !== adapter) return;
+            // Invalidate any status refresh that is still awaiting this adapter's HTTP calls.
+            ++this.generation;
+            s.connection = 'interrupted';
+            s.error =
+              'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
+            s.permissions = [];
+            s.questions = [];
+            // Keep the request unsettled until native execution is known to have stopped.
+          };
+          s.version = adapter.version;
+          s.installed = true;
+          s.ownership = adapter.ownership;
+          s.connection = 'connected';
+          s.toolsAvailable = adapter.ownership === 'loom';
           s.models = await adapter.models(context.root);
+          connection.models = s.models;
           if (adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter) {
             await adapter.verify();
             if (adapter.ownership === 'loom')
               await adapter.configureTools(context.root, this.tools.url, this.tools.token);
             await adapter.stream();
           }
-          this.connections.set(command.harness, {
-            adapter,
-            tools: this.tools!,
-            models: s.models,
-            interrupted: false,
-          });
-          s.version = adapter.version;
-          s.installed = true;
-          s.ownership = adapter.ownership;
-          s.connection = 'connected';
-          s.toolsAvailable = adapter.ownership === 'loom';
+          if (connection.interrupted)
+            throw new Error('The agent connection closed during setup. Reconnect and try again.');
           const authentication =
             adapter instanceof CodexAdapter
               ? adapter.auth
               : adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter
                 ? await adapter.authentication(context.root)
                 : 'unknown';
+          if (connection.interrupted)
+            throw new Error('The agent connection closed during setup. Reconnect and try again.');
           s.providers = s.providers.map((p) =>
             p.id === s.harness
               ? {
@@ -485,21 +506,6 @@ export class AgentService {
                 }
               : p,
           );
-          adapter.onLost = () => {
-            const connection = this.connections.get(command.harness);
-            if (connection?.adapter !== adapter) return;
-            connection.interrupted = true;
-            s.providers = s.providers.map((provider) =>
-              provider.id === command.harness ? { ...provider, connected: false } : provider,
-            );
-            if (this.adapter !== adapter) return;
-            s.connection = 'interrupted';
-            s.error =
-              'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
-            s.permissions = [];
-            s.questions = [];
-            // Do not finalize an unknown native execution merely because its stream failed.
-          };
           const currentRef = this.sessions.find((ref) => ref.id === s.sessionId);
           s.settings = currentRef?.nativeSettings?.[s.harness] ?? defaultAgentSettings();
           if (currentRef) {
@@ -512,8 +518,18 @@ export class AgentService {
           this.persist();
           return structuredClone(s);
         } catch (error) {
+          const lostDuringSetup = this.connections.get(command.harness)?.interrupted ?? false;
+          const failedOwnership = this.connections.get(command.harness)?.adapter.ownership;
           await this.disconnect();
-          if (this.connections.has(previousKind)) await this.activate(previousKind);
+          const restoredPrevious =
+            previousKind !== command.harness &&
+            !!this.connections.get(previousKind) &&
+            !this.connections.get(previousKind)?.interrupted;
+          if (restoredPrevious) await this.activate(previousKind);
+          if (lostDuringSetup && !restoredPrevious) {
+            s.connection = 'interrupted';
+            s.ownership = failedOwnership ?? null;
+          }
           s.error = error instanceof Error ? error.message : 'Agent connection failed.';
           throw error;
         }
@@ -544,6 +560,7 @@ export class AgentService {
           if (!id) throw new Error('The harness did not return a session identity.');
           s.sessionId = randomUUID();
           s.sessionUnavailable = false;
+          s.error = '';
           this.sessions.unshift({
             id: s.sessionId,
             nativeSessions: { [s.harness]: id },

@@ -723,6 +723,30 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
   return (
     <>
       <div class="composer agent-composer">
+        <Show when={a.state()?.connection === 'interrupted'}>
+          <div class="agent-connection-warning" role="alert">
+            <span>Agent connection interrupted. Partial work is retained.</span>
+            <Show
+              when={a.state()?.ownership === 'external'}
+              fallback={
+                <button
+                  class="text-button"
+                  disabled={a.busy()}
+                  onClick={() => {
+                    const harness = a.state()?.harness;
+                    if (harness) void a.connect(harness);
+                  }}
+                >
+                  Reconnect {a.state()?.harness === 'codex' ? 'Codex' : 'OpenCode'}
+                </button>
+              }
+            >
+              <button class="text-button" onClick={props.onConnect}>
+                Connection details
+              </button>
+            </Show>
+          </div>
+        </Show>
         <textarea
           ref={input}
           class="agent-prompt resize-none"
@@ -812,20 +836,42 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           <button
             class="send-button"
             disabled={
-              running()
+              a.state()?.connection === 'interrupted' ||
+              (running()
                 ? a.busy() && !a.submitting()
                 : !ready() ||
                   a.state()?.sessionUnavailable ||
                   !a.model() ||
                   (a.attachments().some((path) => imageMime(path)) && !a.model()?.images) ||
                   !a.draft().trim() ||
-                  a.busy()
+                  a.busy())
             }
-            aria-label={running() ? 'Stop agent request' : 'Send to agent'}
-            title={running() ? 'Stop agent request' : 'Send · Ctrl Enter'}
-            onClick={() => (running() ? void a.cancel() : void a.send())}
+            aria-label={
+              a.state()?.connection === 'interrupted'
+                ? 'Agent interrupted'
+                : running()
+                  ? 'Stop agent request'
+                  : 'Send to agent'
+            }
+            title={
+              a.state()?.connection === 'interrupted'
+                ? 'Reconnect the agent before continuing'
+                : running()
+                  ? 'Stop agent request'
+                  : 'Send · Ctrl Enter'
+            }
+            onClick={() => {
+              if (a.state()?.connection === 'interrupted') return;
+              if (running()) void a.cancel();
+              else void a.send();
+            }}
           >
-            <Show when={running()} fallback={<Icon name="arrow" size={22} />}>
+            <Show
+              when={a.state()?.connection !== 'interrupted' && running()}
+              fallback={
+                <Icon name={a.state()?.connection === 'interrupted' ? 'plug' : 'arrow'} size={22} />
+              }
+            >
               <span class="agent-stop-square" />
             </Show>
           </button>
@@ -885,18 +931,20 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
                 : 'Show conversation'}
         </button>
         <span role="status" aria-live="polite">
-          {a.state()?.permissions.length
-            ? 'Needs your permission'
-            : a.state()?.questions.length
-              ? 'Needs your answer'
-              : running()
-                ? 'Agent working'
-                : ready()
-                  ? 'Agent connected'
-                  : 'Agent disconnected'}
+          {a.state()?.connection === 'interrupted'
+            ? 'Agent interrupted'
+            : a.state()?.permissions.length
+              ? 'Needs your permission'
+              : a.state()?.questions.length
+                ? 'Needs your answer'
+                : running()
+                  ? 'Agent working'
+                  : ready()
+                    ? 'Agent connected'
+                    : 'Agent disconnected'}
         </span>
       </div>
-      <Show when={a.error() || a.state()?.error}>
+      <Show when={(a.error() || a.state()?.error) && a.state()?.connection !== 'interrupted'}>
         <div class="agent-inline-error" role="alert">
           <span>{a.error() || a.state()?.error}</span>
           <Show when={a.state()?.sessionUnavailable}>

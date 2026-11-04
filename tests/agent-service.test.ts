@@ -49,7 +49,12 @@ function native(idle: number, outcome = 'succeeded') {
   return {
     ownership: 'external',
     messages: vi.fn(async (): Promise<AgentMessage[]> => []),
-    pending: vi.fn(async () => ({ permissions: [], questions: [] })),
+    pending: vi.fn(
+      async (): Promise<{
+        permissions: Record<string, unknown>[];
+        questions: Record<string, unknown>[];
+      }> => ({ permissions: [], questions: [] }),
+    ),
     active: vi.fn(async () => false),
     session: vi.fn(async () => ({ time: { created: start - 2000, updated: idle, idle }, outcome })),
     interrupt: vi.fn(async () => {}),
@@ -85,6 +90,26 @@ describe('Agent service native execution boundaries', () => {
     const { service, state } = fixture(adapter);
     await service.refresh();
     expect(state).toMatchObject({ messages: [{ text: prompt }] });
+  });
+  it('does not restore permission requests from a refresh that finishes after connection loss', async () => {
+    const adapter = native(start - 1);
+    let finishPending!: (value: {
+      permissions: Record<string, unknown>[];
+      questions: Record<string, unknown>[];
+    }) => void;
+    adapter.pending.mockImplementation(() => new Promise((resolve) => (finishPending = resolve)));
+    const { service, state } = fixture(adapter);
+    const refresh = service.refresh();
+    await Promise.resolve();
+    service.generation++;
+    state.connection = 'interrupted';
+    finishPending({
+      permissions: [{ id: 'stale-permission', action: 'edit', resources: ['main.tex'] }],
+      questions: [{ id: 'stale-question', title: 'Continue?', fields: [] }],
+    });
+    await refresh;
+    expect(state.permissions).toEqual([]);
+    expect(state.questions).toEqual([]);
   });
   it('observes only after the owned process has closed when disconnecting', async () => {
     const events: string[] = [];
