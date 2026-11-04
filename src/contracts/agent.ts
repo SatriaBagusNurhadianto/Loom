@@ -94,6 +94,7 @@ export const agentTurnSchema = z
     status: z.enum(['running', 'succeeded', 'failed', 'cancelled', 'interrupted']),
     startedAt: z.string(),
     revision: z.string(),
+    resultRevision: z.string().max(100).optional(),
     conversationId: id.optional(),
     messageId: id.optional(),
     messageAssociationResolved: z.boolean().optional(),
@@ -152,6 +153,7 @@ export const agentStateSchema = z
     running: z.boolean(),
     error: z.string().max(2000),
     toolsAvailable: z.boolean(),
+    saveRequest: z.object({ id }).strict().optional(),
     imagePreview: z
       .object({
         path: relativePath,
@@ -195,6 +197,15 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('settings'), projectId: id, settings: agentSettingsSchema }).strict(),
+  z
+    .object({
+      type: z.literal('save-result'),
+      projectId: id,
+      requestId: id,
+      saved: z.boolean(),
+      revision: z.string().max(100).optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('cancel'), projectId: id }).strict(),
   z
     .object({

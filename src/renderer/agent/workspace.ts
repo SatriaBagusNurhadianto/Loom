@@ -208,6 +208,30 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       if (id) void refresh();
     });
   });
+  const saveIdentity = createMemo(() => state()?.saveRequest?.id);
+  createEffect(() => {
+    const requestId = saveIdentity();
+    const projectId = untrack(() => state()?.projectId);
+    if (!requestId || !projectId) return;
+    untrack(() => {
+      void (async () => {
+        let saved = false;
+        try {
+          saved = !!(await projects.flushPending());
+        } catch {
+          /* Send a failed acknowledgment; preserve recovery. */
+        }
+        if (projects.project()?.id !== projectId || state()?.saveRequest?.id !== requestId) return;
+        await request({
+          type: 'save-result',
+          projectId,
+          requestId,
+          saved,
+          revision: projects.project()?.sourceRevision,
+        });
+      })();
+    });
+  });
   async function act(command: AgentCommand) {
     if (busy()) return;
     const current = generation;

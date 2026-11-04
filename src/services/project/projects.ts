@@ -1,4 +1,8 @@
-import { portableBuildSchema, type BuildSettings } from '../../contracts/latex';
+import {
+  defaultBuildSettings,
+  portableBuildSchema,
+  type BuildSettings,
+} from '../../contracts/latex';
 import { constants, promises as fs } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -508,7 +512,7 @@ export class ProjectService {
     }
   }
 
-  private async save(file: RecordFile): Promise<void> {
+  private async save(file: RecordFile, source: 'human' | 'agent' = 'human'): Promise<void> {
     if (file.binary || file.deleted || file.conflict) return;
     const text = this.doc(file).getText('source').toString();
     if (text === file.baseline) return;
@@ -528,7 +532,7 @@ export class ProjectService {
       this.persist();
       return;
     }
-    this.onHumanWrite?.(file.path);
+    if (source === 'human') this.onHumanWrite?.(file.path);
     this.persist();
     const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
     try {
@@ -756,7 +760,11 @@ export class ProjectService {
         'Invalid, missing-root or conflicting loom.build.json. Review the file, select the root and save build settings to repair it.';
     }
   }
-  async configureBuild(projectId: string, settings: BuildSettings) {
+  async configureBuild(
+    projectId: string,
+    settings: BuildSettings,
+    source: 'human' | 'agent' = 'human',
+  ) {
     const context = this.buildContext(projectId);
     const root = context.files.find((f) => f.id === context.snapshot.rootId)?.path;
     if (!root) throw new Error('Choose a root .tex document before saving build settings.');
@@ -772,12 +780,48 @@ export class ProjectService {
     if (!this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n'))
       throw new Error('Build configuration is too complex to update safely. Edit it manually.');
     this.persist();
-    await this.save(file);
+    await this.save(file, source);
     if (file.conflict)
       throw new Error(
         'Build configuration changed on disk. Review the conflict before saving settings.',
       );
     await this.refresh();
+  }
+  /** Agent writes enter the same observed filesystem bridge; call inside run() after editor flush. */
+  async agentCreateFile(projectId: string, path: string, text: string) {
+    this.buildContext(projectId);
+    if (Buffer.byteLength(text, 'utf8') > MAX_FILE || text.includes('\0'))
+      throw new Error('Use a bounded UTF-8 text file.');
+    const target = await this.safe(path);
+    await fs.mkdir(dirname(target), { recursive: true });
+    const temporary = join(dirname(target), `.loom-save-${randomUUID()}`);
+    try {
+      const handle = await fs.open(temporary, 'wx', 0o600);
+      try {
+        await handle.writeFile(text, 'utf8');
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.link(temporary, target);
+      const folder = await fs.open(dirname(target), 'r');
+      try {
+        await folder.sync();
+      } finally {
+        await folder.close();
+      }
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
+    await this.refresh();
+  }
+  async agentSetRoot(projectId: string, path: string) {
+    const context = this.buildContext(projectId);
+    const file = this.project!.files.find((file) => !file.deleted && file.path === path);
+    if (!file || file.binary || file.conflict || !path.endsWith('.tex'))
+      throw new Error('Choose an available, conflict-free .tex document.');
+    this.project!.rootId = file.id;
+    await this.configureBuild(projectId, context.settings ?? defaultBuildSettings, 'agent');
   }
   /** Internal only: native roots never cross the renderer bridge. Call inside run(). */
   buildContext(projectId: string) {

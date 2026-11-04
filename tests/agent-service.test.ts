@@ -12,6 +12,10 @@ type Internals = {
   refresh: () => Promise<void>;
   disconnect: () => Promise<void>;
   tools: unknown;
+  requestProjectSave: () => Promise<string>;
+  command: AgentService['command'];
+  bind: () => Promise<void>;
+  serialized: <T>(work: () => Promise<T>) => Promise<T>;
 };
 function fixture(adapter: object) {
   const service = Object.create(AgentService.prototype) as Internals;
@@ -188,4 +192,47 @@ it('does not finalize native work from an interrupted transport or a synthetic l
   expect(changes.finish).not.toHaveBeenCalled();
   expect(adapter.active).not.toHaveBeenCalled();
   expect(state.running).toBe(true);
+});
+
+it('rejects stale save acknowledgments and reports failed saves without allowing a paper operation', async () => {
+  const { service, state } = fixture({ ...native(start - 1), ownership: 'loom' });
+  service.bind = async () => {};
+  service.serialized = async (work) => work();
+  const saved = service.requestProjectSave();
+  const id = (state as typeof state & { saveRequest: { id: string } }).saveRequest.id;
+  await service.command({
+    type: 'save-result',
+    projectId: 'paper',
+    requestId: 'stale',
+    saved: true,
+    revision: 'rev',
+  });
+  expect(state).toHaveProperty('saveRequest.id', id);
+  const rejected = expect(saved).rejects.toThrow('could not save');
+  await service.command({ type: 'save-result', projectId: 'paper', requestId: id, saved: false });
+  await rejected;
+  expect(state).not.toHaveProperty('saveRequest');
+  const next = service.requestProjectSave();
+  const nextId = (state as typeof state & { saveRequest: { id: string } }).saveRequest.id;
+  await service.command({
+    type: 'save-result',
+    projectId: 'paper',
+    requestId: nextId,
+    saved: true,
+    revision: 'saved-revision',
+  });
+  await expect(next).resolves.toBe('saved-revision');
+});
+
+it('times out an unacknowledged editor save and clears the pending operation', async () => {
+  vi.useFakeTimers();
+  try {
+    const { service, state } = fixture({ ...native(start - 1), ownership: 'loom' });
+    const rejected = expect(service.requestProjectSave()).rejects.toThrow('did not confirm saving');
+    await vi.advanceTimersByTimeAsync(12000);
+    await rejected;
+    expect(state).not.toHaveProperty('saveRequest');
+  } finally {
+    vi.useRealTimers();
+  }
 });

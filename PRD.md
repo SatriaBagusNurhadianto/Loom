@@ -543,3 +543,9 @@ Milestones are dependency ordered rather than calendar estimates.
 - [Native application OAuth guidance](https://www.rfc-editor.org/rfc/rfc8252), for future account integration.
 
 This PRD supersedes earlier conversational assumptions where they differ from the explicit user decisions recorded in Section 1.2. It does not turn every idea from the research brief into a launch requirement; release scope is defined in Sections 3–5.
+
+### Manual beta interaction refinements (5 November 2026)
+
+- A completed agent source edit opens its changed passage in the matching successful PDF using source mapping. Preserve current writing and report unavailable mapping/builds instead of guessing a page or displaying stale output as current.
+- Authors can ask the connected agent to save editor work, create/delete/move ordinary project files into folders, and inspect or assign the main LaTeX document. Keep recovery and native permissions intact; manuscript operations do not authorize Git commits or pushes.
+- Appearance is reachable beside Settings, persists on this device, and supports system/light/dark schemes, paired color palettes, contrast, surface opacity, diff colors and message width. Settings, connections and appearance have distinct recognizable icons. Structural panels/dividers use unobtrusive focus cues without white frames; chat drag/hide controls avoid background pills.

@@ -50,3 +50,57 @@ it('starts restoration for the next paper even while the previous status request
   await Promise.resolve();
   expect(agent.initializing()).toBe(false);
 });
+
+it('acknowledges a requested project save only after live editor writes finish', async () => {
+  let finishSave!: (saved: boolean) => void;
+  const commands: AgentCommand[] = [];
+  const state = {
+    projectId: 'paper',
+    harness: 'opencode',
+    models: [],
+    providers: [],
+    sessions: [],
+    messages: [],
+    permissions: [],
+    questions: [],
+    turns: [],
+    error: '',
+    saveRequest: { id: 'save' },
+  } as unknown as import('../src/contracts/agent').AgentState;
+  vi.stubGlobal('window', {
+    localStorage: { getItem: () => null, setItem: () => {} },
+    loom: {
+      onServiceEvent: () => () => {},
+      agent: async (command: AgentCommand) => {
+        commands.push(command);
+        return {
+          ok: true,
+          value: command.type === 'save-result' ? { ...state, saveRequest: undefined } : state,
+        };
+      },
+    },
+  });
+  createRoot((cleanup) => {
+    dispose = cleanup;
+    createAgentWorkspace(
+      {
+        project: () => ({ id: 'paper', sourceRevision: 'saved-revision' }),
+        flushPending: () => new Promise<boolean>((resolve) => (finishSave = resolve)),
+      } as unknown as ProjectWorkspace,
+      () => {},
+    );
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(commands.map((c) => c.type)).toEqual(['status']);
+  finishSave(true);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(commands[1]).toEqual({
+    type: 'save-result',
+    projectId: 'paper',
+    requestId: 'save',
+    saved: true,
+    revision: 'saved-revision',
+  });
+});

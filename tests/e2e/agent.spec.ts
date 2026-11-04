@@ -336,6 +336,20 @@ test.beforeEach(async () => {
             type: 'assistant',
             content: [{ type: 'text', text: 'First file updated; continuing…' }],
           });
+        } else if (String(body.text).includes('preview third page')) {
+          later(() => {
+            void (async () => {
+              const text = await readFile(join(root, 'main.tex'), 'utf8');
+              await writeFile(
+                join(root, 'main.tex'),
+                text.replace('Third page original.', 'Third page revised by agent.'),
+              );
+              s.active = false;
+              s.outcome = 'succeeded';
+              s.time.idle = Date.now();
+              s.messages.push({ id: 'preview-idle', type: 'idle', outcome: 'succeeded' });
+            })();
+          }, 1200);
         } else if (String(body.text).includes('numeric question')) {
           s.forms = [
             {
@@ -2041,4 +2055,39 @@ test('panel focus and chat drag/collapse controls do not paint surrounding frame
   await divider.focus();
   expect(await divider.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
   await page.screenshot({ path: 'artifacts/followup-focus-chrome.png', animations: 'disabled' });
+});
+
+test('agent changes open their exact page in a real multi-page PDF', async () => {
+  test.skip(process.env.LOOM_TEST_TEX !== '1', 'Requires the installed local TeX toolchain.');
+  test.setTimeout(90000);
+  await writeFile(
+    join(root, 'main.tex'),
+    String.raw`\documentclass{article}
+\begin{document}
+First page.
+\newpage
+Second page.
+\newpage
+Third page original.
+\end{document}
+`,
+  );
+  await expect(page.locator('.cm-content')).toContainText('Third page original.');
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Please preview third page after editing.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByRole('spinbutton', { name: 'PDF page number', exact: true })).toHaveValue(
+    '3',
+    {
+      timeout: 60000,
+    },
+  );
+  await expect(page.getByLabel('Rendered PDF page 3', { exact: true })).toBeVisible();
+  await expect(page.locator('.textLayer')).toContainText('Third page revised by agent.');
+  await page.screenshot({
+    path: resolve('artifacts/agent-change-page-three.png'),
+    animations: 'disabled',
+  });
 });

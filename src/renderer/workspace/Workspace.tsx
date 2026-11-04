@@ -7,6 +7,7 @@ import {
   selectedChange,
   type ChangeSelection,
 } from '../agent/AgentChanges';
+import { createAgentChangePreview } from '../agent/changePreview';
 import { createAgentWorkspace } from '../agent/workspace';
 import {
   AgentChats,
@@ -277,6 +278,13 @@ export function Workspace() {
   };
   const issue = () => pdfIssue(projects.project(), latex.state());
   const showPdf = () => update({ pdfOpen: true, mode: narrow() ? 'pdf' : 'split' });
+  createAgentChangePreview({
+    agent: agent.state,
+    project: projects.project,
+    latex,
+    openPdf: showPdf,
+    report: setNotice,
+  });
   async function createPdf(checkSetup = true) {
     showPdf();
     if (

@@ -333,6 +333,7 @@ export class AgentChanges {
     if (!turn) return;
     await this.observe(turn);
     turn.view.status = status;
+    turn.view.resultRevision = this.projects.snapshot().sourceRevision;
     if (!messageMayExist) turn.view.messageAssociationResolved = true;
     turn.unsettled = false;
     this.persist();
