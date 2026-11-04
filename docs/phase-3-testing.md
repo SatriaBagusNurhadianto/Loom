@@ -29,15 +29,19 @@ If you open a folder above a nested paper and its included file cannot be found,
 
 Click the PDF status in the preview header, or **Tools → PDF settings**, for **Update the PDF as I write**. Enable it and choose **Save changes**. **Advanced settings** contains the engine, references backend, main document and pause in seconds. The defaults work for most papers. Changed choices are also saved when you choose **Create PDF** or **Update PDF** in that dialog.
 
+Automatic bibliography follows Latexmk’s conditional behavior: an absent `.bib` file produces a warning while the starter PDF can render. Choose an explicit BibTeX/Biber backend when missing reference inputs should fail the build.
+
 **Technical details** contains the complete LaTeX log, all source-linked diagnostics, recorded tool versions and **Rebuild from scratch**. **Tools and setup** has installation help and **Check again**; optional writing assistance is separate from PDF creation.
 
 ## Tool setup and launcher behavior
 
 The launcher builds and starts the real Electron app with a separate profile in `.cache/phase-3-profile`. It also prepares the older folder-based copies in `.cache/phase-3-examples` for developer checks; the built-in sample buttons do not require them. Samples opened inside Loom are copied to that profile's `sample-papers` directory. Both preserve existing copies and edits.
 
-On this development machine the launcher can find the independently downloaded tools in `/tmp/loom-phase3-tools` (TinyTeX, TexLab and Biber's libcrypt compatibility library). They are not bundled with Loom and may disappear after reboot. `LOOM_PHASE3_TOOLS=/path/to/tools npm run try:phase3` can point at the same directory layout elsewhere.
+Before the first PDF build on Linux x86_64, run `npm run setup:latex`. This downloads the full official [TinyTeX-2 bundle](https://yihui.org/tinytex/) (about 1.7 GiB compressed) and [TexLab](https://github.com/latex-lsp/texlab), verifies their release SHA-256 checksums, and installs into `~/.TinyTeX` and `~/.local/share/loom/bin`. Existing installations are preserved. On Arch, if Biber needs `libcrypt.so.1`, setup verifies the official compatibility package with the machine’s pacman keyring and unpacks just its libraries under `~/.local/share/loom/lib`; no system package is changed. Setup requires network access and several GiB of free disk space, but no administrator access or shell-profile edits. The full distribution includes the engines, bibliography tools, fonts and standard packages before you start writing.
 
-For a normal installation, follow the official [LaTeX setup page](https://www.latex-project.org/get/) to install a distribution with latexmk and your required engine/reference tools. Quit and reopen Loom, then choose **PDF settings → Tools and setup → Check again**. The [TexLab installation guide](https://github.com/latex-lsp/texlab#installation) covers optional completion and source navigation. Loom does not install tools automatically. `npm run dev` launches the normal development profile.
+Loom checks system PATH first, then these persistent user directories, including when launched from a desktop shortcut. Compiler children receive the same tool paths. If tools were installed while Loom was open, **Create PDF** rechecks missing tools. **PDF settings → Tools and setup → Check again** also refreshes detection. `LOOM_TEX_PATH` is an optional explicit list of absolute tool directories for custom installations and isolated verification. It replaces automatic discovery; relative paths are ignored.
+
+Other platforms can use the official [LaTeX setup page](https://www.latex-project.org/get/) and [TexLab installation guide](https://github.com/latex-lsp/texlab#installation). Loom does not download executables from the renderer or install tools silently. `npm run dev` launches the normal development profile.
 
 ## Sample folders
 

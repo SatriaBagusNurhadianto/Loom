@@ -12,7 +12,7 @@ import {
   type LatexValue,
 } from '../../contracts/latex';
 import { ProjectService } from '../project/projects';
-import { detectTools, runTool, type Tool } from './tools';
+import { detectTools, runTool, latexEnvironment, type Tool } from './tools';
 import { compilerDiagnostics, mappedPath } from './diagnostics';
 
 export type BuildInput = Awaited<ReturnType<ProjectService['buildContext']>>;
@@ -242,8 +242,6 @@ export class BuildService {
       record.revision = input.snapshot.sourceRevision!;
       if (input.settings) record.settings = { ...input.settings };
       record.root = input.files.find((f) => f.id === input.snapshot.rootId)?.path ?? record.root;
-      await this.detect();
-      record.tools = this.tools.map(({ executable: _path, ...tool }) => tool);
       const required = ['latexmk', record.settings.engine];
       const text = input.files.map((f) => f.text ?? '').join('\n');
       const biber =
@@ -276,12 +274,16 @@ export class BuildService {
         );
       if (biber) required.push('biber');
       else if (bibtex) required.push('bibtex');
+      await this.detect(
+        required.some((name) => !this.tools.find((tool) => tool.name === name)?.available),
+      );
+      record.tools = this.tools.map(({ executable: _path, ...tool }) => tool);
       const missing = required.filter(
         (name) => !this.tools.find((t) => t.name === name)?.available,
       );
       if (missing.length)
         throw new Error(
-          `Missing tools: ${missing.join(', ')}. Install a TeX distribution with latexmk and the selected engine/bibliography tool, restart Loom, then Detect tools.`,
+          `Missing tools: ${missing.join(', ')}. Install a TeX distribution with latexmk and the selected engine/bibliography tool, then retry Create PDF or Check again in PDF settings.`,
         );
       await fs.mkdir(output, { recursive: true });
       const args = [
@@ -298,6 +300,7 @@ export class BuildService {
         '-outdir=' + output,
       ];
       if (record.settings.bibliography === 'none') args.push('-bibtex-');
+      else if (record.settings.bibliography === 'auto') args.push('-bibtex-cond');
       else args.push('-bibtex');
       if (clean) args.push('-gg');
       // Prefix ./ prevents a filename beginning with '-' from becoming an option.
@@ -309,7 +312,7 @@ export class BuildService {
         {
           cwd: source,
           signal,
-          env: { openin_any: 'p', openout_any: 'p', TEXMFOUTPUT: output },
+          env: { ...latexEnvironment(), openin_any: 'p', openout_any: 'p', TEXMFOUTPUT: output },
           onOutput: (chunk) => {
             record.log = (record.log + chunk.split(directory).join('[build]')).slice(-140000);
           },
@@ -402,7 +405,11 @@ export class BuildService {
             artifact.pdf,
           ]
         : ['edit', '-o', `${command.page}:${command.x}:${command.y}:${artifact.pdf}`];
-    const result = await runTool(executable, args, { cwd: artifact.source, timeoutMs: 5000 });
+    const result = await runTool(executable, args, {
+      cwd: artifact.source,
+      timeoutMs: 5000,
+      env: latexEnvironment(),
+    });
     const field = (key: string) =>
       result.output.match(new RegExp('^' + key + ':(.+)$', 'm'))?.[1].trim();
     if (command.type === 'forward') {

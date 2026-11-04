@@ -93,7 +93,7 @@ test('missing-tool build setup remains honest and source stays editable', async 
   );
   await dimensions(1440, 960);
   await app.evaluate(() => {
-    process.env.PATH = '/loom-acceptance-empty-tool-path';
+    process.env.LOOM_TEX_PATH = '/loom-acceptance-empty-tool-path';
   });
   await page.evaluate(() => window.loom!.restartService());
   await openExample();
@@ -537,4 +537,38 @@ test.describe('live Phase 3 Electron workflow', () => {
     await page.getByRole('button', { name: 'PDF settings', exact: true }).click();
     await expect(modal).toBeVisible();
   });
+});
+
+// Opt-in verification against an explicitly authorized local paper; never a committed fixture.
+test('authorized local paper renders in the right PDF pane without source changes', async () => {
+  test.skip(!process.env.LOOM_PDF_PAPER || process.env.LOOM_TEST_TEX !== '1');
+  root = resolve(process.env.LOOM_PDF_PAPER!);
+  const originalSource = await readFile(join(root, 'main.tex'));
+  const originalSettings = await readFile(join(root, 'loom.build.json'));
+  await dimensions(1440, 960);
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, root);
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await page.locator('.compile-source').click();
+  try {
+    await waitPdf();
+  } catch (error) {
+    const log = await page.evaluate(async () => {
+      const project = await window.loom!.project({ type: 'current' });
+      if (!project.ok || !project.value) return 'No project';
+      const state = await window.loom!.latex({ type: 'status', projectId: project.value.id });
+      return state.ok && state.value.kind === 'state' ? state.value.state.current?.log : state;
+    });
+    throw new Error(`${String(error)}\nBuild log: ${JSON.stringify(log)}`);
+  }
+  await expect(page.locator('.pdf-column')).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/pdf-user-paper-fixed.png'),
+    animations: 'disabled',
+  });
+  expect(await readFile(join(root, 'main.tex'))).toEqual(originalSource);
+  expect(await readFile(join(root, 'loom.build.json'))).toEqual(originalSettings);
 });

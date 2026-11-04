@@ -11,6 +11,7 @@ import { runTool } from '../src/services/latex/tools';
 import { projectStructure } from '../src/services/latex/language';
 let directory: string, projects: ProjectService, builds: BuildService, store: MetadataStore;
 const originalPath = process.env.PATH;
+const originalTexPath = process.env.LOOM_TEX_PATH;
 beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'loom-build-'));
   const root = join(directory, 'paper with spaces');
@@ -34,6 +35,8 @@ afterEach(async () => {
   await builds.idle(projects.snapshot().id);
   store.close();
   process.env.PATH = originalPath;
+  if (originalTexPath === undefined) delete process.env.LOOM_TEX_PATH;
+  else process.env.LOOM_TEX_PATH = originalTexPath;
   await rm(directory, { recursive: true, force: true });
 });
 async function fakeTools() {
@@ -254,8 +257,20 @@ describe('snapshot build scheduler (synthetic native tools)', () => {
       }),
     ).rejects.toThrow('no SyncTeX mapping');
   });
+  it('recovers a missing-tool build after installation without restarting the service', async () => {
+    process.env.LOOM_TEX_PATH = join(directory, 'not-installed');
+    const id = projects.snapshot().id;
+    builds.request(id, false);
+    await builds.idle(id);
+    expect((await builds.status(id)).current?.log).toContain('Missing tools:');
+    await fakeTools();
+    process.env.LOOM_TEX_PATH = join(directory, 'bin');
+    builds.request(id, false);
+    await builds.idle(id);
+    expect((await builds.status(id)).successful).not.toBeNull();
+  });
   it('reports missing tools and ambiguous roots without modifying the project', async () => {
-    process.env.PATH = join(directory, 'missing');
+    process.env.LOOM_TEX_PATH = join(directory, 'missing');
     const id = projects.snapshot().id;
     builds.request(id, false);
     await builds.idle(id);

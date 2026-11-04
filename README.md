@@ -33,7 +33,7 @@ Open <http://127.0.0.1:5173>. Browser preview intentionally reports the desktop 
 npm run try:phase3
 ```
 
-This starts an isolated Electron profile. Click **Try a sample paper** (or click the current project name to open Projects first). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. The launcher can use this task's temporary verified toolchain under `/tmp/loom-phase3-tools` while it remains available; a normal installation uses your TeX/TexLab PATH. See [setup and testing](docs/phase-3-testing.md).
+This starts an isolated Electron profile. Click **Try a sample paper** (or click the current project name to open Projects first). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. Before the first PDF build on Linux x86_64, run `npm run setup:latex` to install the full official TeX Live bundle and TexLab into your user account. Loom also supports an existing system TeX installation. No administrator access or shell-profile changes are needed. See [setup and testing](docs/phase-3-testing.md).
 
 ## Commands
 
