@@ -776,6 +776,7 @@ test('picker copies outside images and retains project files in a mixed selectio
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
+  await page.waitForTimeout(400);
   await page.screenshot({
     path: resolve('artifacts/phase-6-import-image-small.png'),
     animations: 'disabled',
