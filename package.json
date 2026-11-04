@@ -2,6 +2,7 @@
   "name": "loom",
   "version": "0.1.0",
   "description": "A local scientific writing workspace — LaTeX source, builds and PDF",
+  "desktopName": "org.loom.workspace.desktop",
   "author": "Loom contributors",
   "private": true,
   "main": "out/main/index.js",
@@ -76,7 +77,8 @@
         "dir"
       ],
       "category": "Office",
-      "executableName": "loom"
+      "executableName": "loom",
+      "syncDesktopName": true
     },
     "extraResources": [
       {

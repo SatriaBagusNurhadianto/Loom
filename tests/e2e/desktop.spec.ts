@@ -344,6 +344,37 @@ async function openSyntheticProject(): Promise<string> {
   );
   return folder;
 }
+
+test('opens and saves a project whose root path has spaces and non-ASCII characters', async () => {
+  const folder = join(userData, '研究 project paper');
+  await mkdir(folder);
+  await writeFile(
+    join(folder, 'main.tex'),
+    '\\documentclass{article}\n\\begin{document}\nOriginal text.\n\\end{document}\n',
+  );
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, folder);
+
+  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await expect(editor).toContainText('Original text.');
+  await editor.focus();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('% root path round trip');
+  await page.keyboard.press('Control+s');
+  await expect
+    .poll(() => readFile(join(folder, 'main.tex'), 'utf8'))
+    .toContain('% root path round trip');
+
+  await desktop.close();
+  await launchDesktop();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    '% root path round trip',
+  );
+});
+
 test('sidebar footer, folder navigation and row focus remain stable with many files', async () => {
   const folder = await openSyntheticProject();
   await page.keyboard.press('Control+Alt+3');
