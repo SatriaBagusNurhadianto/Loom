@@ -26,6 +26,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
   const [state, setState] = createSignal<AgentState | null>(null),
     [error, setError] = createSignal(''),
     [busy, setBusy] = createSignal(false),
+    [initializing, setInitializing] = createSignal(false),
     [draft, setDraftValue] = createSignal(''),
     [modelKey, setModelKeyValue] = createSignal(''),
     [open, setOpen] = createSignal(false),
@@ -167,11 +168,16 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
   async function refresh(detect = false) {
     const projectId = projects.project()?.id;
     if (!projectId || polling || busy()) return;
+    const current = generation;
     polling = true;
+    if (!state()) setInitializing(true);
     try {
       await request({ type: 'status', projectId, detect }, !detect);
     } finally {
-      polling = false;
+      if (current === generation) {
+        polling = false;
+        setInitializing(false);
+      }
     }
   }
   const identity = createMemo(() => projects.project()?.id);
@@ -179,6 +185,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const id = identity();
     untrack(() => {
       ++generation;
+      polling = false;
+      setInitializing(false);
       accepted = ++sequence;
       setState(null);
       setError('');
@@ -608,6 +616,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
         ++generation;
         accepted = ++sequence;
         polling = false;
+        setInitializing(false);
         setBusy(false);
         setSubmitting(false);
         setState((previous) =>
@@ -639,6 +648,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     error,
     setError,
     busy,
+    initializing,
     draft,
     setDraft,
     model,

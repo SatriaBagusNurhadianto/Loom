@@ -132,7 +132,8 @@ Motion design tokens live in `src/renderer/ui/tokens.css`:
 
 - `--duration-fast`: 80ms for active tactile click feedback (subtle scale: 0.99 on buttons, 0.96 on icon buttons).
 - `--duration-normal`: 140ms with easing `--ease-standard: cubic-bezier(0.16, 1, 0.3, 1)` for smooth hover backgrounds, borders, colors, and shadows.
-- `--duration-modal`: 160ms for dialog fade/scale pop-in, toast notice slide-up, and outline accordion rotation.
+- `--duration-modal`: 160ms for local disclosure fades, toast notice slide-up, and outline accordion rotation.
+- `--duration-panel`: 220ms for native dialog enter/exit, workspace view transitions and content-sized disclosures. Forms and command details fade while keeping natural geometry, preserving keyboard/native-select access and output scrolling.
 
 All transitions and animations are strictly disabled under `@media (prefers-reduced-motion: reduce)`, ensuring full accessibility and immediate responsiveness for users requesting reduced motion.
 
@@ -262,6 +263,6 @@ Native command details show the harness-reported command and output separately f
 
 ## Beta UX polish — 5 November 2026
 
-The user authorized a quieter, more rounded workspace while retaining the reference arrangement. Remove the local workspace/avatar identity until accounts arrive. Use icon-only source actions with accessible names and native tooltips. Separate document tabs from actions so filenames retain room; hide tab scroll chrome while retaining wheel/trackpad and keyboard access. Replace the prominent blue Tools control with a More workspace actions menu; scientific request starters remain available there. References and Git have dedicated actions. Git review uses distinct clone/fetch/pull/push/branch/commit icons with explanatory text at the operation boundary. Blue/lavender references, warm build and muted green Git accents give controls meaning without coloring the manuscript workspace.
+The user authorized a quieter, more rounded workspace while retaining the reference arrangement. Remove the local workspace/avatar identity until accounts arrive. Use icon-only source actions with accessible names and native tooltips. Keep document tabs beside compact actions when space permits and give them their own row below 480px of source width; hide tab scroll chrome while retaining wheel/trackpad and keyboard access. Replace the prominent blue Tools control with a More workspace actions menu; scientific request starters remain available there. References and Git have dedicated actions. Git review uses distinct clone/fetch/pull/push/branch/commit icons with explanatory text at the operation boundary. Blue/lavender references, warm build and muted green Git accents give controls meaning without coloring the manuscript workspace.
 
 Chat surfaces and active tabs have no decorative bright borders. Scroll tracks and corners are transparent; retain thin thumbs for genuinely overflowing content. Native dialogs use short enter/exit transitions; explicit workspace view changes use interruptible view transitions, bypassed during resizing and under reduced motion. Preserve focus, source state and the center-column composer. Later minor changes to Loom's broader design language are separate follow-up work.

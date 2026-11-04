@@ -1003,21 +1003,23 @@ export function AgentComposer(props: {
                 : 'Show conversation'}
         </button>
         <span role="status" aria-live="polite">
-          {a.state()?.connection === 'interrupted'
-            ? 'Agent interrupted'
-            : requestUncertain()
-              ? 'Request status uncertain'
-              : statusUnavailable()
-                ? 'Agent status unavailable'
-                : a.state()?.permissions.length
-                  ? 'Needs your permission'
-                  : a.state()?.questions.length
-                    ? 'Needs your answer'
-                    : running()
-                      ? 'Agent working'
-                      : ready()
-                        ? 'Agent connected'
-                        : 'Agent disconnected'}
+          {a.initializing()
+            ? 'Checking agent connection…'
+            : a.state()?.connection === 'interrupted'
+              ? 'Agent interrupted'
+              : requestUncertain()
+                ? 'Request status uncertain'
+                : statusUnavailable()
+                  ? 'Agent status unavailable'
+                  : a.state()?.permissions.length
+                    ? 'Needs your permission'
+                    : a.state()?.questions.length
+                      ? 'Needs your answer'
+                      : running()
+                        ? 'Agent working'
+                        : ready()
+                          ? 'Agent connected'
+                          : 'Agent disconnected'}
         </span>
       </div>
       <Show when={(a.error() || a.state()?.error) && a.state()?.connection !== 'interrupted'}>

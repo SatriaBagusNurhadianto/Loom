@@ -907,7 +907,9 @@ test('picker copies outside images and retains project files in a mixed selectio
   expect(await readFile(external)).toEqual(bytes);
   await expect(page.getByText('1 image copied into this paper.')).toBeVisible();
   await expect(page.locator('.cm-editor')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'More workspace actions', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach paper files or images' })).toBeInViewport();
   await page.evaluate(
     () =>

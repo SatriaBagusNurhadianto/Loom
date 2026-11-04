@@ -319,7 +319,8 @@ test.describe('live Phase 3 Electron workflow', () => {
     await expect(page.locator('.document-tabs button[aria-pressed="true"]')).toContainText(
       'introduction.tex',
     );
-    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
     await page.getByRole('button', { name: 'Show in PDF', exact: true }).click();
     await expect(page.locator('.pdf-source-marker')).toBeAttached();
     const destination = join(directory, 'export.pdf');
@@ -533,7 +534,8 @@ test.describe('live Phase 3 Electron workflow', () => {
     await page.screenshot({ path: 'artifacts/phase-3-small.png' });
     await page.getByRole('button', { name: 'Hide PDF panel', exact: true }).click();
     await expect(page.locator('.cm-content')).toBeVisible();
-    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
     await page.getByRole('button', { name: 'PDF settings', exact: true }).click();
     await expect(modal).toBeVisible();
   });

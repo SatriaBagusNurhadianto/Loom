@@ -22,6 +22,13 @@
 *::-webkit-scrollbar-thumb:active {
   background: var(--scroll-active);
 }
+/* Chromium's standard thin styling overrides its custom scrollbar parts. */
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+}
 body {
   margin: 0;
   background: var(--surface-sidebar);
@@ -393,7 +400,7 @@ h3 {
   background: var(--surface-editor);
   min-width: 0;
   min-height: 0;
-  border-radius: var(--radius-panel) 0 0 var(--radius-panel);
+  border-radius: var(--radius-panel);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1010,7 +1017,7 @@ kbd {
   }
   .composer {
     flex-wrap: wrap;
-    border-radius: 22px;
+    border-radius: var(--radius-panel);
   }
   .composer-placeholder {
     padding: 0 5px;
@@ -1102,7 +1109,7 @@ kbd {
   }
   .composer {
     flex-wrap: wrap;
-    border-radius: 22px;
+    border-radius: var(--radius-panel);
   }
   .composer-placeholder {
     flex-basis: 100%;
@@ -3240,11 +3247,16 @@ dialog:has(.agent-image-expanded-canvas) {
   padding-bottom: 4px;
 }
 .source-toolbar .document-tabs {
-  order: 2;
-  flex: 1 0 100%;
+  flex: 1 1 100px;
   padding: 4px 0;
   gap: 4px;
   scrollbar-width: none;
+}
+@container (max-width: 480px) {
+  .source-toolbar .document-tabs {
+    order: 2;
+    flex-basis: 100%;
+  }
 }
 .document-tabs::-webkit-scrollbar {
   display: none;
@@ -3298,7 +3310,7 @@ dialog:has(.agent-image-expanded-canvas) {
   outline: none;
 }
 .agent-composer:focus-within {
-  box-shadow: inset 0 0 0 1px var(--border);
+  background: var(--surface-hover);
 }
 .status-button {
   display: inline-flex;
@@ -3355,7 +3367,7 @@ dialog[open]::backdrop {
 .sidebar {
   view-transition-name: sidebar-panel;
 }
-.pdf-panel {
+.pdf-column {
   view-transition-name: pdf-panel;
 }
 ::view-transition-group(*) {
@@ -3376,4 +3388,44 @@ dialog[open]::backdrop {
   ::view-transition-new(*) {
     animation: none !important;
   }
+}
+
+/* Content-sized disclosures animate without delaying access to their controls. */
+.agent-workspace-panel {
+  interpolate-size: allow-keywords;
+  transition: height var(--duration-panel) var(--ease-standard);
+}
+.agent-workspace-panel:has(.agent-panel-grip:active) {
+  transition: none;
+}
+details {
+  interpolate-size: allow-keywords;
+}
+details:not(.agent-execution):not(:has(input, select, textarea))::details-content {
+  height: 0;
+  overflow: clip;
+  transition:
+    height var(--duration-panel) var(--ease-standard),
+    content-visibility var(--duration-panel) allow-discrete;
+}
+details[open]:not(.agent-execution):not(:has(input, select, textarea))::details-content {
+  height: auto;
+}
+
+@media (forced-colors: active) {
+  *::-webkit-scrollbar-track {
+    background: Canvas;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: ButtonText;
+  }
+  .agent-prompt:focus-visible {
+    outline: 1px solid Highlight;
+  }
+}
+
+/* Command output keeps its natural geometry so opening can reveal the result. */
+.agent-execution[open]::details-content,
+details[open]:has(input, select, textarea)::details-content {
+  animation: control-reveal var(--duration-modal) var(--ease-standard);
 }

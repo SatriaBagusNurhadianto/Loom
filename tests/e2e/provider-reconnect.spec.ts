@@ -27,7 +27,13 @@ for (const harness of ['codex', 'opencode'] as const) {
       delete env.ELECTRON_RENDERER_URL;
       app = await _electron.launch({
         chromiumSandbox: true,
-        args: [resolve('out/main/index.js'), `--user-data-dir=${join(directory, 'data')}`],
+        ...(process.env.LOOM_AGENT_PACKAGED === '1'
+          ? { executablePath: resolve('release/linux-unpacked/loom') }
+          : {}),
+        args: [
+          ...(process.env.LOOM_AGENT_PACKAGED === '1' ? [] : [resolve('out/main/index.js')]),
+          `--user-data-dir=${join(directory, 'data')}`,
+        ],
         env,
       });
       page = await app.firstWindow();

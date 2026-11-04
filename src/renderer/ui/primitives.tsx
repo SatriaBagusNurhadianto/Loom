@@ -65,6 +65,8 @@ export function Modal(props: {
   return (
     <dialog
       ref={dialog}
+      inert={!props.open}
+      aria-hidden={!props.open}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
