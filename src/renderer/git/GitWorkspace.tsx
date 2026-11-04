@@ -571,6 +571,7 @@ export function GitWorkspace(props: {
             <label>
               Commit message
               <textarea
+                style="resize: none"
                 value={commitMessage()}
                 onInput={(event) => setCommitMessage(event.currentTarget.value)}
                 maxLength={2000}

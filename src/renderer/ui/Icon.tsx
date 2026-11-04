@@ -1,5 +1,15 @@
 import { For } from 'solid-js';
 const paths = {
+  appearance: [
+    'M12 3a9 9 0 1 0 9 9c0-1.5-1-2-2.5-2H17a2 2 0 0 1-2-2V6.5C15 4 14 3 12 3z',
+    'M7 10h.01M9 6h.01M6 15h.01M11 18h.01',
+  ],
+  sun: [
+    'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8',
+    'M12 2v2M12 20v2M2 12h2M20 12h2m-3-9-1.5 1.5m-11 11L4 20m0-16 1.5 1.5m13 13L20 20',
+  ],
+  moon: ['M20 14A8 8 0 0 1 10 4a8.5 8.5 0 1 0 10 10z'],
+  monitor: ['M3 3h18v14H3z', 'M12 17v4M8 21h8'],
   gitBranch: [
     'M6 3v12',
     'M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
@@ -45,8 +55,8 @@ const paths = {
   chat: ['M21 11a9 9 0 0 1-9 9H4l-2 2v-10a9 9 0 1 1 19-1'],
   tools: ['M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z'],
   settings: [
-    'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z',
-    'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
+    'M10 2h4l.5 3 2 1.2 2.8-1 2 3.5-2.3 2v2.6l2.3 2-2 3.5-2.8-1-2 1.2-.5 3h-4l-.5-3-2-1.2-2.8 1-2-3.5 2.3-2v-2.6l-2.3-2 2-3.5 2.8 1 2-1.2z',
+    'M15.5 12a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0',
   ],
   refresh: ['M20 7v5h-5', 'M20 12a8 8 0 1 0-2 6'],
   info: ['M12 11v6M12 7v.1', 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0'],
@@ -88,6 +98,7 @@ export function Icon(props: { name: IconName; size?: number }) {
     <svg
       width={props.size ?? 18}
       height={props.size ?? 18}
+      data-icon={props.name}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

@@ -272,11 +272,12 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
         style: style.outlineStyle,
       };
     });
-  expect(keyboardFocus.color).toBe('rgb(143, 143, 143)');
-  expect(keyboardFocus.style).toBe('solid');
-  // Chromium rounds thin borders to device pixels at the desktop's fractional scale.
-  expect(keyboardFocus.width).toBeGreaterThan(0);
-  expect(keyboardFocus.width).toBeLessThanOrEqual(1.01);
+  expect(keyboardFocus.style).toBe('none');
+  expect(
+    await preview
+      .locator('.pdf-toolbar')
+      .evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).toBe('rgb(232, 232, 232)');
   await page.keyboard.press('Shift+F6');
   await expect(page.getByRole('main', { name: 'Source workspace' })).toBeFocused();
   await page.keyboard.press('Control+Alt+2');
@@ -1149,4 +1150,48 @@ test('beta workspace actions stay compact, discoverable and keyboard accessible'
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.getByRole('button', { name: 'References', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'References', exact: true })).toBeVisible();
+});
+
+test('appearance themes apply immediately, persist and keep the small workspace usable', async () => {
+  await openSyntheticProject();
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Appearance', exact: true });
+  const schemes = dialog.getByRole('group', { name: 'Color scheme' });
+  const themes = dialog.getByRole('group', { name: 'Themes', exact: true });
+  await schemes.getByRole('button', { name: 'Light', exact: true }).click();
+  await themes.getByRole('button', { name: /Ocean/ }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+  expect(
+    await page.locator('.source-column').evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).toBe('rgb(252, 252, 253)');
+  await dialog.getByRole('combobox', { name: 'Diff colors' }).selectOption('blue-amber');
+  await dialog.getByRole('combobox', { name: 'Chat width' }).selectOption('comfortable');
+  const contrast = dialog.getByRole('slider', { name: 'Interface contrast' });
+  await contrast.focus();
+  await contrast.press('ArrowRight');
+  await expect(contrast).toHaveValue('101');
+  await page.screenshot({ path: 'artifacts/appearance-light.png', animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean');
+  await expect(page.locator('html')).toHaveAttribute('data-diff', 'blue-amber');
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await expect(contrast).toHaveValue('101');
+  await schemes.getByRole('button', { name: 'Dark', exact: true }).click();
+  await themes.getByRole('button', { name: /Iris/ }).click();
+  await dialog.getByRole('combobox', { name: 'Chat width' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('combobox', { name: 'Chat width' })).toBeInViewport();
+  await page.screenshot({ path: 'artifacts/appearance-small.png', animations: 'disabled' });
+  await schemes.getByRole('button', { name: 'System', exact: true }).click();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
+  await dialog.getByRole('button', { name: 'Restore defaults', exact: true }).click();
+  await dialog.press('Escape');
+  await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Original text.',
+  );
 });

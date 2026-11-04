@@ -78,8 +78,14 @@ a {
   outline-offset: 2px;
 }
 [data-focus-region]:focus-visible {
-  outline: 1px solid var(--focus);
-  outline-offset: -3px;
+  outline: none;
+}
+.source-column:focus-visible > .source-toolbar,
+.sidebar:focus-visible > .sidebar-brand {
+  background: var(--surface-hover);
+}
+.pdf-column:focus-visible > .pdf-toolbar {
+  background: var(--pdf-hover);
 }
 input[type='checkbox'],
 input[type='range'] {
@@ -3428,4 +3434,57 @@ details[open]:not(.agent-execution):not(:has(input, select, textarea))::details-
 .agent-execution[open]::details-content,
 details[open]:has(input, select, textarea)::details-content {
   animation: control-reveal var(--duration-modal) var(--ease-standard);
+}
+
+/* Keep structural handles quiet; keyboard focus marks the handle itself. */
+.panel-separator:focus-visible {
+  outline: none;
+}
+.panel-separator:focus-visible::after {
+  width: 2px;
+  background: var(--accent-text);
+}
+.agent-panel-grip:is(:hover, :active, :focus-visible) {
+  background: transparent;
+  transform: none;
+  outline: none;
+}
+.agent-panel-grip:focus-visible::after {
+  background: var(--accent-text);
+  opacity: 1;
+}
+.agent-conversation-heading button[aria-label='Hide conversation']:is(:hover, :active),
+.agent-composer-status > .text-button:is(:hover, :active) {
+  background: transparent;
+  transform: none;
+  color: var(--text-primary);
+}
+.sidebar-footer {
+  justify-content: flex-start;
+  gap: 4px;
+}
+.sidebar-footer .icon-button {
+  margin-left: 0;
+}
+svg[data-icon='settings'],
+svg[data-icon='plug'] {
+  color: var(--icon-agent, var(--accent-text));
+}
+svg[data-icon='appearance'] {
+  color: var(--icon-appearance, var(--accent-text));
+}
+svg:is(
+  [data-icon='fileText'],
+  [data-icon='fileBib'],
+  [data-icon='fileCode'],
+  [data-icon='fileImage']
+) {
+  color: var(--icon-file, var(--syntax-command));
+}
+svg[data-icon='folder'] {
+  color: var(--icon-folder, var(--icon-build));
+}
+svg[data-icon='save'],
+svg[data-icon='download'] {
+  color: var(--icon-save, var(--accent-text));
 }

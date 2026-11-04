@@ -1,3 +1,4 @@
+import { AppearanceDialog, createAppearance } from '../appearance/Appearance';
 import { References } from '../references/References';
 import {
   AgentChanges,
@@ -55,6 +56,8 @@ export function Workspace() {
     getItem: (key: string) => window.localStorage.getItem(key),
     setItem: (key: string, value: string) => window.localStorage.setItem(key, value),
   };
+  const appearance = createAppearance();
+  const [appearanceOpen, setAppearanceOpen] = createSignal(false);
   const initial = loadLayout(layoutStorage);
   const [layout, setLayout] = createSignal(initial.layout);
   const [notice, setNotice] = createSignal(initial.warning ?? '');
@@ -498,6 +501,7 @@ export function Workspace() {
           icon="settings"
           onClick={() => setDialog('settings')}
         />
+        <IconButton label="Appearance" icon="appearance" onClick={() => setAppearanceOpen(true)} />
       </header>
       <div class="workspace-grid" style={{ 'grid-template-columns': columns() }}>
         <Show when={sidebarVisible()}>
@@ -693,6 +697,11 @@ export function Workspace() {
                 label="Workspace settings"
                 icon="settings"
                 onClick={() => setDialog('settings')}
+              />
+              <IconButton
+                label="Appearance"
+                icon="appearance"
+                onClick={() => setAppearanceOpen(true)}
               />
             </footer>
           </aside>
@@ -1228,6 +1237,11 @@ export function Workspace() {
             : 'Git · check status'}
         </button>
       </footer>
+      <AppearanceDialog
+        open={appearanceOpen()}
+        onClose={() => setAppearanceOpen(false)}
+        appearance={appearance}
+      />
       <GitWorkspace
         projectId={() => projects.project()?.id}
         open={gitOpen}

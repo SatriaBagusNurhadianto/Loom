@@ -2021,3 +2021,24 @@ test('authorized live native agent creates LaTeX files, compiles and safely reve
     .click();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toBe(source);
 });
+
+test('panel focus and chat drag/collapse controls do not paint surrounding frames or pills', async () => {
+  await page.getByRole('button', { name: 'Show conversation', exact: true }).click();
+  const grip = page.getByRole('button', { name: 'Resize conversation' });
+  await grip.hover();
+  expect(await grip.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const hide = page.getByRole('button', { name: 'Hide conversation', exact: true }).last();
+  await hide.hover();
+  expect(await hide.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const source = page.getByRole('main', { name: 'Source workspace' });
+  await source.focus();
+  expect(await source.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  const divider = page.getByRole('separator', { name: 'Sidebar width' });
+  await divider.focus();
+  expect(await divider.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  await page.screenshot({ path: 'artifacts/followup-focus-chrome.png', animations: 'disabled' });
+});

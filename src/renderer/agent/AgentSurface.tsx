@@ -930,7 +930,7 @@ export function AgentComposer(props: {
             onClick={() => void a.attachFiles().finally(() => input?.focus())}
           />
           <AgentChatMenus agent={a} onConnect={props.onConnect} />
-          <IconButton label="Agent connections" icon="settings" onClick={props.onConnect} />
+          <IconButton label="Agent connections" icon="plug" onClick={props.onConnect} />
           <button
             class="send-button"
             disabled={
