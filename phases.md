@@ -135,10 +135,10 @@
 **Prerequisites:** Phase 4 complete; Phase 5 required for citation-related operations.
 
 - [x] Support image attachment/paste with capability detection and model-switch guidance.
-- [ ] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
-- [ ] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
-- [ ] Preserve existing assets and use project-relative paths for new content.
-- [ ] Route edits through the same recovery/reconciliation path and inspect compiled results.
+- [x] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
+- [x] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
+- [x] Preserve existing assets and use project-relative paths for new content.
+- [x] Route edits through the same recovery/reconciliation path and inspect compiled results.
 - [ ] Distinguish requested computations actually executed by the harness from unexecuted reasoning.
 
 **Verification:** Use representative synthetic images, an image-capable live setup when authorized, and an unsupported-model case. Inspect notation changes, asset preservation, editable output, labels, paths, build results, and recovery. Record capability-dependent limits.
