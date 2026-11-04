@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
 import { MessageBody } from './MessageBody';
@@ -263,6 +263,32 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                     {message.state ? ' · ' + message.state : ''}
                   </small>
                   <MessageBody text={message.text} />
+                  <Show when={message.role === 'user'}>
+                    <div class="agent-message-attachments">
+                      <For
+                        each={a
+                          .state()
+                          ?.turns.filter(
+                            (turn) =>
+                              turn.conversationId === a.state()?.sessionId &&
+                              turn.messageId === message.id,
+                          )}
+                      >
+                        {(turn) => (
+                          <For each={turn.images}>
+                            {(image) => (
+                              <AgentSubmittedImage
+                                agent={a}
+                                turnId={turn.id}
+                                path={image.path}
+                                submittedAt={turn.startedAt}
+                              />
+                            )}
+                          </For>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
                   <Show when={message.execution}>
                     {(execution) => (
                       <details
@@ -605,6 +631,63 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
     </Show>
   );
 }
+
+function AgentSubmittedImage(props: {
+  agent: AgentWorkspace;
+  turnId: string;
+  path: string;
+  submittedAt: string;
+}) {
+  const [thumbnail, setThumbnail] = createSignal<string | null>(null),
+    [failed, setFailed] = createSignal(false);
+  let card!: HTMLButtonElement;
+  onMount(() => {
+    let observer: IntersectionObserver | undefined;
+    const load = async () => {
+      const result = await props.agent.submittedImageThumbnail(props.turnId, props.path);
+      if (result) setThumbnail(result);
+      else setFailed(true);
+    };
+    if ('IntersectionObserver' in window) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((entry) => entry.isIntersecting)) {
+            observer?.disconnect();
+            void load();
+          }
+        },
+        { root: card.closest('.agent-messages'), rootMargin: '160px' },
+      );
+      observer.observe(card);
+    } else void load();
+    onCleanup(() => observer?.disconnect());
+  });
+  return (
+    <button
+      ref={card}
+      type="button"
+      class="agent-message-image"
+      aria-label={`View submitted image ${props.path}`}
+      title={`${props.path} · submitted ${props.submittedAt.replace('T', ' ').slice(0, 19)} UTC`}
+      onClick={() => void props.agent.showSubmittedImage(props.turnId, props.path)}
+    >
+      <Show
+        when={thumbnail()}
+        fallback={
+          <span class="agent-message-image-placeholder" aria-hidden="true">
+            <Icon name="fileImage" size={22} />
+          </span>
+        }
+      >
+        {(src) => <img src={src()} alt="" aria-hidden="true" />}
+      </Show>
+      <span class="agent-message-image-caption">
+        <Icon name={failed() ? 'warning' : 'fileImage'} size={13} />
+        {failed() ? 'Preview unavailable' : props.path.split('/').at(-1)}
+      </span>
+    </button>
+  );
+}
 export function AgentImagePreview(props: { agent: AgentWorkspace }) {
   const a = props.agent;
   const [zoom, setZoom] = createSignal(1);
@@ -891,18 +974,21 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
           <For
             each={a.state()?.turns.filter((turn) => turn.conversationId === a.state()?.sessionId)}
           >
-            {(turn) => (
-              <For each={turn.images}>
-                {(image) => (
-                  <button
-                    title={`View image ${image.path} submitted ${turn.startedAt}`}
-                    onClick={() => void a.showSubmittedImage(turn.id, image.path)}
-                  >
-                    Compare {image.path} · {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
-                  </button>
-                )}
-              </For>
-            )}
+            {(turn) =>
+              turn.messageId || turn.messageAssociationResolved ? null : (
+                <For each={turn.images}>
+                  {(image) => (
+                    <button
+                      title={`View image ${image.path} submitted ${turn.startedAt}`}
+                      onClick={() => void a.showSubmittedImage(turn.id, image.path)}
+                    >
+                      View submitted image {image.path} ·{' '}
+                      {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
+                    </button>
+                  )}
+                </For>
+              )
+            }
           </For>
         </div>
       </Show>

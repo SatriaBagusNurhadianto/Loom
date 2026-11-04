@@ -32,6 +32,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     cancelAfterSend = false,
     imageSequence = 0,
     uncertainAdmissionError = '';
+  const imageThumbnailCache = new Map<string, string | null>(),
+    imageThumbnailRequests = new Map<string, Promise<string | null>>();
   const [runtimePaths, setRuntimePaths] = createSignal<Record<string, string>>({});
   function runtimePath(kind: HarnessKind) {
     const draft = runtimePaths()[kind];
@@ -169,6 +171,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setError('');
       setAttachments([]);
       setImagePreview(null);
+      imageThumbnailCache.clear();
+      imageThumbnailRequests.clear();
       ++imageSequence;
       setSelection(null);
       setOpen(false);
@@ -412,6 +416,56 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       setError('');
     }
   }
+  async function submittedImageThumbnail(turnId: string, path: string) {
+    const projectId = projects.project()?.id,
+      sessionId = state()?.sessionId,
+      loom = window.loom;
+    if (!projectId || !sessionId || !loom) return null;
+    const key = `${projectId}:${sessionId}:${turnId}:${path}`;
+    if (imageThumbnailCache.has(key)) return imageThumbnailCache.get(key)!;
+    const pending = imageThumbnailRequests.get(key);
+    if (pending) return pending;
+    const current = generation;
+    const request = (async () => {
+      try {
+        const result = await loom.agent({
+          type: 'preview-submitted-image',
+          projectId,
+          turnId,
+          path,
+        });
+        if (
+          !result.ok ||
+          current !== generation ||
+          projects.project()?.id !== projectId ||
+          state()?.sessionId !== sessionId
+        )
+          return null;
+        const preview = result.value.imagePreview;
+        if (!preview) return null;
+        const source = new Image();
+        source.src = `data:${preview.mime};base64,${preview.data}`;
+        await source.decode();
+        const scale = Math.min(1, 260 / source.naturalWidth, 180 / source.naturalHeight);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+        context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        const thumbnail = canvas.toDataURL('image/webp', 0.82);
+        imageThumbnailCache.set(key, thumbnail);
+        return thumbnail;
+      } catch {
+        imageThumbnailCache.set(key, null);
+        return null;
+      } finally {
+        imageThumbnailRequests.delete(key);
+      }
+    })();
+    imageThumbnailRequests.set(key, request);
+    return request;
+  }
   function closeImage() {
     ++imageSequence;
     setImagePreview(null);
@@ -577,6 +631,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     imagePreview,
     closeImage,
     showSubmittedImage,
+    submittedImageThumbnail,
     showImage,
     pasteImage,
     setAttachments,

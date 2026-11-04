@@ -965,7 +965,14 @@ test('submitted image snapshot stays available after the project file changes an
     .getByRole('textbox', { name: 'Ask about your paper' })
     .fill('Show markdown rendering.');
   await page.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
+  const sentImage = page.getByRole('button', { name: 'View submitted image board.png' });
+  await expect(sentImage).toBeVisible();
+  await sentImage.scrollIntoViewIfNeeded();
+  await expect(sentImage.locator('img')).toBeVisible();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-sent-image-message-small.png'),
+    animations: 'disabled',
+  });
   const payload = requestBodies.find((entry) => entry.path.endsWith('/prompt'))!.body;
   expect(payload.text).toContain('project-relative files, in attachment order: board.png');
   const files = payload.files as Array<{ uri: string }>;
@@ -974,7 +981,7 @@ test('submitted image snapshot stays available after the project file changes an
   expect(await readFile(snapshotPath)).toEqual(bytes);
   await writeFile(join(root, 'board.png'), Buffer.from('changed'));
   await dimensions(720, 540);
-  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await sentImage.click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
   const preview = page.getByRole('region', { name: 'Project image preview' });
   const image = preview.getByRole('img', { name: 'Submitted image: board.png' });
@@ -995,8 +1002,12 @@ test('submitted image snapshot stays available after the project file changes an
   await expect(dialog).not.toBeVisible();
   await expect(preview.getByRole('button', { name: 'Expand' })).toBeFocused();
   await restartElectron();
-  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
-  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await page.getByRole('button', { name: 'Show conversation' }).click();
+  const restoredImage = page.getByRole('button', { name: 'View submitted image board.png' });
+  await expect(restoredImage).toBeVisible();
+  await restoredImage.scrollIntoViewIfNeeded();
+  await expect(restoredImage.locator('img')).toBeVisible();
+  await restoredImage.click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
 });
 
@@ -1034,6 +1045,10 @@ test('a rejected image request keeps the session connected and retains the draft
   await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue without image.');
   await page.getByRole('button', { name: 'Send to agent' }).click();
   await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-message-image')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /View submitted image board\.png/ })).toHaveCount(
+    0,
+  );
   expect(
     requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
   ).toHaveLength(2);

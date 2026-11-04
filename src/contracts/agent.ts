@@ -95,6 +95,8 @@ export const agentTurnSchema = z
     startedAt: z.string(),
     revision: z.string(),
     conversationId: id.optional(),
+    messageId: id.optional(),
+    messageAssociationResolved: z.boolean().optional(),
     images: z
       .array(z.object({ path: relativePath, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict())
       .max(20)

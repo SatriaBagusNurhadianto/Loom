@@ -13,6 +13,7 @@ import { imageBytesMatch } from './images';
 
 type RecordTurn = {
   view: AgentTurn;
+  knownMessageIds?: string[];
   before: Record<string, string>;
   after: Record<string, string>;
   human: string[];
@@ -58,6 +59,7 @@ export class AgentChanges {
             z
               .object({
                 view: agentTurnSchema,
+                knownMessageIds: z.array(z.string().min(1).max(160)).max(200).optional(),
                 before: z.record(relativePath, relativePath),
                 after: z.record(relativePath, relativePath),
                 human: z.array(relativePath),
@@ -127,6 +129,7 @@ export class AgentChanges {
     supervisorPid?: number,
     conversationId?: string,
     imagePaths: string[] = [],
+    knownMessageIds: string[] = [],
   ) {
     if (this.unsettled()) throw new Error('Recover the previous request before starting another.');
     if (!external && (!supervisorPid || !Number.isSafeInteger(supervisorPid) || supervisorPid <= 1))
@@ -169,6 +172,7 @@ export class AgentChanges {
         ...(conversationId ? { conversationId, images } : {}),
         changes: [],
       },
+      ...(images.length ? { knownMessageIds: knownMessageIds.slice(-200) } : {}),
       before,
       after: {},
       human: [],
@@ -179,6 +183,36 @@ export class AgentChanges {
     this.turns.unshift(turn);
     this.persist();
     return turn;
+  }
+  linkSubmittedImages(messages: { id: string; role: string }[], sessionId: string) {
+    const unlinked = this.turns
+      .filter(
+        (turn) =>
+          turn.view.sessionId === sessionId &&
+          turn.view.images?.length &&
+          turn.knownMessageIds !== undefined &&
+          !turn.view.messageAssociationResolved &&
+          !turn.view.messageId,
+      )
+      .sort((a, b) => b.view.startedAt.localeCompare(a.view.startedAt));
+    const used = new Set<string>();
+    let changed = false;
+    for (const turn of unlinked) {
+      const message = [...messages]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.role === 'user' &&
+            !used.has(candidate.id) &&
+            !turn.knownMessageIds?.includes(candidate.id),
+        );
+      if (!message) continue;
+      turn.view.messageId = message.id;
+      turn.view.messageAssociationResolved = true;
+      used.add(message.id);
+      changed = true;
+    }
+    if (changed) this.persist();
   }
   imagePath(turn: RecordTurn, path: string) {
     if (!turn.view.images?.some((image) => image.path === path) || !turn.before[path])
@@ -288,11 +322,12 @@ export class AgentChanges {
     turn.view.changes = changes;
     this.persist();
   }
-  async finish(status: AgentTurn['status']) {
+  async finish(status: AgentTurn['status'], messageMayExist = true) {
     const turn = this.running();
     if (!turn) return;
     await this.observe(turn);
     turn.view.status = status;
+    if (!messageMayExist) turn.view.messageAssociationResolved = true;
     turn.unsettled = false;
     this.persist();
   }

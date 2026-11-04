@@ -131,9 +131,17 @@ export class AgentService {
     const ref = this.sessions?.find((ref) => ref.id === this.state?.sessionId);
     if (!ref) {
       this.state!.messages = clean;
+      this.changes.linkSubmittedImages(clean, nativeSessionKey(this.state!.harness, nativeId));
       return;
     }
     this.state!.messages = mergeConversation(ref, this.state!.harness, nativeId, clean);
+    this.changes.linkSubmittedImages(
+      clean.map((message) => ({
+        ...message,
+        id: nativeSessionKey(this.state!.harness, nativeId + '\0' + message.id),
+      })),
+      nativeSessionKey(this.state!.harness, nativeId),
+    );
     this.persist();
   }
   private async activate(kind: HarnessKind) {
@@ -621,6 +629,7 @@ export class AgentService {
             adapter.supervisorPid,
             command.sessionId,
             command.attachments.filter((path) => imageMime(path)),
+            s.messages.map((message) => message.id),
           );
           return { context, turn };
         });
@@ -652,7 +661,7 @@ export class AgentService {
           this.persist();
         } catch (error) {
           if (error instanceof AgentRequestError && error.disposition === 'rejected') {
-            await this.projects.run(() => this.changes.finish('failed'));
+            await this.projects.run(() => this.changes.finish('failed', false));
             s.running = false;
             s.turns = this.changes.views();
             s.error = `${error.message} The session remains connected.`;
