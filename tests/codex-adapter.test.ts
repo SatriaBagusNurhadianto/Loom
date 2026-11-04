@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { CodexAdapter } from '../src/services/agents/codex';
+import { AgentRequestError } from '../src/services/agents/request-error';
 
 type Internals = {
   sessions: Map<string, unknown>;
@@ -84,6 +85,39 @@ describe('Codex adapter protocol boundaries', () => {
         ],
       }),
     );
+  });
+  it('keeps the process open and accepts a retry after an explicit turn rejection', async () => {
+    const { adapter, child } = fixture();
+    adapter.rpc = vi.fn(async () => ({ thread: { id: 'thread' } }));
+    await adapter.create('/paper');
+    let rejectNextTurn = true;
+    adapter.rpc = vi.fn(async (method) => {
+      if (method === 'turn/start' && rejectNextTurn) {
+        rejectNextTurn = false;
+        throw new AgentRequestError('Codex rejected turn/start.', null, 'rejected');
+      }
+      return { turn: { id: 'turn-2' } };
+    });
+
+    await expect(
+      adapter.submit(
+        'thread',
+        'Try the image again.',
+        { id: 'model', providerId: 'openai', name: 'Model', images: true, tools: true },
+        ['/paper/board.png'],
+      ),
+    ).rejects.toMatchObject({ disposition: 'rejected' });
+    expect(await adapter.active('thread')).toBe(false);
+    expect(child.stdin.end).not.toHaveBeenCalled();
+
+    await adapter.submit(
+      'thread',
+      'Continue after the rejection.',
+      { id: 'model', providerId: 'openai', name: 'Model', images: true, tools: true },
+      [],
+    );
+    expect(await adapter.active('thread')).toBe(true);
+    expect(child.stdin.end).not.toHaveBeenCalled();
   });
   it('replays early turn, stream and approval events and sends native decisions', async () => {
     const { adapter, child } = fixture();

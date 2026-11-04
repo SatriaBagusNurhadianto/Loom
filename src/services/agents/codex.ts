@@ -10,6 +10,7 @@ import { harnessExecutable } from './runtime';
 import { StringDecoder } from 'node:string_decoder';
 import { imageMime } from '../../domain/images';
 import { executionEvidence } from './evidence';
+import { AgentRequestError } from './request-error';
 
 type Session = {
   directory: string;
@@ -196,8 +197,10 @@ export class CodexAdapter implements HarnessAdapter {
       this.pendingRPC.delete(message.id);
       if (message.error)
         p.reject(
-          new Error(
-            `Codex rejected ${p.method} (code ${typeof object(message.error).code === 'number' ? object(message.error).code : 'unknown'}). Check sign-in, model access and connection.`,
+          new AgentRequestError(
+            `Codex rejected ${p.method} (code ${typeof object(message.error).code === 'number' ? object(message.error).code : 'unknown'}). Check sign-in, model access, or request details, then retry.`,
+            null,
+            'rejected',
           ),
         );
       else p.resolve(message.result);
@@ -503,7 +506,12 @@ export class CodexAdapter implements HarnessAdapter {
     } catch (error) {
       // Admission can time out after Codex accepted a turn. Stop the owned process
       // before the caller takes its final filesystem checkpoint.
-      await this.close();
+      if (error instanceof AgentRequestError && error.disposition === 'rejected') {
+        s.running = false;
+        s.outcome = 'failed';
+      } else {
+        await this.close();
+      }
       throw error;
     }
   }

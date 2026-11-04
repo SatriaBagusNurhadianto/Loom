@@ -111,6 +111,40 @@ describe('Agent service native execution boundaries', () => {
     expect(state.permissions).toEqual([]);
     expect(state.questions).toEqual([]);
   });
+  it('keeps the session connected and the turn protected when a status poll fails', async () => {
+    const adapter = native(start - 1);
+    adapter.messages.mockRejectedValueOnce(new Error('temporary polling failure'));
+    const { service, state, changes } = fixture(adapter);
+
+    await service.refresh();
+
+    expect(state.connection).toBe('connected');
+    expect(state.running).toBe(true);
+    expect(state.error).toContain('Could not refresh agent status');
+    expect(changes.finish).not.toHaveBeenCalled();
+  });
+  it('clears uncertain admission only after native status confirms acceptance or completion', async () => {
+    const adapter = native(start - 1);
+    adapter.active.mockResolvedValue(true);
+    const { service, state, changes } = fixture(adapter);
+    state.error = 'Request status uncertain: OpenCode returned HTTP 503.';
+
+    await service.refresh();
+    expect(state.running).toBe(true);
+    expect(state.error).toBe('');
+    expect(changes.finish).not.toHaveBeenCalled();
+
+    adapter.active.mockResolvedValue(false);
+    adapter.session.mockResolvedValue({
+      time: { created: start - 2000, updated: start + 1, idle: start + 1 },
+      outcome: 'succeeded',
+    });
+    state.error = 'Request status uncertain: OpenCode returned HTTP 503.';
+    await service.refresh();
+    expect(state.running).toBe(false);
+    expect(state.error).toBe('');
+    expect(changes.finish).toHaveBeenCalledWith('succeeded');
+  });
   it('observes only after the owned process has closed when disconnecting', async () => {
     const events: string[] = [];
     const adapter = {

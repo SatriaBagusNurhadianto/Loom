@@ -30,7 +30,8 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     sequence = 0,
     accepted = 0,
     cancelAfterSend = false,
-    imageSequence = 0;
+    imageSequence = 0,
+    uncertainAdmissionError = '';
   const [runtimePaths, setRuntimePaths] = createSignal<Record<string, string>>({});
   function runtimePath(kind: HarnessKind) {
     const draft = runtimePaths()[kind];
@@ -108,7 +109,11 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     const result = await window.loom.agent(command);
     if (disposed || current !== generation || projects.project()?.id !== command.projectId) return;
     if (!result.ok) {
-      if (!quiet) setError(result.error.message);
+      if (!quiet) {
+        if (command.type === 'send' && /HTTP 5\d\d/.test(result.error.message))
+          uncertainAdmissionError = result.error.message;
+        setError(result.error.message);
+      }
       return;
     }
     if (requestId >= accepted) {
@@ -134,6 +139,14 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
       });
     }
     if (!quiet) setError('');
+    else if (
+      uncertainAdmissionError &&
+      command.type === 'status' &&
+      !result.value.error.startsWith('Request status uncertain: ')
+    ) {
+      if (error() === uncertainAdmissionError) setError('');
+      uncertainAdmissionError = '';
+    }
     return result.value;
   }
   async function refresh(detect = false) {

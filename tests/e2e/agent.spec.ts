@@ -25,6 +25,8 @@ let sessions: Record<
 >;
 let modelsAvailable = true;
 let closeNextEventStream = false;
+let promptFailure: 'image413' | 'beforeAdmission503' | 'afterAdmission503' | null = null;
+let failStatusReads = false;
 let includeSecondaryModel = false;
 let imageModel = false;
 let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
@@ -107,6 +109,8 @@ test.beforeEach(async () => {
   sessions = {};
   modelsAvailable = true;
   closeNextEventStream = false;
+  promptFailure = null;
+  failStatusReads = false;
   includeSecondaryModel = false;
   imageModel = false;
   requests = [];
@@ -201,10 +205,52 @@ test.beforeEach(async () => {
         outcome: s.outcome,
       });
       if (ids.length === 4) value = { data: native() };
-      else if (path.endsWith('/message')) value = { data: [...s.messages].reverse() };
+      else if (path.endsWith('/message') && failStatusReads) {
+        res
+          .writeHead(503, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+        return;
+      } else if (path.endsWith('/message')) value = { data: [...s.messages].reverse() };
       else if (path.endsWith('/permission')) value = { data: s.permissions };
       else if (path.endsWith('/form')) value = { data: s.forms };
       else if (path.endsWith('/prompt')) {
+        if (
+          promptFailure === 'image413' &&
+          Array.isArray(body.files) &&
+          body.files.some((file) => String((file as { uri?: string }).uri).endsWith('.png'))
+        ) {
+          promptFailure = null;
+          res.writeHead(413, { 'Content-Type': 'application/json' }).end(
+            JSON.stringify({
+              name: 'Payload Too Large',
+              data: { message: 'Image input too large.' },
+            }),
+          );
+          return;
+        }
+        if (promptFailure === 'beforeAdmission503') {
+          promptFailure = null;
+          res
+            .writeHead(503, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+          return;
+        }
+        if (promptFailure === 'afterAdmission503') {
+          promptFailure = null;
+          s.active = true;
+          delete s.time.idle;
+          delete s.outcome;
+          s.messages.push({
+            id: 'user-' + s.messages.length,
+            type: 'user',
+            text: body.text,
+            metadata: body.metadata,
+          });
+          res
+            .writeHead(503, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+          return;
+        }
         s.active = true;
         delete s.time.idle;
         delete s.outcome;
@@ -952,6 +998,112 @@ test('submitted image snapshot stays available after the project file changes an
   await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
   await page.getByRole('button', { name: /Compare board\.png/ }).click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+});
+
+test('a rejected image request keeps the session connected and retains the draft and attachment', async () => {
+  imageModel = true;
+  await writeFile(
+    join(root, 'board.png'),
+    await readFile(resolve('tests/fixtures/whiteboard-equation.png')),
+  );
+  await connect();
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Transcribe this image.');
+  await expect(page.getByText('Agent connected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send to agent' })).toBeEnabled();
+  promptFailure = 'image413';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect.poll(() => requests.filter((request) => request.endsWith('/prompt')).length).toBe(1);
+  await expect(page.getByRole('alert')).toContainText('HTTP 413');
+  await expect(page.getByRole('alert')).toContainText('Use a smaller image');
+  await dimensions(720, 540);
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-image-rejection-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByText('Agent connected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Transcribe this image.',
+  );
+  await expect(page.getByRole('button', { name: 'Remove attached file board.png' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove attached file board.png' }).click();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue without image.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(2);
+});
+
+test('an ambiguous 503 before admission is shown honestly and never retried automatically', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Try this request once.');
+  promptFailure = 'beforeAdmission503';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('HTTP 503');
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Request status uncertain',
+  );
+  await dimensions(720, 540);
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-uncertain-request-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Try this request once.',
+  );
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
+});
+
+test('polling resolves an ambiguous 503 when the server confirms the turn was admitted', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue this request.');
+  promptFailure = 'afterAdmission503';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText('Agent working');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('Continue this request.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
+});
+
+test('a transient status-read failure keeps the connection and reports unavailable status', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Keep this request safe.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect
+    .poll(
+      () => requests.filter((request) => request === 'POST /api/session/session-0/prompt').length,
+    )
+    .toBe(1);
+  failStatusReads = true;
+
+  await expect(page.getByRole('alert')).toContainText('Could not refresh agent status');
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Agent status unavailable',
+  );
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  failStatusReads = false;
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Needs your permission',
+  );
+  await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toHaveCount(0);
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
 });
 
 test('native computation activity exposes the reported command and result', async () => {

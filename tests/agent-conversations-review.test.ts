@@ -50,12 +50,13 @@ function make() {
   return { service, adapter, tools, connection, state };
 }
 describe('conversation connection recovery', () => {
-  it('marks the matching pooled transport interrupted when refresh fails', async () => {
+  it('keeps the pooled transport usable after a transient status read fails', async () => {
     const { service, connection, state } = make();
     await service.refresh();
-    expect(connection.interrupted).toBe(true);
-    expect(state.connection).toBe('interrupted');
-    expect(state.providers[0].connected).toBe(false);
+    expect(connection.interrupted).toBe(false);
+    expect(state.connection).toBe('connected');
+    expect(state.providers[0].connected).toBe(true);
+    expect(state.error).toContain('Could not refresh agent status');
   });
   it('retains a saved transcript and marks it unavailable if native resume fails', async () => {
     const { service, state } = make();

@@ -22,6 +22,7 @@ import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
 import { imageMime } from '../../domain/images';
 import { validateImage } from './images';
+import { AgentRequestError } from './request-error';
 
 type SessionRef = ConversationRef;
 type Connection = {
@@ -650,9 +651,20 @@ export class AgentService {
           if (ref.title === 'New conversation') ref.title = command.prompt.slice(0, 80);
           this.persist();
         } catch (error) {
-          s.connection = 'interrupted';
-          s.error =
-            'Request admission was interrupted. Reconnect and inspect the chat before sending again; partial work is retained.';
+          if (error instanceof AgentRequestError && error.disposition === 'rejected') {
+            await this.projects.run(() => this.changes.finish('failed'));
+            s.running = false;
+            s.turns = this.changes.views();
+            s.error = `${error.message} The session remains connected.`;
+          } else if (error instanceof AgentRequestError && error.status !== null) {
+            // A 5xx can arrive before or after native admission. Keep the turn protected until
+            // polling observes an active request or a post-turn idle record.
+            s.error = `Request status uncertain: ${error.message} Do not retry until the conversation confirms the request has stopped.`;
+          } else {
+            s.connection = 'interrupted';
+            s.error =
+              'Request admission was interrupted. Reconnect and inspect the chat before sending again; partial work is retained.';
+          }
           throw error;
         }
       } else if (command.type === 'cancel') {
@@ -777,6 +789,11 @@ export class AgentService {
             };
           }),
       }));
+      if (
+        s.error.startsWith('Request status uncertain: ') &&
+        (active || pending.permissions.length > 0 || pending.questions.length > 0)
+      )
+        s.error = '';
       if (s.running) {
         const session = !active ? await adapter.session(sessionId) : null;
         await this.projects.run(async () => {
@@ -802,6 +819,7 @@ export class AgentService {
                     : 'interrupted',
             );
             s.running = false;
+            if (s.error.startsWith('Request status uncertain: ')) s.error = '';
             if (outcome === 'succeeded' && changed) {
               const context = this.projects.buildContext(this.projectId);
               if (
@@ -816,19 +834,12 @@ export class AgentService {
         });
       }
       s.turns = this.changes.views();
+      if (s.error.startsWith('Could not refresh agent status: ')) s.error = '';
     } catch {
       if (generation === this.generation) {
-        const connection = this.connections?.get(s.harness);
-        if (connection?.adapter === adapter) connection.interrupted = true;
-        s.providers =
-          s.providers?.map((provider) =>
-            provider.id === s.harness ? { ...provider, connected: false } : provider,
-          ) ?? [];
-        s.connection = 'interrupted';
-        s.error =
-          'The agent connection was interrupted. Reconnect before continuing. Partial work is retained.';
-        s.permissions = [];
-        s.questions = [];
+        s.error = s.error.startsWith('Request status uncertain: ')
+          ? 'Request status uncertain: the status check failed. The conversation and recovery data are retained; do not retry until you confirm the request has stopped.'
+          : 'Could not refresh agent status: the request was rejected or timed out. The conversation and its recovery data are retained; retrying the status check.';
       }
     } finally {
       this.refreshBusy = false;

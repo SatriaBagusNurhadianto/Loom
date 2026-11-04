@@ -719,7 +719,10 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
   const a = props.agent;
   let input!: HTMLTextAreaElement;
   const ready = () => a.state()?.connection === 'connected',
-    running = () => a.state()?.running || a.submitting();
+    running = () => a.state()?.running || a.submitting(),
+    requestUncertain = () => a.state()?.error.startsWith('Request status uncertain: ') ?? false,
+    statusUnavailable = () =>
+      a.state()?.error.startsWith('Could not refresh agent status: ') ?? false;
   return (
     <>
       <div class="composer agent-composer">
@@ -933,15 +936,19 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
         <span role="status" aria-live="polite">
           {a.state()?.connection === 'interrupted'
             ? 'Agent interrupted'
-            : a.state()?.permissions.length
-              ? 'Needs your permission'
-              : a.state()?.questions.length
-                ? 'Needs your answer'
-                : running()
-                  ? 'Agent working'
-                  : ready()
-                    ? 'Agent connected'
-                    : 'Agent disconnected'}
+            : requestUncertain()
+              ? 'Request status uncertain'
+              : statusUnavailable()
+                ? 'Agent status unavailable'
+                : a.state()?.permissions.length
+                  ? 'Needs your permission'
+                  : a.state()?.questions.length
+                    ? 'Needs your answer'
+                    : running()
+                      ? 'Agent working'
+                      : ready()
+                        ? 'Agent connected'
+                        : 'Agent disconnected'}
         </span>
       </div>
       <Show when={(a.error() || a.state()?.error) && a.state()?.connection !== 'interrupted'}>
