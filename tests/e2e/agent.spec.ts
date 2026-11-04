@@ -159,7 +159,11 @@ test.beforeEach(async () => {
         if (String(body.text).includes('partial operation')) {
           await writeFile(
             join(root, 'main.tex'),
-            source.replace('Original sentence.', 'Partial agent sentence.'),
+            String(body.text).includes('multiple changes')
+              ? '% Agent header\n' +
+                  source.replace('Original sentence.', 'Partial agent sentence.') +
+                  '% Agent footer\n'
+              : source.replace('Original sentence.', 'Partial agent sentence.'),
           );
           await writeFile(join(root, 'second.tex'), 'Partial second file.');
           s.messages.push({
@@ -354,23 +358,85 @@ test('real Electron agent flow: context, permissions, retained questions, stream
   await page.keyboard.type('% New author note.\n');
   await page.keyboard.press('Control+s');
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toContain('New author note');
-  await page.getByRole('button', { name: 'Review 1 change', exact: true }).click();
-  const review = page.getByRole('dialog', { name: 'Review file changes' });
-  await review.locator('summary').filter({ hasText: 'main.tex' }).click();
-  await expect(review.locator('.agent-diff')).toContainText('Original sentence.');
+  await page.getByRole('button', { name: 'Review main.tex', exact: true }).click();
+  const review = page.getByRole('region', { name: 'Changes in main.tex', exact: true });
+  await expect(review.locator('.diff-removed')).toContainText('Original sentence.');
+  await expect(review.locator('.diff-added')).toContainText('Agent revision for researchers.');
+  await expect(review.locator('.diff-removed .diff-line-number')).toHaveText(['3', '']);
+  await expect(review.locator('.diff-added .diff-line-number')).toHaveText(['', '3']);
+  await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.screenshot({ path: resolve('artifacts/phase-4-review.png'), animations: 'disabled' });
-  await review.getByRole('button', { name: 'Revert change…', exact: true }).click();
-  await review.getByRole('button', { name: 'Revert this file', exact: true }).click();
+  await review.getByRole('button', { name: 'Undo file changes', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Undo agent changes' })
+    .getByRole('button', { name: 'Undo changes', exact: true })
+    .click();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toContain('Original sentence.');
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toContain('New author note');
-  await expect(review.locator('summary')).toContainText('reverted');
-  await review.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByRole('region', { name: 'Merge Changes', exact: true })).not.toBeVisible();
+  await expect(page.locator('.cm-content')).toBeVisible();
   expect(requests.some((p) => p.includes('/mcp/'))).toBe(false);
   await page.screenshot({
     path: resolve('artifacts/phase-4-conversation.png'),
     animations: 'disabled',
   });
 });
+for (const action of ['keep', 'undo'] as const) {
+  test(`inline merge card ${action}s all observed files and keeps narrow diff controls usable`, async () => {
+    await connect();
+    await page
+      .getByRole('textbox', { name: 'Ask about your paper' })
+      .fill('Perform a partial operation with multiple changes.');
+    await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+    await expect(page.getByText('First file updated; continuing…', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
+    const card = page.getByRole('region', { name: 'Merge Changes', exact: true });
+    await expect(card.locator('.agent-merge-file')).toHaveCount(2);
+    await dimensions(720, 540);
+    await card.getByRole('button', { name: 'Review main.tex', exact: true }).click();
+    const diff = page.getByRole('region', { name: 'Changes in main.tex', exact: true });
+    await expect(diff).toBeFocused();
+    await expect(
+      diff.locator('.diff-added').filter({ hasText: 'Partial agent sentence.' }),
+    ).toBeVisible();
+    await diff.getByRole('button', { name: 'Next change', exact: true }).click();
+    await expect(diff.locator('.agent-diff-toolbar [aria-live]')).toHaveText('2/3');
+    await page.waitForTimeout(1700); // Cross several native-state polls without resetting navigation.
+    await expect(diff.locator('.agent-diff-toolbar [aria-live]')).toHaveText('2/3');
+    await expect(
+      diff.getByRole('button', { name: 'Keep file changes', exact: true }),
+    ).toBeEnabled();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: resolve(`artifacts/phase-4-inline-${action}-small.png`),
+      animations: 'disabled',
+    });
+    await diff.press('Escape');
+    await expect(page.locator('.cm-content')).toBeFocused();
+    if (action === 'undo') {
+      await card.getByRole('button', { name: 'Undo all', exact: true }).click();
+      const confirmation = page.getByRole('dialog', { name: 'Undo agent changes' });
+      await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(card.getByRole('button', { name: 'Undo all', exact: true })).toBeFocused();
+      await card.getByRole('button', { name: 'Undo all', exact: true }).click();
+      await confirmation.getByRole('button', { name: 'Undo changes', exact: true }).click();
+      await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toBe(source);
+      await expect
+        .poll(() => readFile(join(root, 'second.tex'), 'utf8').catch(() => 'removed'))
+        .toBe('removed');
+    } else {
+      await card.getByRole('button', { name: 'Keep all', exact: true }).click();
+      await expect
+        .poll(() => readFile(join(root, 'main.tex'), 'utf8'))
+        .toContain('Partial agent sentence.');
+      expect(await readFile(join(root, 'second.tex'), 'utf8')).toBe('Partial second file.');
+    }
+    await expect(card).not.toBeVisible();
+  });
+}
+
 test('partial cancellation, retained draft and project chat continuation after renderer reload', async () => {
   await connect();
   await page
@@ -383,11 +449,11 @@ test('partial cancellation, retained draft and project chat continuation after r
     .fill('Keep this next draft across reconnect.');
   await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Review 2 changes', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Review file changes' })).toContainText(
+  await page.getByRole('button', { name: 'Review main.tex', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Merge Changes', exact: true })).toContainText(
     'cancelled request',
   );
-  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to editor', exact: true }).click();
   await page.reload();
   await expect(page.locator('.cm-editor')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
@@ -616,8 +682,8 @@ test('utility interruption preserves partial external writes and reconnects befo
   await connect();
   if (!(await page.locator('.agent-conversation').isVisible()))
     await page.getByRole('button', { name: 'Show conversation', exact: true }).click();
-  await page.getByRole('button', { name: 'Review 2 changes', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Review file changes' })).toContainText(
+  await page.getByRole('button', { name: 'Review main.tex', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Merge Changes', exact: true })).toContainText(
     'interrupted request',
   );
   expect(Object.values(sessions)[0].active).toBe(false);
@@ -641,6 +707,16 @@ test('overlapping author and native writes preserve both versions in a conflict'
   await expect(page.locator('.cm-content')).toContainText('Newer author sentence.');
   expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('Overlapping native sentence.');
   await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Merge Changes', exact: true })
+    .getByRole('button', { name: 'Undo all', exact: true })
+    .click();
+  const undo = page.getByRole('dialog', { name: 'Undo agent changes' });
+  await undo.getByRole('button', { name: 'Undo changes', exact: true }).click();
+  await expect(undo.getByRole('alert')).toContainText('Stopped here');
+  await undo.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('.cm-content')).toContainText('Newer author sentence.');
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('Overlapping native sentence.');
   await page.screenshot({ path: resolve('artifacts/phase-4-overlap.png'), animations: 'disabled' });
 });
 
@@ -730,28 +806,30 @@ test('authorized live native agent creates LaTeX files, compiles and safely reve
   await expect(page.locator('.pdf-sheet')).toContainText(
     'Clear writing supports reproducible research.',
   );
-  await page.getByRole('button', { name: 'Review 2 changes', exact: true }).click();
-  const review = page.getByRole('dialog', { name: 'Review file changes' });
-  await review.locator('summary').filter({ hasText: 'sections/notes.tex' }).click();
-  await expect(
-    review
-      .locator('.agent-change')
-      .filter({ has: page.locator('summary').filter({ hasText: 'sections/notes.tex' }) })
-      .locator('.agent-diff'),
-  ).toContainText('Clear writing supports reproducible research.');
+  await page.getByRole('button', { name: 'Review sections/notes.tex', exact: true }).click();
+  const review = page.getByRole('region', { name: 'Changes in sections/notes.tex', exact: true });
+  await expect(review.locator('.agent-diff-lines')).toContainText(
+    'Clear writing supports reproducible research.',
+  );
   await page.screenshot({
     path: resolve(
       `artifacts/phase-4-live-${codex ? 'codex' : process.env.LOOM_CLASSIC_EXECUTABLE ? 'classic' : 'next'}-creation-pdf.png`,
     ),
     animations: 'disabled',
   });
-  await review.getByRole('button', { name: 'Revert change…', exact: true }).click();
-  await review.getByRole('button', { name: 'Revert this file', exact: true }).click();
+  await review.getByRole('button', { name: 'Undo file changes', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Undo agent changes' })
+    .getByRole('button', { name: 'Undo changes', exact: true })
+    .click();
   await expect
     .poll(() => readFile(join(root, 'sections/notes.tex'), 'utf8').catch(() => 'removed'))
     .toBe('removed');
-  await review.locator('summary').filter({ hasText: 'main.tex' }).click();
-  await review.getByRole('button', { name: 'Revert change…', exact: true }).click();
-  await review.getByRole('button', { name: 'Revert this file', exact: true }).click();
+  await page.getByRole('button', { name: 'Review main.tex', exact: true }).click();
+  await page.getByRole('button', { name: 'Undo file changes', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Undo agent changes' })
+    .getByRole('button', { name: 'Undo changes', exact: true })
+    .click();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toBe(source);
 });

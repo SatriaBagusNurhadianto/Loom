@@ -34,6 +34,10 @@
   --search-match-bg: #4b3e16;
   --search-match-text: #fff1bd;
   --search-current-bg: #6b4e12;
+  --diff-added-bg: #213b2a;
+  --diff-removed-bg: #48252c;
+  --diff-added-text: #8ee5a4;
+  --diff-removed-text: #ffaaa4;
   --error: #ffb2aa;
   --scroll-thumb: #666666;
   --scroll-track: #202020;

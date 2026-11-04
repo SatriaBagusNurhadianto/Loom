@@ -2525,57 +2525,6 @@ kbd {
   font-size: 12px;
   line-height: 1.6;
 }
-.agent-review-turn {
-  margin: 22px 0;
-}
-.agent-review-turn h3 {
-  margin-bottom: 4px;
-}
-.agent-review-turn > p {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.agent-change {
-  border-top: 1px solid var(--border);
-  padding: 12px 0;
-}
-.agent-change summary {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-}
-.agent-change summary span {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.agent-change p {
-  font-size: 12px;
-  line-height: 1.5;
-}
-.agent-diff {
-  overflow: auto;
-  max-height: 280px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 10px;
-  background: var(--surface-editor);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  font: 11px/1.7 var(--font-source);
-}
-.agent-diff span {
-  display: inline;
-}
-.agent-diff .diff-added {
-  color: var(--syntax-command);
-}
-.agent-diff .diff-removed {
-  color: var(--error);
-}
-.agent-revert-confirm {
-  border-left: 2px solid var(--border);
-  padding-left: 12px;
-  margin-top: 12px;
-}
 @container source (max-width: 450px) {
   .agent-harness-button {
     max-width: 110px;

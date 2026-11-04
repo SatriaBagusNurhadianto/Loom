@@ -1,10 +1,16 @@
+import {
+  AgentChanges,
+  AgentDiff,
+  pendingChanges,
+  selectedChange,
+  type ChangeSelection,
+} from '../agent/AgentChanges';
 import { createAgentWorkspace } from '../agent/workspace';
 import {
   AgentChats,
   AgentComposer,
   AgentConnections,
   AgentConversation,
-  AgentReview,
 } from '../agent/AgentSurface';
 import { createLatexWorkspace } from '../latex/workspace';
 import { BuildDialog } from '../latex/BuildDialog';
@@ -58,7 +64,41 @@ export function Workspace() {
   const [chatHeight, setChatHeight] = createSignal(68);
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
-  const [reviewOpen, setReviewOpen] = createSignal(false);
+  const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
+  const [reviewSelection, setReviewSelection] = createSignal<ChangeSelection | null>(null);
+  const [undoChanges, setUndoChanges] = createSignal<ChangeSelection[] | null>(null);
+  const reviewChange = () => selectedChange(agent, reviewSelection());
+  const selectReview = (selection: ChangeSelection) => {
+    if (!reviewSelection()) setChatBeforeReview(chatHeight());
+    setReviewSelection(selection);
+    agent.setOpen(true);
+    setChatHeight(45);
+    const file = projects
+      .project()
+      ?.files.find((file) => file.path === selection.path && !file.deleted);
+    if (file) void projects.select(file.id);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.agent-source-diff')?.focus());
+  };
+  const openReview = () => {
+    const entry = pendingChanges(agent).at(-1);
+    if (entry) selectReview({ turnId: entry.turnId, path: entry.change.path });
+  };
+  const reviewProject = createMemo(() => projects.project()?.id);
+  createEffect(() => {
+    reviewProject();
+    setReviewSelection(null);
+    setUndoChanges(null);
+  });
+  const closeReview = () => {
+    if (chatBeforeReview() !== null) setChatHeight(chatBeforeReview()!);
+    setChatBeforeReview(null);
+    setReviewSelection(null);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>('.cm-content')?.focus());
+  };
+  const keepReview = async () => {
+    const target = reviewSelection();
+    if (target && (await agent.review(target.turnId, target.path, 'keep'))) closeReview();
+  };
   const agentConnect = () => setConnectionsOpen(true);
   const newChat = () => {
     if (agent.state()?.connection === 'connected') void agent.newChat();
@@ -726,81 +766,96 @@ export function Workspace() {
               </div>
             </Show>
             <div class="source-content">
-              <Show
-                when={projects.project()}
-                fallback={
-                  <>
-                    <Show
-                      when={example()}
-                      fallback={
-                        <EmptyState icon="file" title="A place for your next paper">
-                          <p>Your source, assistant, and PDF, together.</p>
-                          <p>Open your paper’s folder, or try an editable sample.</p>
-                          <button class="primary-button" onClick={() => setDialog('projects')}>
-                            Open or create project
-                          </button>
-                          <button
-                            class="secondary-button"
-                            disabled={projects.pending()}
-                            onClick={() => void openProject('sample', true)}
-                          >
-                            {projects.pending() ? 'Opening sample…' : 'Try a sample paper'}
-                          </button>
-                        </EmptyState>
-                      }
-                    >
-                      <div
-                        class="code-view"
-                        role="region"
-                        aria-label="Read-only LaTeX example"
-                        tabIndex={0}
-                      >
-                        <For each={exampleSource.split('\n')}>
-                          {(line, i) => (
-                            <div class="code-line" id={`line-${i()}`}>
-                              <span class="line-number" aria-hidden="true">
-                                {i() + 1}
-                              </span>
-                              <code>
-                                <For each={tokenize(line)}>
-                                  {(token) => <span class={token.kind}>{token.text}</span>}
-                                </For>
-                                {line === '' ? ' ' : ''}
-                              </code>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </>
-                }
-              >
+              <Show when={reviewChange()}>
+                {(change) => (
+                  <AgentDiff
+                    change={change()}
+                    onClose={closeReview}
+                    onKeep={() => void keepReview()}
+                    onUndo={() => setUndoChanges([reviewSelection()!])}
+                    disabled={agent.busy() || !!agent.state()?.running}
+                  />
+                )}
+              </Show>
+              <div class="source-editing" hidden={!!reviewChange()}>
                 <Show
-                  when={projects.file()}
+                  when={projects.project()}
                   fallback={
-                    <EmptyState icon="file" title="Your project is ready">
-                      <p>Choose + in Files to create your first source file.</p>
-                      <button class="secondary-button" onClick={() => void projects.newFile()}>
-                        New file
-                      </button>
-                    </EmptyState>
+                    <>
+                      <Show
+                        when={example()}
+                        fallback={
+                          <EmptyState icon="file" title="A place for your next paper">
+                            <p>Your source, assistant, and PDF, together.</p>
+                            <p>Open your paper’s folder, or try an editable sample.</p>
+                            <button class="primary-button" onClick={() => setDialog('projects')}>
+                              Open or create project
+                            </button>
+                            <button
+                              class="secondary-button"
+                              disabled={projects.pending()}
+                              onClick={() => void openProject('sample', true)}
+                            >
+                              {projects.pending() ? 'Opening sample…' : 'Try a sample paper'}
+                            </button>
+                          </EmptyState>
+                        }
+                      >
+                        <div
+                          class="code-view"
+                          role="region"
+                          aria-label="Read-only LaTeX example"
+                          tabIndex={0}
+                        >
+                          <For each={exampleSource.split('\n')}>
+                            {(line, i) => (
+                              <div class="code-line" id={`line-${i()}`}>
+                                <span class="line-number" aria-hidden="true">
+                                  {i() + 1}
+                                </span>
+                                <code>
+                                  <For each={tokenize(line)}>
+                                    {(token) => <span class={token.kind}>{token.text}</span>}
+                                  </For>
+                                  {line === '' ? ' ' : ''}
+                                </code>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    </>
                   }
                 >
                   <Show
-                    when={projects.file()?.text !== null}
+                    when={projects.file()}
                     fallback={
-                      <EmptyState icon="file" title="Project asset">
-                        <p>This asset stays in its original format. Text editing is unavailable.</p>
+                      <EmptyState icon="file" title="Your project is ready">
+                        <p>Choose + in Files to create your first source file.</p>
+                        <button class="secondary-button" onClick={() => void projects.newFile()}>
+                          New file
+                        </button>
                       </EmptyState>
                     }
                   >
-                    <Show when={projects.loading()}>
-                      <p role="status">Loading source and recovery state…</p>
+                    <Show
+                      when={projects.file()?.text !== null}
+                      fallback={
+                        <EmptyState icon="file" title="Project asset">
+                          <p>
+                            This asset stays in its original format. Text editing is unavailable.
+                          </p>
+                        </EmptyState>
+                      }
+                    >
+                      <Show when={projects.loading()}>
+                        <p role="status">Loading source and recovery state…</p>
+                      </Show>
+                      <SourceEditor workspace={projects} latex={latex} />
                     </Show>
-                    <SourceEditor workspace={projects} latex={latex} />
                   </Show>
                 </Show>
-              </Show>
+              </div>
             </div>
             <div class="editor-statusbar">
               <span class="readonly-label" role="status">
@@ -840,6 +895,9 @@ export function Workspace() {
                       resizeChat(chatHeight() + (event.key === 'ArrowUp' ? 4 : -4));
                     }
                   }}
+                  onClick={(event) => {
+                    if (event.detail === 0) resizeChat(chatHeight() + 4);
+                  }}
                   onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
                   onPointerMove={(event) => {
                     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
@@ -853,13 +911,16 @@ export function Workspace() {
                   }
                 />
               </Show>
-              <AgentConversation agent={agent} onReview={() => setReviewOpen(true)} />
+              <AgentConversation agent={agent} />
+              <AgentChanges
+                agent={agent}
+                onSelect={selectReview}
+                onClose={closeReview}
+                undo={undoChanges()}
+                onUndoChange={setUndoChanges}
+              />
               <div class="composer-area">
-                <AgentComposer
-                  agent={agent}
-                  onConnect={agentConnect}
-                  onReview={() => setReviewOpen(true)}
-                />
+                <AgentComposer agent={agent} onConnect={agentConnect} />
               </div>
             </div>
           </main>
@@ -1046,15 +1107,7 @@ export function Workspace() {
           setDialog('projects');
         }}
       />
-      <AgentReview
-        agent={agent}
-        open={reviewOpen()}
-        onClose={() => setReviewOpen(false)}
-        onCompile={() => {
-          setReviewOpen(false);
-          void createPdf();
-        }}
-      />
+
       <BuildDialog
         open={dialog() === 'build'}
         onClose={() => setDialog(null)}
@@ -1340,10 +1393,11 @@ export function Workspace() {
               class="text-button"
               onClick={() => {
                 setDialog(null);
-                setReviewOpen(true);
+                openReview();
               }}
+              disabled={!pendingChanges(agent).length}
             >
-              Review file changes
+              Merge Changes
             </button>
           </section>
           <p class="muted">Phase 2 · local projects</p>

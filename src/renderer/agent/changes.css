@@ -1,0 +1,263 @@
+.agent-merge-card {
+  flex: 0 1 auto;
+  min-height: 42px;
+  margin: 8px 14px 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: auto;
+  max-height: 190px;
+}
+.agent-merge-heading,
+.agent-merge-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.agent-merge-heading {
+  position: sticky;
+  top: 0;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.agent-merge-heading strong {
+  font-weight: 400;
+  color: var(--text-primary);
+}
+.agent-merge-heading > span {
+  font-size: 10px;
+}
+.agent-merge-heading > div {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  gap: 8px;
+}
+.agent-merge-card button {
+  font-size: inherit;
+  flex-shrink: 0;
+}
+.agent-merge-heading .text-button {
+  padding: 2px;
+}
+.agent-merge-heading .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.agent-merge-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-merge-file em {
+  font-size: 11px;
+  margin-right: auto;
+}
+.agent-merge-file .secondary-button {
+  padding: 4px 8px;
+}
+.diff-count.added {
+  color: var(--diff-added-text);
+}
+.diff-count.removed {
+  color: var(--diff-removed-text);
+}
+.agent-merge-summary {
+  font-size: 10px;
+}
+.agent-merge-note {
+  margin: 6px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.source-editing {
+  height: 100%;
+  min-height: 0;
+}
+.agent-source-diff {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.agent-diff-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+.agent-diff-toolbar > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.agent-diff-toolbar small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.agent-diff-toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-pill);
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+.agent-diff-toolbar .icon-button {
+  width: 27px;
+  height: 27px;
+}
+.agent-diff-toolbar .text-button {
+  font-size: 11px;
+}
+.agent-diff-context {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 3px 14px 8px;
+  line-height: 1.5;
+}
+.agent-diff-lines,
+.agent-diff-fallback {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
+.agent-diff-line {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  font: 13px/1.6 var(--font-source);
+}
+.agent-diff-line > code {
+  white-space: pre;
+  flex: 1;
+  padding-right: 16px;
+  font: inherit;
+}
+.diff-line-number {
+  width: 38px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--text-muted);
+  user-select: none;
+}
+.diff-line-sign {
+  width: 22px;
+  flex-shrink: 0;
+  text-align: center;
+  user-select: none;
+}
+.agent-diff-line.diff-added {
+  background: var(--diff-added-bg);
+}
+.agent-diff-line.diff-removed {
+  background: var(--diff-removed-bg);
+}
+.diff-added .diff-line-sign {
+  color: var(--diff-added-text);
+}
+.diff-removed .diff-line-sign {
+  color: var(--diff-removed-text);
+}
+.agent-diff-lines .command {
+  color: var(--syntax-command);
+}
+.agent-diff-lines .brace {
+  color: var(--syntax-brace);
+}
+.agent-diff-lines .option {
+  color: var(--syntax-option);
+}
+.agent-diff-lines .comment {
+  color: var(--syntax-comment);
+}
+.agent-diff-fallback {
+  padding: 10px 16px;
+}
+.agent-diff-fallback pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.6 var(--font-source);
+}
+@container (max-width: 520px) {
+  .agent-merge-heading {
+    flex-wrap: wrap;
+    gap: 5px;
+    padding-inline: 8px;
+  }
+  .agent-merge-heading > span {
+    display: none;
+  }
+  .agent-merge-file {
+    flex-wrap: wrap;
+    padding: 7px 8px;
+  }
+  .agent-merge-file em {
+    display: none;
+  }
+  .agent-merge-path {
+    flex: 1;
+  }
+  .agent-diff-toolbar {
+    flex-wrap: wrap;
+    padding-inline: 8px;
+  }
+  .agent-diff-toolbar > div {
+    margin-left: auto;
+  }
+}
+@media (max-height: 650px) {
+  .agent-merge-card {
+    max-height: 110px;
+    margin-top: 3px;
+  }
+  .agent-merge-heading,
+  .agent-merge-file {
+    padding-block: 4px;
+  }
+}
+@media (forced-colors: active) {
+  .agent-diff-line.diff-added,
+  .agent-diff-line.diff-removed {
+    border-block: 1px solid CanvasText;
+  }
+}
+
+.agent-diff-toolbar button[aria-label='Keep file changes'] {
+  color: var(--diff-added-text);
+}
+.agent-diff-toolbar button[aria-label='Undo file changes'] {
+  color: var(--diff-removed-text);
+}
+@media (max-height: 650px) {
+  .source-column:has(.agent-source-diff) .agent-conversation {
+    display: none;
+  }
+  .source-column:has(.agent-source-diff) .agent-composer {
+    min-height: 85px;
+    gap: 4px;
+  }
+  .source-column:has(.agent-source-diff) .agent-prompt {
+    height: 30px;
+    min-height: 30px;
+  }
+  .source-column:has(.agent-source-diff) .agent-composer-status {
+    display: none;
+  }
+}
+
+.agent-workspace-panel .agent-conversation {
+  min-height: 0;
+}

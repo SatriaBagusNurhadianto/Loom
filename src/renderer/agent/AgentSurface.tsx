@@ -69,7 +69,7 @@ export function AgentChats(props: {
     </div>
   );
 }
-export function AgentConversation(props: { agent: AgentWorkspace; onReview: () => void }) {
+export function AgentConversation(props: { agent: AgentWorkspace }) {
   const a = props.agent;
   let scroller!: HTMLDivElement;
   const [copyError, setCopyError] = createSignal('');
@@ -116,10 +116,6 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
         if (scroller) scroller.scrollTop = scroller.scrollHeight;
       });
   });
-  const changed = () =>
-    a
-      .state()
-      ?.turns.reduce((n, t) => n + t.changes.filter((c) => c.review === 'pending').length, 0) ?? 0;
   return (
     <Show when={a.open()}>
       <section class="agent-conversation" aria-label="Conversation about this paper">
@@ -139,11 +135,6 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
               'New conversation'}
           </span>
           <div>
-            <Show when={changed()}>
-              <button class="text-button" onClick={props.onReview}>
-                Review changes ({changed()})
-              </button>
-            </Show>
             <IconButton
               icon="plus"
               label="New conversation"
@@ -513,21 +504,13 @@ export function AgentConversation(props: { agent: AgentWorkspace; onReview: () =
     </Show>
   );
 }
-export function AgentComposer(props: {
-  agent: AgentWorkspace;
-  onConnect: () => void;
-  onReview: () => void;
-}) {
+export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
   const a = props.agent;
   const [attachOpen, setAttachOpen] = createSignal(false),
     [file, setFile] = createSignal('');
   let input!: HTMLTextAreaElement;
   const ready = () => a.state()?.connection === 'connected',
     running = () => a.state()?.running || a.submitting();
-  const changed = () =>
-    a
-      .state()
-      ?.turns.reduce((n, t) => n + t.changes.filter((c) => c.review === 'pending').length, 0) ?? 0;
   return (
     <>
       <div class="composer agent-composer">
@@ -635,12 +618,6 @@ export function AgentComposer(props: {
                   ? 'Agent connected'
                   : 'Agent disconnected'}
         </span>
-        <Show when={changed()}>
-          <button class="text-button" onClick={props.onReview}>
-            <Icon name="edit" size={13} />
-            Review {changed()} change{changed() === 1 ? '' : 's'}
-          </button>
-        </Show>
       </div>
       <Show when={a.error() || a.state()?.error}>
         <div class="agent-inline-error" role="alert">
@@ -701,165 +678,5 @@ export function AgentComposer(props: {
         </Show>
       </Modal>
     </>
-  );
-}
-export function AgentReview(props: {
-  agent: AgentWorkspace;
-  open: boolean;
-  onClose: () => void;
-  onCompile: () => void;
-}) {
-  const a = props.agent;
-  const [confirm, setConfirm] = createSignal<{ turnId: string; path: string } | null>(null);
-  const turns = () => a.state()?.turns.filter((t) => t.changes.length) ?? [];
-  return (
-    <Modal open={props.open} title="Review file changes" icon="edit" onClose={props.onClose}>
-      <p>
-        These files changed during an agent request. Edits are already on disk; this is review after
-        writing. Changes may also include other edits made during the request.
-      </p>
-      <Show when={turns().length} fallback={<p>No observed file changes yet.</p>}>
-        <For each={turns()}>
-          {(turn) => (
-            <section class="agent-review-turn">
-              <h3>
-                {turn.status === 'running'
-                  ? 'Request in progress'
-                  : turn.status === 'succeeded'
-                    ? 'Completed request'
-                    : `${turn.status} request`}
-              </h3>
-              <p>
-                {new Date(turn.startedAt).toLocaleString()} · {turn.changes.length} file
-                {turn.changes.length === 1 ? '' : 's'}
-              </p>
-              <For each={turn.changes}>
-                {(change) => (
-                  <details class="agent-change">
-                    <summary>
-                      {change.path}{' '}
-                      <span>
-                        {change.kind} · {change.review}
-                      </span>
-                    </summary>
-                    <Show when={change.humanTouched}>
-                      <p>
-                        You also edited this file during the request. Automatic revert is
-                        unavailable so your writing is preserved.
-                      </p>
-                    </Show>
-                    <Show
-                      when={!change.binary}
-                      fallback={<p>Binary file changed. Recovery retains its original bytes.</p>}
-                    >
-                      <p class="muted">
-                        − Before request · + Observed after request. Long comparisons may be
-                        truncated; original recovery bytes are retained.
-                      </p>
-                      <Show when={change.diffLimited}>
-                        <p>
-                          Detailed diff exceeded its limit. Before and after sections are shown;
-                          very long text is truncated.
-                        </p>
-                      </Show>
-                      <pre class="agent-diff">
-                        <For
-                          each={
-                            change.diff ?? [
-                              { text: change.before ?? '', kind: 'removed' },
-                              { text: change.after ?? '', kind: 'added' },
-                            ]
-                          }
-                        >
-                          {(part) => (
-                            <span
-                              classList={{
-                                'diff-added': part.kind === 'added',
-                                'diff-removed': part.kind === 'removed',
-                              }}
-                            >
-                              {part.text
-                                .split(/(?<=\n)/)
-                                .map(
-                                  (line) =>
-                                    (part.kind === 'added'
-                                      ? '+ '
-                                      : part.kind === 'removed'
-                                        ? '− '
-                                        : '  ') + line,
-                                )
-                                .join('')}
-                            </span>
-                          )}
-                        </For>
-                      </pre>
-                    </Show>
-                    <Show when={change.review === 'pending'}>
-                      <div class="button-row">
-                        <button
-                          class="secondary-button"
-                          disabled={a.busy() || a.state()?.running}
-                          onClick={() => void a.review(turn.id, change.path, 'keep')}
-                        >
-                          Keep change
-                        </button>
-                        <button
-                          class="secondary-button"
-                          disabled={a.busy() || a.state()?.running || change.humanTouched}
-                          onClick={() => setConfirm({ turnId: turn.id, path: change.path })}
-                        >
-                          Revert change…
-                        </button>
-                      </div>
-                      <Show when={confirm()?.turnId === turn.id && confirm()?.path === change.path}>
-                        <div class="agent-revert-confirm">
-                          <p>
-                            Revert the observed change in {change.path}? Compatible newer writing
-                            will be kept. If changes overlap, Loom will keep both versions and stop
-                            the revert.
-                          </p>
-                          <div class="button-row">
-                            <button
-                              class="secondary-button"
-                              onClick={() => setConfirm(null)}
-                              autofocus
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              class="primary-button"
-                              disabled={a.busy()}
-                              onClick={() => {
-                                void a.review(turn.id, change.path, 'revert').then((ok) => {
-                                  if (ok) setConfirm(null);
-                                });
-                              }}
-                            >
-                              Revert this file
-                            </button>
-                          </div>
-                        </div>
-                      </Show>
-                    </Show>
-                  </details>
-                )}
-              </For>
-            </section>
-          )}
-        </For>
-        <button
-          class="primary-button"
-          disabled={a.state()?.running || a.busy()}
-          onClick={props.onCompile}
-        >
-          Update PDF
-        </button>
-      </Show>
-      <Show when={a.error()}>
-        <p class="inline-error" role="alert">
-          {a.error()}
-        </p>
-      </Show>
-    </Modal>
   );
 }
