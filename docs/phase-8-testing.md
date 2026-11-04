@@ -110,3 +110,25 @@ These normal-observer readings are below the supplied pre-fix 34.93% sample, but
 ## Release evidence record
 
 Record each check in `project_status.md` with command or procedure, exact result, artifact/version, limitation, and next action. Do not mark Phase 8 complete until every phase checkbox and exit criterion has evidence, Phase 6's computation-input provenance prerequisite is closed, critical recovery defects are resolved, and the installed package completes the end-to-end research workflow. State unavailable physical devices, external tools, provider access, or platform checks as open evidence gaps.
+
+## Synchronized compilation/stream typing check
+
+Run this alone, with no competing benchmark/build activity:
+
+```bash
+LOOM_AGENT_PACKAGED=1 LOOM_PHASE8_PROJECT="$PWD/.cache/phase-8-focused-benchmark" LOOM_TEST_TEX=1 LOOM_E2E_EXECUTABLE="$PWD/release/linux-unpacked/loom" npx playwright test tests/e2e/agent.spec.ts -g 'packaged large project stays editable during compilation and streamed agent output'
+```
+
+The test copies the fixture into its disposable project, then inserts a test-only synchronization loop immediately after `\begin{document}`. The real native TeX engine repeatedly typesets a small box until the test releases it after all 50 keydown-to-animation-frame samples and the resource snapshot. A marker in the disposable build output proves the engine reached the loop before sampling. The Stop control must still be visible immediately after typing; early completion still fails. The original paper then compiles normally, with the release file available to subsequent latexmk passes. The gate is released in `finally` on failure too; normal test teardown must still close Electron and all supervised tools before deleting the temporary directory. Independently inspect process cleanup after Playwright exits.
+
+This is a shaped compiler-load responsiveness test, **not an unmodified-paper compile-time benchmark**. `buildRequestToReadyObservedMs` measures from the compile request until ready status is observed concurrently, including snapshot preparation and the entire gate. Gate-ready/release timing is recorded separately; do not subtract it to estimate ordinary compilation time. CPU/PSS describe this artificial typesetting load on an uncontrolled host, not a normal compiler profile, provider latency or memory growth. Stream content is synthetic OpenCode fixture output, not live inference. Frame delay is a browser proxy, not physical display latency.
+
+Schema-v2 evidence overwrites `artifacts/phase-8-concurrency-metrics.json` with a `running` record before fixture setup, then records `passed` or `failed`, timestamps, source `main.tex` hashes, sample count and overlap assertions. A run-specific copy is saved and attached in Playwright's output directory. Failed/running records are not valid benchmark evidence. The renderer's `innerWidth`/`innerHeight` and pixel ratio supply the actual viewport; `host.kernelRelease` uses `os.release()`. Historical records with `viewport: null` or `host.release: "node"` do not establish those facts.
+
+A small optional native regression checks the gate itself without Electron or the large paper:
+
+```bash
+PATH="$HOME/.TinyTeX/bin/x86_64-linux:$PATH" LOOM_TEST_TEX=1 npx vitest run tests/phase8-compile-gate.test.ts
+```
+
+It checks ambiguous-source rejection, native gate readiness, release through the output directory under restrictive TeX input/output settings, PDF completion and child cleanup. This does not replace the packaged workload/teardown verification.

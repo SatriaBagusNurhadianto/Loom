@@ -1,8 +1,15 @@
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { cp, mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { cpus, release, tmpdir, totalmem } from 'node:os';
+import { createHash } from 'node:crypto';
+import {
+  compileGateReady,
+  compileGateRelease,
+  withCompileGate,
+} from '../helpers/phase8-compile-gate';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 let app: ElectronApplication,
@@ -100,6 +107,59 @@ async function restartElectron() {
 }
 function later(action: () => void, ms: number) {
   pendingTimers.push(setTimeout(action, ms));
+}
+function processTree(pid: number): Array<{ pid: number; ppid: number; rssKb: number }> {
+  const records = execFileSync('ps', ['-eo', 'pid=,ppid=,rss='], { encoding: 'utf8' })
+    .trim()
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/).map(Number))
+    .filter((parts) => parts.length === 3)
+    .map(([child, parent, rss]) => ({ pid: child!, ppid: parent!, rssKb: rss! }));
+  const tree = new Set([pid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const record of records) {
+      if (tree.has(record.ppid) && !tree.has(record.pid)) {
+        tree.add(record.pid);
+        changed = true;
+      }
+    }
+  }
+  return records.filter((record) => tree.has(record.pid));
+}
+async function concurrentMemorySnapshot(pid: number) {
+  const processes = await Promise.all(
+    processTree(pid).map(async (record) => {
+      try {
+        const rollup = await readFile(`/proc/${record.pid}/smaps_rollup`, 'utf8');
+        const match = /^Pss:\s+(\d+) kB$/m.exec(rollup);
+        return { ...record, pssKb: match ? Number(match[1]) : null };
+      } catch {
+        return { ...record, pssKb: null };
+      }
+    }),
+  );
+  const complete = processes.length > 0 && processes.every((record) => record.pssKb !== null);
+  return {
+    processes,
+    pssMb: complete ? processes.reduce((sum, record) => sum + record.pssKb!, 0) / 1024 : null,
+    rssSumMb: processes.reduce((sum, record) => sum + record.rssKb, 0) / 1024,
+  };
+}
+function processTreeCpuTicks(pid: number): number {
+  return processTree(pid).reduce((sum, record) => {
+    try {
+      const stat = execFileSync('cat', [`/proc/${record.pid}/stat`], { encoding: 'utf8' });
+      const fields = stat
+        .slice(stat.lastIndexOf(')') + 2)
+        .trim()
+        .split(/\s+/);
+      return sum + Number(fields[11]) + Number(fields[12]);
+    } catch {
+      return sum;
+    }
+  }, 0);
 }
 test.beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'loom-agent-e2e-'));
@@ -310,6 +370,27 @@ test.beforeEach(async () => {
           s.outcome = 'succeeded';
           s.time.idle = Date.now();
           s.messages.push({ id: 'computation-idle', type: 'idle', outcome: 'succeeded' });
+        } else if (String(body.text).includes('Phase 8 streamed workload output')) {
+          const streamed = {
+            id: 'phase8-stream',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'Phase 8 streamed chunk 0' }],
+          };
+          s.messages.push(streamed);
+          let chunks = 0;
+          const appendChunk = () => {
+            chunks += 1;
+            streamed.content[0]!.text = `Phase 8 streamed chunk ${chunks}`;
+            s.time.updated = Date.now();
+            if (chunks < 120) later(appendChunk, 500);
+            else {
+              s.active = false;
+              s.outcome = 'succeeded';
+              s.time.idle = Date.now();
+              s.messages.push({ id: 'phase8-stream-idle', type: 'idle', outcome: 'succeeded' });
+            }
+          };
+          later(appendChunk, 500);
         } else if (String(body.text).includes('markdown rendering')) {
           s.messages.push({
             id: 'markdown-response',
@@ -1226,6 +1307,225 @@ test('native computation activity exposes the reported command and result', asyn
   await expect(details.locator('summary')).toBeInViewport();
   await page.getByText('Tool activity · completed').scrollIntoViewIfNeeded();
   await expect(page.getByText('Tool activity · completed')).toBeInViewport();
+});
+
+test('packaged large project stays editable during compilation and streamed agent output', async ({}, testInfo) => {
+  const workload = process.env.LOOM_PHASE8_PROJECT;
+  test.skip(
+    !workload || process.env.LOOM_TEST_TEX !== '1',
+    'Set LOOM_PHASE8_PROJECT and LOOM_TEST_TEX=1 for the packaged compile/stream workload.',
+  );
+  test.setTimeout(240_000);
+  if (!workload) throw new Error('Missing LOOM_PHASE8_PROJECT.');
+
+  const metricsPath = resolve('artifacts/phase-8-concurrency-metrics.json');
+  const metrics: Record<string, unknown> = {
+    schemaVersion: 2,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    viewport: {
+      state: 'unavailable',
+      reason: 'Attempt ended before renderer dimensions were captured.',
+    },
+    test: testInfo.title,
+    workload,
+    executable:
+      process.env.LOOM_AGENT_PACKAGED === '1'
+        ? resolve('release/linux-unpacked/loom')
+        : 'development',
+    limitation:
+      'Synthetic OpenCode stream, not live provider evidence. The private source has a test-only TeX typesetting loop released after all 50 frames: overlap is synchronized, not ordinary compile throughput. Full observed build duration includes this gate. CPU/PSS are one uncontrolled shaped-workload sample, not provider latency or memory-growth evidence. Animation frames are not physical display presentation.',
+  };
+  await mkdir(resolve('artifacts'), { recursive: true });
+  const saveMetrics = async () => {
+    const bytes = `${JSON.stringify(metrics, null, 2)}\n`;
+    await writeFile(metricsPath, bytes);
+    await writeFile(testInfo.outputPath('phase-8-concurrency-metrics.json'), bytes);
+  };
+  // Replace stale success evidence before setup can fail.
+  await saveMetrics();
+  const originalMain = await readFile(join(workload, 'main.tex'));
+  metrics.fixtureMainSha256Before = createHash('sha256').update(originalMain).digest('hex');
+  let gateOutput: string | undefined;
+  try {
+    // Copy generated files into this test's private paper; never mutate the input fixture.
+    await cp(workload, root, { recursive: true });
+    await writeFile(join(root, 'main.tex'), withCompileGate(originalMain.toString('utf8')));
+    const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+    await expect(editor).toContainText('Test-only synchronization', { timeout: 60_000 });
+    await connect();
+    await page
+      .getByRole('textbox', { name: 'Ask about your paper' })
+      .fill(
+        'Phase 8 streamed workload output; keep reporting short progress updates for this performance check.',
+      );
+    await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+    await expect(page.getByText('Phase 8 streamed chunk 1', { exact: false })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const compileStart = performance.now();
+    await page.locator('.compile-source').click();
+    const stopBuild = page.locator('button.pdf-stop');
+    await expect(stopBuild).toBeVisible({ timeout: 15_000 });
+    // A ready marker proves the native engine reached the synchronization loop;
+    // a visible Stop control alone could still mean snapshot preparation.
+    await expect
+      .poll(
+        async () => {
+          const paths = await readdir(join(directory, 'data'), { recursive: true });
+          const marker = paths.find((path) => path.endsWith(`/output/${compileGateReady}`));
+          if (marker) gateOutput = dirname(join(directory, 'data', marker));
+          return Boolean(gateOutput);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    const gateReadyObservedAt = performance.now();
+    metrics.compileRequestToGateReadyObservedMs = gateReadyObservedAt - compileStart;
+    const completion = page
+      .waitForFunction(
+        () =>
+          /^(PDF ready|Changes not in PDF)$/.test(
+            (document.querySelector('.build-status')?.textContent ?? '').trim(),
+          ),
+        undefined,
+        { timeout: 180_000 },
+      )
+      .then(
+        () => ({ observedAt: performance.now() }),
+        (error: unknown) => ({ error: String(error) }),
+      );
+    const editorPid = app.process().pid;
+    if (editorPid === undefined) throw new Error('Packaged Electron PID is unavailable.');
+    const ticksPerSecond = Number(
+      execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim(),
+    );
+    if (!Number.isFinite(ticksPerSecond) || ticksPerSecond <= 0)
+      throw new Error('Could not determine Linux CPU ticks per second.');
+
+    const typingToFrameMs = await page.evaluate(() => {
+      const samples: number[] = [];
+      document.querySelector('.cm-content')?.addEventListener(
+        'keydown',
+        () => {
+          const started = performance.now();
+          requestAnimationFrame(() => samples.push(performance.now() - started));
+        },
+        { capture: true },
+      );
+      (window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf = samples;
+      return true;
+    });
+    expect(typingToFrameMs).toBe(true);
+    await editor.focus();
+    const cpuStartTicks = processTreeCpuTicks(editorPid);
+    const overlapStart = performance.now();
+    for (let index = 0; index < 50; index++) {
+      await page.keyboard.press('x');
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf?.length,
+          ),
+        )
+        .toBe(index + 1);
+      await page.waitForTimeout(80);
+    }
+    const overlapDurationMs = performance.now() - overlapStart;
+    const cpuEndTicks = processTreeCpuTicks(editorPid);
+    const cpuPercentOfOneCore =
+      ((cpuEndTicks - cpuStartTicks) / ticksPerSecond / (overlapDurationMs / 1000)) * 100;
+    // Check overlap immediately after the last sample, before slower resource reads.
+
+    const streamActiveDuringTyping = Object.values(sessions).some((session) => session.active);
+    const buildActiveAfterTyping = await stopBuild.isVisible().catch(() => false);
+    metrics.streamActiveDuringTyping = streamActiveDuringTyping;
+    metrics.buildActiveAfterTyping = buildActiveAfterTyping;
+    metrics.overlapDurationMs = overlapDurationMs;
+    const interactionPss = await concurrentMemorySnapshot(editorPid);
+    metrics.gateReadyToReleaseObservedMs = performance.now() - gateReadyObservedAt;
+    await writeFile(join(gateOutput!, compileGateRelease), 'release\n');
+    const streamedText = await page
+      .getByText(/Phase 8 streamed chunk \d+/)
+      .last()
+      .textContent();
+    const sortedTyping = await page.evaluate(() =>
+      [...((window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf ?? [])].sort(
+        (a, b) => a - b,
+      ),
+    );
+    const keydownToFrame = {
+      p50Ms: sortedTyping[Math.floor(sortedTyping.length * 0.5)] ?? 0,
+      p95Ms: sortedTyping[Math.ceil(sortedTyping.length * 0.95) - 1] ?? 0,
+      maxMs: sortedTyping.at(-1) ?? 0,
+    };
+    Object.assign(metrics, {
+      test: 'packaged large project with real TeX compilation and synthetic streamed harness output',
+      workload,
+      viewport: await page.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        devicePixelRatio,
+        source: 'renderer window',
+      })),
+      host: {
+        platform: process.platform,
+        kernelRelease: release(),
+        cpuModel: cpus()[0]?.model ?? 'unknown',
+        cpuCount: execFileSync('getconf', ['_NPROCESSORS_ONLN'], { encoding: 'utf8' }).trim(),
+        totalMemoryBytes: totalmem(),
+      },
+      buildRequestToReadyObservedMs: null,
+      postBuildStatus: null as string | null,
+      overlapDurationMs,
+      streamActiveDuringTyping,
+      buildActiveAfterTyping,
+      lastStreamedText: streamedText,
+      keydownToNextAnimationFrame: keydownToFrame,
+      processTreeCpuPercentOfOneCore: cpuPercentOfOneCore,
+      processTreePssDuringOverlapMb: interactionPss.pssMb,
+      processTreeRssSumDuringOverlapMb: interactionPss.rssSumMb,
+      processAccounting: interactionPss.processes,
+      sampleCount: sortedTyping.length,
+    });
+    await saveMetrics();
+    expect(sortedTyping).toHaveLength(50);
+    expect(streamActiveDuringTyping, 'The synthetic harness should still be streaming.').toBe(true);
+    expect(
+      buildActiveAfterTyping,
+      'The real local TeX build should overlap the typing window.',
+    ).toBe(true);
+
+    const buildStatus = page.locator('.build-status');
+    await expect(buildStatus).toHaveText(/PDF ready|Changes not in PDF/, { timeout: 180_000 });
+    const completed = await completion;
+    if ('error' in completed) throw new Error(completed.error);
+    metrics.buildRequestToReadyObservedMs = completed.observedAt - compileStart;
+    metrics.postBuildStatus = await buildStatus.textContent();
+    metrics.status = 'passed';
+  } catch (error) {
+    metrics.status = 'failed';
+    metrics.error = String(error);
+    throw error;
+  } finally {
+    // Release even on assertion/measurement failure; normal afterEach still closes
+    // Electron and its supervised tools before removing the disposable directory.
+    if (gateOutput)
+      await writeFile(join(gateOutput, compileGateRelease), 'release\n').catch(() => {});
+    const after = await readFile(join(workload, 'main.tex'));
+    metrics.fixtureMainSha256After = createHash('sha256').update(after).digest('hex');
+    metrics.fixtureMainUnchanged = after.equals(originalMain);
+    if (!after.equals(originalMain)) metrics.status = 'failed';
+    metrics.finishedAt = new Date().toISOString();
+    await saveMetrics();
+    await testInfo.attach('phase-8-concurrency-metrics', {
+      path: testInfo.outputPath('phase-8-concurrency-metrics.json'),
+      contentType: 'application/json',
+    });
+    expect(after, 'The supplied fixture must remain byte-identical.').toEqual(originalMain);
+  }
 });
 
 test('scientific request templates preserve the draft and selected source', async () => {

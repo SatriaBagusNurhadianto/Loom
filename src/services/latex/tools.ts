@@ -5,14 +5,18 @@ import { homedir } from 'node:os';
 import { toolNames, type BuildState } from '../../contracts/latex';
 
 export type Tool = BuildState['tools'][number] & { executable: string | null };
-// The small supervisor owns the entire native process group. EOF on its stdin also
-// cancels it when Electron's utility process is killed, including SIGKILL.
+// The small supervisor owns the entire native process group. A separate, always
+// drained ownership pipe detects owner death even when tool stdin is backpressured.
 const supervisor = `
 const {spawn}=require('node:child_process');
+const {Socket}=require('node:net');
 const child=spawn(process.argv[1],process.argv.slice(2),{stdio:['pipe','inherit','inherit'],detached:process.platform!=='win32'});
 let ending=false;
 function kill(signal){try{if(process.platform==='win32')child.kill(signal);else process.kill(-child.pid,signal)}catch{}}
 function stop(){if(ending)return;ending=true;kill('SIGTERM');setTimeout(()=>kill('SIGKILL'),500).unref()}
+const owner=new Socket({fd:3,readable:true,writable:false});
+owner.on('end',stop);owner.on('error',stop);owner.resume();
+child.stdin.on('error',stop);
 process.stdin.pipe(child.stdin);process.stdin.on('end',stop);process.on('SIGTERM',stop);process.on('SIGINT',stop);
 child.on('error',e=>{process.stderr.write(e.message);process.exit(127)});
 child.on('close',code=>{kill('SIGKILL');process.exit(code===null?130:code)});
@@ -28,7 +32,7 @@ export function spawnOwnedTool(
   return spawn(process.execPath, ['-e', supervisor, executable, ...args], {
     cwd,
     env: environment,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
 }
