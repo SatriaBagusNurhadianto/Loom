@@ -25,6 +25,18 @@ export class MetadataStore {
       );
   }
   index(project: string, files: Array<{ id: string; path: string; content: string }>): void {
+    const rows = this.db
+      .prepare('SELECT id,path,content FROM file_index WHERE project=?')
+      .all(project) as Array<{ id: string; path: string; content: string }>;
+    const desired = new Map(files.map((file) => [file.id, file]));
+    if (
+      rows.length === files.length &&
+      rows.every((row) => {
+        const file = desired.get(row.id);
+        return file?.path === row.path && file.content === row.content;
+      })
+    )
+      return;
     this.db.exec('BEGIN');
     try {
       this.db.prepare('DELETE FROM file_index WHERE project=?').run(project);
@@ -35,6 +47,10 @@ export class MetadataStore {
       this.db.exec('ROLLBACK');
       throw e;
     }
+  }
+  /** Includes direct same-connection writes, so a cleared derived index is repaired. */
+  changeCount(): number {
+    return (this.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
   }
   search(project: string, query: string): string[] {
     return [...new Set(this.hits(project, query).map((hit) => hit.fileId))];
@@ -116,7 +132,11 @@ export class MetadataStore {
     );
   }
   save(path: string, value: string): void {
-    this.db.prepare('INSERT OR REPLACE INTO projects VALUES (?,?)').run(path, value);
+    this.db
+      .prepare(
+        'INSERT INTO projects VALUES (?,?) ON CONFLICT(path) DO UPDATE SET value=excluded.value WHERE projects.value<>excluded.value',
+      )
+      .run(path, value);
   }
   close(): void {
     this.db.close();

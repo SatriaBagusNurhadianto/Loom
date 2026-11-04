@@ -9,6 +9,9 @@ import { MetadataStore } from './store';
 import { reconcile, textChanges } from './reconcile';
 import { imageMime } from '../../domain/images';
 import { imageBytesMatch, validateImage } from '../agents/images';
+type DiskFile = { text: string | null; inode: string; revision: string };
+type CachedDiskFile = { signature: string; file: DiskFile };
+type IndexInput = { id: string; path: string; binary: boolean; state: number[] };
 type RecordFile = {
   id: string;
   path: string;
@@ -44,6 +47,8 @@ export class ProjectService {
   private project: Project | null = null;
   private documents = new Map<string, Y.Doc>();
   private queue: Promise<unknown> = Promise.resolve();
+  private scanCache = new Map<string, CachedDiskFile>();
+  private indexed: { inputs: IndexInput[]; revision: number } | null = null;
   constructor(readonly store: MetadataStore) {}
   run<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action);
@@ -113,10 +118,14 @@ export class ProjectService {
     }
     return target;
   }
-  private async scan(): Promise<
-    Map<string, { text: string | null; inode: string; revision: string }>
-  > {
-    const found = new Map<string, { text: string | null; inode: string; revision: string }>();
+  private async scan(observe: boolean): Promise<Map<string, DiskFile>> {
+    const found = new Map<string, DiskFile>();
+    const cache = new Map<string, CachedDiskFile>();
+    // Nanosecond metadata is only an observer invalidation hint. Operation refreshes
+    // still read/hash content, and saves retain their independent disk comparisons.
+    const statFile = (path: string) => fs.lstat(path, { bigint: true });
+    const signature = (stat: Awaited<ReturnType<typeof statFile>>) =>
+      `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.mode}`;
     let total = 0;
     const walk = async (dir: string) => {
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -126,16 +135,27 @@ export class ProjectService {
         if (entry.isDirectory()) await walk(path);
         else if (entry.isFile()) {
           if (found.size >= 2000) throw new Error('This pilot supports up to 2,000 project files.');
-          const stat = await fs.stat(path);
-          let text: string | null = null;
-          let revision = `stat:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-          if (stat.size <= MAX_FILE) {
-            total += stat.size;
+          const stat = await statFile(path);
+          if (!stat.isFile()) continue;
+          const key = relative(this.root, path).split(sep).join('/');
+          const stamp = signature(stat);
+          // Enforce limits on every scan, including cache hits.
+          if (stat.size <= BigInt(MAX_FILE)) {
+            total += Number(stat.size);
             if (total > 32 * 1024 * 1024)
               throw new Error('This pilot supports up to 32 MiB of indexed project content.');
-            const bytes = await fs.readFile(
-              await this.safe(relative(this.root, path).split(sep).join('/')),
-            );
+          }
+          const cached = observe ? this.scanCache.get(key) : undefined;
+          if (cached?.signature === stamp) {
+            found.set(key, cached.file);
+            cache.set(key, cached);
+            continue;
+          }
+          let text: string | null = null;
+          let revision = `stat:${stat.size}:${Number(stat.mtimeNs) / 1e6}:${Number(stat.ctimeNs) / 1e6}`;
+          let stable = true;
+          if (stat.size <= BigInt(MAX_FILE)) {
+            const bytes = await fs.readFile(await this.safe(key));
             revision = hash(bytes);
             try {
               const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -143,16 +163,18 @@ export class ProjectService {
             } catch {
               /* Binary assets stay on disk. */
             }
+            // Never cache a read spanning a replacement or an in-place write.
+            stable = signature(await statFile(path)) === stamp;
           }
-          found.set(relative(this.root, path).split(sep).join('/'), {
-            text,
-            revision,
-            inode: `${stat.dev}:${stat.ino}`,
-          });
+          const file = { text, revision, inode: `${stat.dev}:${stat.ino}` };
+          found.set(key, file);
+          if (stable) cache.set(key, { signature: stamp, file });
         }
       }
     };
     await walk(this.root);
+    // Publish only complete scans; removals evict cached paths, and failures retry.
+    this.scanCache = cache;
     return found;
   }
   async open(path: string): Promise<ProjectSnapshot> {
@@ -164,8 +186,12 @@ export class ProjectService {
       project: this.project,
       documents: this.documents,
       loadedId: this.loadedId,
+      scanCache: this.scanCache,
+      indexed: this.indexed,
     };
     this.documents = new Map();
+    this.scanCache = new Map();
+    this.indexed = null;
     this.root = root;
     this.loadedId = '';
     try {
@@ -185,6 +211,8 @@ export class ProjectService {
       this.project = previous.project;
       this.documents = previous.documents;
       this.loadedId = previous.loadedId;
+      this.scanCache = previous.scanCache;
+      this.indexed = previous.indexed;
       throw error;
     }
   }
@@ -366,9 +394,9 @@ export class ProjectService {
     }
     return this.open(destination);
   }
-  async refresh(): Promise<void> {
+  async refresh(observe = false): Promise<void> {
     if (!this.project) return;
-    const disk = await this.scan();
+    const disk = await this.scan(observe);
     for (const file of this.project.files) {
       let found = disk.get(file.path);
       if (!found && !file.deleted) {
@@ -451,17 +479,35 @@ export class ProjectService {
     }
     this.readBuildConfiguration();
     this.persist();
-    this.store.index(
-      this.root,
-      this.project.files
-        .filter((f) => !f.deleted)
-        .map((f) => ({
-          id: f.id,
-          path: f.path,
-          content: f.binary ? '' : this.doc(f).getText('source').toString(),
+    const liveFiles = this.project.files.filter((file) => !file.deleted);
+    const inputs = liveFiles.map(({ id, path, binary, state }) => ({ id, path, binary, state }));
+    const previous = this.indexed;
+    if (
+      !previous ||
+      previous.revision !== this.store.changeCount() ||
+      inputs.length !== previous.inputs.length ||
+      inputs.some((file, i) => {
+        const old = previous.inputs[i];
+        return (
+          file.id !== old.id ||
+          file.path !== old.path ||
+          file.binary !== old.binary ||
+          file.state !== old.state
+        );
+      })
+    ) {
+      this.store.index(
+        this.root,
+        liveFiles.map((file) => ({
+          id: file.id,
+          path: file.path,
+          content: file.binary ? '' : this.doc(file).getText('source').toString(),
         })),
-    );
+      );
+      this.indexed = { inputs, revision: this.store.changeCount() };
+    }
   }
+
   private async save(file: RecordFile): Promise<void> {
     if (file.binary || file.deleted || file.conflict) return;
     const text = this.doc(file).getText('source').toString();
@@ -556,7 +602,7 @@ export class ProjectService {
       file.state = Array.from(Y.encodeStateAsUpdate(this.doc(file)));
       this.persist();
     }
-    await this.refresh();
+    await this.refresh(command.type === 'refresh');
     if (command.type === 'preview-image') {
       if (this.project.id !== command.projectId) throw new Error('The open paper changed.');
       const file = this.project.files.find((f) => f.path === command.path && !f.deleted);
