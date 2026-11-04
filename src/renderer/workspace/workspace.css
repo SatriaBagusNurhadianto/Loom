@@ -2352,6 +2352,18 @@ kbd {
   max-height: 20vh;
   margin: 6px auto 0;
 }
+dialog:has(.agent-image-inspection) { width: min(1000px, calc(100vw - 32px)); max-width: none; }
+.agent-image-inspection-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.agent-image-inspection-toolbar span { min-width: 3.5em; text-align: center; }
+.agent-image-inspection-columns { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.agent-image-inspection-canvas, .agent-image-inspection-answer { max-height: 55vh; min-width: 0; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 8px; }
+.agent-image-inspection-canvas { background: var(--surface-editor); }
+.agent-image-inspection-canvas img { display: block; max-width: none; height: auto; }
+.agent-image-inspection-answer > p { margin: 6px 0 10px; }
+@media (max-width: 600px) {
+  .agent-image-inspection-columns { grid-template-columns: minmax(0, 1fr); }
+  .agent-image-inspection-canvas, .agent-image-inspection-answer { max-height: 30vh; }
+}
 .agent-image-short-hint {
   display: none;
 }

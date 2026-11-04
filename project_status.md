@@ -443,3 +443,8 @@ Next concrete task: read Phase 6 prerequisites/FR-10 and add supported image inp
 - Replaced the References toolbar and dialog magnifying glasses with the existing open-book icon; search keeps its established icon. Updated the README and Phase 5 testing guide so authors can find the control.
 - Verified `npm run check` (149 tests passed, 24 optional skipped), `npm run test:e2e` (37 passed, 12 optional skipped), strict UI audit and DESIGN lint (zero errors/warnings). Inspected actual Electron at 1440×900 and 720×540 with keyboard/reference workflows; screenshots are `artifacts/references-icon-desktop.png` and `artifacts/references-icon-small.png`. `npm run package` passed; the rebuilt sandboxed executable passed all four synthetic References workflows (one optional live case skipped). Native picker and Zotero responses are fixture-controlled.
 - Next: Phase 6 scientific content/images.
+
+### Phase 6 pause — image inspection work in progress
+
+- Started a larger image inspection dialog with zoom and a side-by-side latest assistant response to make detailed marks easier to compare. This is unfinished work: it has not yet been typechecked, tested, or visually inspected, and the latest response may refer to a different request (the dialog says so).
+- Next: verify and refine the dialog at desktop and 720×540 sizes, keyboard access and focus restoration; add meaningful coverage and obtain the requested independent review. Then continue the outstanding Phase 6 diagram clarification, scientific editing, recovery, build and computation-evidence gates. Do not mark the phase complete until every exit criterion has recorded evidence.
