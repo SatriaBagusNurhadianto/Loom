@@ -5,6 +5,7 @@ import {
   privateEndpoint,
   supportedVersion,
 } from '../src/services/agents/opencode';
+import { AgentRequestError } from '../src/services/agents/request-error';
 it('restricts attachment to explicit loopback origins and rejects unsupported versions', () => {
   for (const url of [
     'https://127.0.0.1:1',
@@ -21,7 +22,8 @@ it('restricts attachment to explicit loopback origins and rejects unsupported ve
 });
 it('uses actual structured SDK permission/question bodies, refuses redirects and leaves attached server alive', async () => {
   let version = '2.2.1',
-    redirect = false;
+    redirect = false,
+    rejectPrompt = false;
   const operations: Array<{ path: string; body: unknown }> = [];
   const server = createServer(async (req, res) => {
     if (
@@ -34,6 +36,12 @@ it('uses actual structured SDK permission/question bodies, refuses redirects and
     const path = new URL(req.url!, 'http://127.0.0.1').pathname;
     if (path === '/api/info' && redirect) {
       res.writeHead(302, { Location: '/unexpected' }).end();
+      return;
+    }
+    if (path === '/api/session/session/prompt' && rejectPrompt) {
+      res
+        .writeHead(413, { 'Content-Type': 'application/json' })
+        .end(JSON.stringify({ name: 'Payload Too Large', data: { message: 'Image too large.' } }));
       return;
     }
     let body: unknown;
@@ -62,10 +70,19 @@ it('uses actual structured SDK permission/question bodies, refuses redirects and
       path: '/api/session/session/form/question/reply',
       body: { answer: { audience: 'Researchers' } },
     });
+    rejectPrompt = true;
+    await expect(
+      adapter.request('POST', '/api/session/session/prompt', { files: [] }),
+    ).rejects.toMatchObject<Partial<AgentRequestError>>({
+      status: 413,
+      disposition: 'rejected',
+      message: expect.stringContaining('HTTP 413'),
+    });
+    rejectPrompt = false;
     version = '9.0.0';
     await expect(adapter.verify()).rejects.toThrow('incompatible');
     redirect = true;
-    await expect(adapter.verify()).rejects.toThrow('did not accept');
+    await expect(adapter.verify()).rejects.toThrow('outcome is uncertain');
     expect(operations.some((o) => o.path === '/unexpected')).toBe(false);
     redirect = false;
     version = '2.2.1';

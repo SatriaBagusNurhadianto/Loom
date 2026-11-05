@@ -135,10 +135,10 @@
 **Prerequisites:** Phase 4 complete; Phase 5 required for citation-related operations.
 
 - [x] Support image attachment/paste with capability detection and model-switch guidance.
-- [ ] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
-- [ ] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
-- [ ] Preserve existing assets and use project-relative paths for new content.
-- [ ] Route edits through the same recovery/reconciliation path and inspect compiled results.
+- [x] Convert supported equations and simple diagrams into editable LaTeX/TikZ with original-image comparison and uncertainty correction.
+- [x] Support contextual equation/notation refactoring and table/figure/caption/label source assistance.
+- [x] Preserve existing assets and use project-relative paths for new content.
+- [x] Route edits through the same recovery/reconciliation path and inspect compiled results.
 - [ ] Distinguish requested computations actually executed by the harness from unexecuted reasoning.
 
 **Verification:** Use representative synthetic images, an image-capable live setup when authorized, and an unsupported-model case. Inspect notation changes, asset preservation, editable output, labels, paths, build results, and recovery. Record capability-dependent limits.
@@ -151,14 +151,14 @@
 
 **Prerequisites:** Phases 2–4 complete; Phase 5 for bibliography preflight.
 
-- [ ] Add repository/branch/status detection, native Git credential guidance, and clone flow.
-- [ ] Implement diff review, selective staging, commit, fetch, pull, push, and branch workflows.
-- [ ] Coordinate pending document writes and agent activity around working-tree mutations.
-- [ ] Reconcile Git changes into the live model and present conflicts with preserved inputs.
-- [ ] Add portable source ZIP/PDF export, stale-PDF identification, and build/reference/asset preflight.
-- [ ] Exclude credentials, private chats, machine state and disposable outputs from default exports/commits.
+- [x] Add repository/branch/status detection, native Git credential guidance, and clone flow.
+- [x] Implement diff review, selective staging, commit, fetch, pull, push, and branch workflows.
+- [x] Coordinate pending document writes and agent activity around working-tree mutations.
+- [x] Reconcile Git changes into the live model and present conflicts with preserved inputs.
+- [x] Add portable source ZIP/PDF export, stale-PDF identification, and build/reference/asset preflight.
+- [x] Exclude known credentials, private chats, machine state and disposable outputs from default exports/commits, with included-path review and an explicit limitation warning.
 
-**Verification:** Use two local clones and a local bare remote for deterministic exchange/conflict checks. Verify authorized GitHub connectivity separately. Extract an exported project and build it with a documented compatible local toolchain.
+**Verification:** GPT-6.1-Terra provided the implementation direction before work; GPT-6.1-Sol reviewed the completed implementation and the findings were addressed. `npm run check` passed (203 tests passed, 31 skipped); all 7 focused Phase 7 Electron Git tests passed. `npm run package` and an isolated packaged-app Git smoke passed. In the 70-case full Electron suite, 57 passed and 12 were skipped; one Phase 5 References Escape-focus assertion failed in full-suite order but passed when rerun alone. Two local clones and a bare remote exchanged revisions and resolved a merge conflict; first-branch publication, native clone from the initial project chooser, reviewed commit, export exclusion and extracted source compilation passed. `git ls-remote origin HEAD` confirmed read-only access to the configured GitHub remote; no live push was performed. See [Phase 7 testing](docs/phase-7-testing.md) and exact evidence/limits in [project_status.md](project_status.md).
 
 **Exit:** Separate authors can exchange revisions asynchronously, resolve conflicts, and export a portable submission bundle without silent source loss or accidental private-state publication.
 

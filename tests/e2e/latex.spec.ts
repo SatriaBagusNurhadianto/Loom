@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -32,6 +33,7 @@ async function launch() {
       }),
     )
     .toBe('ready');
+  if ((await page.locator('.library-project').count()) > 0) await resumeFromLibrary(page);
 }
 async function openExample(name = 'multi-file') {
   root = join(directory, name + ' 论文');
@@ -41,8 +43,13 @@ async function openExample(name = 'multi-file') {
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-content')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Projects', exact: true })).not.toBeVisible();
 }
@@ -174,8 +181,13 @@ test.describe('live Phase 3 Electron workflow', () => {
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
     }, root);
-    await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-    await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+    await page
+      .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+      .click();
+    await page
+      .getByRole('dialog', { name: 'Projects', exact: true })
+      .getByRole('button', { name: 'Open folder', exact: true })
+      .click();
     await expect(page.getByRole('dialog')).not.toBeVisible();
     await page.locator('.compile-source').click();
     // A labelled section with role=status is located by its accessible label.
@@ -218,7 +230,10 @@ test.describe('live Phase 3 Electron workflow', () => {
     );
     await page.getByRole('button', { name: 'Project', exact: true }).click();
     await page.getByRole('button', { name: 'Project settings', exact: true }).click();
-    await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Projects', exact: true })
+      .getByRole('button', { name: 'Open folder', exact: true })
+      .click();
     await page.locator('.compile-source').click();
     await page.getByRole('button', { name: 'Open paper folder', exact: true }).click();
     const settings = page.getByRole('dialog', { name: 'PDF settings' });
@@ -257,7 +272,9 @@ test.describe('live Phase 3 Electron workflow', () => {
   });
   test('sample library asks for a main document and makes package errors actionable', async () => {
     await dimensions(1440, 960);
-    await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
+    await page
+      .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+      .click();
     await page.getByText('More sample papers', { exact: true }).click();
     await page.getByRole('button', { name: /Choose between two papers/ }).click();
     const settings = page.getByRole('dialog', { name: 'PDF settings' });
@@ -319,7 +336,8 @@ test.describe('live Phase 3 Electron workflow', () => {
     await expect(page.locator('.document-tabs button[aria-pressed="true"]')).toContainText(
       'introduction.tex',
     );
-    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
     await page.getByRole('button', { name: 'Show in PDF', exact: true }).click();
     await expect(page.locator('.pdf-source-marker')).toBeAttached();
     const destination = join(directory, 'export.pdf');
@@ -533,7 +551,8 @@ test.describe('live Phase 3 Electron workflow', () => {
     await page.screenshot({ path: 'artifacts/phase-3-small.png' });
     await page.getByRole('button', { name: 'Hide PDF panel', exact: true }).click();
     await expect(page.locator('.cm-content')).toBeVisible();
-    await page.getByRole('button', { name: 'Tools', exact: true }).click();
+    await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
     await page.getByRole('button', { name: 'PDF settings', exact: true }).click();
     await expect(modal).toBeVisible();
   });
@@ -549,8 +568,13 @@ test('authorized local paper renders in the right PDF pane without source change
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, root);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-content')).toBeVisible();
   await page.locator('.compile-source').click();
   try {

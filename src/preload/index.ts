@@ -10,6 +10,13 @@ import {
 } from '../contracts/project';
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  gitCloneRequestSchema,
+  gitCommandSchema,
+  gitResultSchema,
+  sourceExportRequestSchema,
+  sourceExportResultSchema,
+} from '../contracts/git';
+import {
   channels,
   attachmentChoiceSchema,
   attachmentResultSchema,
@@ -79,6 +86,69 @@ const desktop: LoomDesktop = {
         'SERVICE_UNAVAILABLE',
         'LaTeX connection interrupted. Reconnect and compile again.',
       );
+    }
+  },
+  git: async (command) => {
+    const input = gitCommandSchema.safeParse(command);
+    if (!input.success) return failure('INVALID_REQUEST', 'Invalid Git request.', false);
+    try {
+      return gitResultSchema.parse(await ipcRenderer.invoke(channels.git, input.data));
+    } catch {
+      return failure(
+        'SERVICE_UNAVAILABLE',
+        'Git connection interrupted. Refresh repository status before retrying.',
+      );
+    }
+  },
+  cloneGit: async (request) => {
+    const input = gitCloneRequestSchema.safeParse(request);
+    if (!input.success)
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message:
+            'Use an HTTPS or SSH Git remote without embedded credentials, or a local file URL.',
+          retryable: false,
+        },
+      };
+    try {
+      return projectResultSchema.parse(await ipcRenderer.invoke(channels.cloneGit, input.data));
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Git clone was interrupted. Check the chosen destination before retrying.',
+          retryable: true,
+        },
+      };
+    }
+  },
+  exportSource: async (request) => {
+    const input = sourceExportRequestSchema.safeParse(request);
+    if (!input.success)
+      return {
+        ok: false,
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Refresh publication preflight before exporting.',
+          retryable: false,
+        },
+      };
+    try {
+      return sourceExportResultSchema.parse(
+        await ipcRenderer.invoke(channels.exportSource, input.data),
+      );
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'Source export was interrupted. Check the destination before retrying.',
+          retryable: true,
+        },
+      };
     }
   },
   exportPdf: async (request) => {

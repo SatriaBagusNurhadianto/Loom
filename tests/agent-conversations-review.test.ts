@@ -45,17 +45,18 @@ function make() {
     connections: new Map([['opencode', connection]]),
     generation: 0,
     refreshBusy: false,
-    changes: { unsettledExternal: () => undefined },
+    changes: { unsettledExternal: () => undefined, linkSubmittedAttachments: vi.fn() },
   });
   return { service, adapter, tools, connection, state };
 }
 describe('conversation connection recovery', () => {
-  it('marks the matching pooled transport interrupted when refresh fails', async () => {
+  it('keeps the pooled transport usable after a transient status read fails', async () => {
     const { service, connection, state } = make();
     await service.refresh();
-    expect(connection.interrupted).toBe(true);
-    expect(state.connection).toBe('interrupted');
-    expect(state.providers[0].connected).toBe(false);
+    expect(connection.interrupted).toBe(false);
+    expect(state.connection).toBe('connected');
+    expect(state.providers[0].connected).toBe(true);
+    expect(state.error).toContain('Could not refresh agent status');
   });
   it('retains a saved transcript and marks it unavailable if native resume fails', async () => {
     const { service, state } = make();
@@ -130,7 +131,7 @@ it('switches pooled providers without changing the Loom conversation or mixing n
       ['opencode', { adapter: opencode, tools: {}, models: [model], interrupted: false }],
       ['codex', { adapter: codex, tools: {}, models: [model], interrupted: false }],
     ]),
-    changes: { unsettledExternal: () => undefined },
+    changes: { unsettledExternal: () => undefined, linkSubmittedAttachments: vi.fn() },
     projects: {
       run: async (f: () => unknown) => f(),
       buildContext: () => ({ root: '/paper' }),
@@ -214,6 +215,7 @@ it.skipIf(process.env.LOOM_LATEX_LIVE !== '1')(
           observe: async () => {},
           finish: async () => {},
           views: () => [],
+          linkSubmittedAttachments: vi.fn(),
         },
       });
       await Promise.race([
@@ -280,7 +282,12 @@ it('passes earlier public conversation context to the newly selected harness wit
     bind: async () => {},
     projectId: 'paper',
     persisted: '',
-    changes: { unsettled: () => false, begin: async () => {}, views: () => [] },
+    changes: {
+      unsettled: () => false,
+      begin: async () => {},
+      views: () => [],
+      linkSubmittedAttachments: vi.fn(),
+    },
     projects: {
       run: async (f: () => unknown) => f(),
       buildContext: () => ({ root: '/paper', snapshot: { name: 'Synthetic' }, files: [] }),

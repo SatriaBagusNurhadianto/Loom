@@ -12,6 +12,10 @@ type Internals = {
   refresh: () => Promise<void>;
   disconnect: () => Promise<void>;
   tools: unknown;
+  requestProjectSave: () => Promise<string>;
+  command: AgentService['command'];
+  bind: () => Promise<void>;
+  serialized: <T>(work: () => Promise<T>) => Promise<T>;
 };
 function fixture(adapter: object) {
   const service = Object.create(AgentService.prototype) as Internals;
@@ -19,6 +23,7 @@ function fixture(adapter: object) {
   const changes = {
     running: () => turn,
     unsettledExternal: () => undefined,
+    linkSubmittedAttachments: vi.fn(),
     observe: vi.fn(async () => {}),
     finish: vi.fn(async () => {}),
     views: () => [],
@@ -49,7 +54,12 @@ function native(idle: number, outcome = 'succeeded') {
   return {
     ownership: 'external',
     messages: vi.fn(async (): Promise<AgentMessage[]> => []),
-    pending: vi.fn(async () => ({ permissions: [], questions: [] })),
+    pending: vi.fn(
+      async (): Promise<{
+        permissions: Record<string, unknown>[];
+        questions: Record<string, unknown>[];
+      }> => ({ permissions: [], questions: [] }),
+    ),
     active: vi.fn(async () => false),
     session: vi.fn(async () => ({ time: { created: start - 2000, updated: idle, idle }, outcome })),
     interrupt: vi.fn(async () => {}),
@@ -85,6 +95,60 @@ describe('Agent service native execution boundaries', () => {
     const { service, state } = fixture(adapter);
     await service.refresh();
     expect(state).toMatchObject({ messages: [{ text: prompt }] });
+  });
+  it('does not restore permission requests from a refresh that finishes after connection loss', async () => {
+    const adapter = native(start - 1);
+    let finishPending!: (value: {
+      permissions: Record<string, unknown>[];
+      questions: Record<string, unknown>[];
+    }) => void;
+    adapter.pending.mockImplementation(() => new Promise((resolve) => (finishPending = resolve)));
+    const { service, state } = fixture(adapter);
+    const refresh = service.refresh();
+    await Promise.resolve();
+    service.generation++;
+    state.connection = 'interrupted';
+    finishPending({
+      permissions: [{ id: 'stale-permission', action: 'edit', resources: ['main.tex'] }],
+      questions: [{ id: 'stale-question', title: 'Continue?', fields: [] }],
+    });
+    await refresh;
+    expect(state.permissions).toEqual([]);
+    expect(state.questions).toEqual([]);
+  });
+  it('keeps the session connected and the turn protected when a status poll fails', async () => {
+    const adapter = native(start - 1);
+    adapter.messages.mockRejectedValueOnce(new Error('temporary polling failure'));
+    const { service, state, changes } = fixture(adapter);
+
+    await service.refresh();
+
+    expect(state.connection).toBe('connected');
+    expect(state.running).toBe(true);
+    expect(state.error).toContain('Could not refresh agent status');
+    expect(changes.finish).not.toHaveBeenCalled();
+  });
+  it('clears uncertain admission only after native status confirms acceptance or completion', async () => {
+    const adapter = native(start - 1);
+    adapter.active.mockResolvedValue(true);
+    const { service, state, changes } = fixture(adapter);
+    state.error = 'Request status uncertain: OpenCode returned HTTP 503.';
+
+    await service.refresh();
+    expect(state.running).toBe(true);
+    expect(state.error).toBe('');
+    expect(changes.finish).not.toHaveBeenCalled();
+
+    adapter.active.mockResolvedValue(false);
+    adapter.session.mockResolvedValue({
+      time: { created: start - 2000, updated: start + 1, idle: start + 1 },
+      outcome: 'succeeded',
+    });
+    state.error = 'Request status uncertain: OpenCode returned HTTP 503.';
+    await service.refresh();
+    expect(state.running).toBe(false);
+    expect(state.error).toBe('');
+    expect(changes.finish).toHaveBeenCalledWith('succeeded');
   });
   it('observes only after the owned process has closed when disconnecting', async () => {
     const events: string[] = [];
@@ -128,4 +192,47 @@ it('does not finalize native work from an interrupted transport or a synthetic l
   expect(changes.finish).not.toHaveBeenCalled();
   expect(adapter.active).not.toHaveBeenCalled();
   expect(state.running).toBe(true);
+});
+
+it('rejects stale save acknowledgments and reports failed saves without allowing a paper operation', async () => {
+  const { service, state } = fixture({ ...native(start - 1), ownership: 'loom' });
+  service.bind = async () => {};
+  service.serialized = async (work) => work();
+  const saved = service.requestProjectSave();
+  const id = (state as typeof state & { saveRequest: { id: string } }).saveRequest.id;
+  await service.command({
+    type: 'save-result',
+    projectId: 'paper',
+    requestId: 'stale',
+    saved: true,
+    revision: 'rev',
+  });
+  expect(state).toHaveProperty('saveRequest.id', id);
+  const rejected = expect(saved).rejects.toThrow('could not save');
+  await service.command({ type: 'save-result', projectId: 'paper', requestId: id, saved: false });
+  await rejected;
+  expect(state).not.toHaveProperty('saveRequest');
+  const next = service.requestProjectSave();
+  const nextId = (state as typeof state & { saveRequest: { id: string } }).saveRequest.id;
+  await service.command({
+    type: 'save-result',
+    projectId: 'paper',
+    requestId: nextId,
+    saved: true,
+    revision: 'saved-revision',
+  });
+  await expect(next).resolves.toBe('saved-revision');
+});
+
+it('times out an unacknowledged editor save and clears the pending operation', async () => {
+  vi.useFakeTimers();
+  try {
+    const { service, state } = fixture({ ...native(start - 1), ownership: 'loom' });
+    const rejected = expect(service.requestProjectSave()).rejects.toThrow('did not confirm saving');
+    await vi.advanceTimersByTimeAsync(12000);
+    await rejected;
+    expect(state).not.toHaveProperty('saveRequest');
+  } finally {
+    vi.useRealTimers();
+  }
 });

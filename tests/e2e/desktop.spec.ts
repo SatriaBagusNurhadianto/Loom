@@ -1,3 +1,4 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,7 @@ async function launchDesktop(): Promise<void> {
   page = await desktop.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await readyPid();
+  if ((await page.locator('.library-project').count()) > 0) await resumeFromLibrary(page);
 }
 test.beforeEach(async () => {
   userData = await mkdtemp(join(tmpdir(), 'loom-desktop-e2e-'));
@@ -119,9 +121,12 @@ test('real isolated Electron boundary and a restartable utility process', async 
       'chooseAttachments',
       'chooseFile',
       'chooseProject',
+      'cloneGit',
       'completeClose',
       'exportPdf',
+      'exportSource',
       'getStatus',
+      'git',
       'latex',
       'onCloseRequest',
       'onServiceEvent',
@@ -209,6 +214,7 @@ test('an unresponsive utility process times out and can be restarted', async () 
 
 test('keyboard layout, saved preferences, focus modes, and reference screenshots', async () => {
   await dimensions(2048, 1096);
+  await showLayoutReference();
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'PDF preview', exact: true })).toBeVisible();
   await showLayoutReference();
@@ -227,6 +233,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await hidePreview.click();
   await expect(preview).toHaveCount(0);
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(preview).toHaveCount(0);
   await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
   await expect(preview).toBeVisible();
@@ -245,6 +252,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.keyboard.press('ArrowRight');
   await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(divider).toHaveAttribute('aria-valuenow', String(startingWidth + 1));
   await divider.focus();
   await page.keyboard.press('Home');
@@ -252,6 +260,7 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
   await page.keyboard.press('Control+Alt+b');
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Restore sidebar', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Project sidebar' })).toBeVisible();
@@ -269,11 +278,12 @@ test('keyboard layout, saved preferences, focus modes, and reference screenshots
         style: style.outlineStyle,
       };
     });
-  expect(keyboardFocus.color).toBe('rgb(143, 143, 143)');
-  expect(keyboardFocus.style).toBe('solid');
-  // Chromium rounds thin borders to device pixels at the desktop's fractional scale.
-  expect(keyboardFocus.width).toBeGreaterThan(0);
-  expect(keyboardFocus.width).toBeLessThanOrEqual(1.01);
+  expect(keyboardFocus.style).toBe('none');
+  expect(
+    await preview
+      .locator('.pdf-toolbar')
+      .evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).toBe('rgb(232, 232, 232)');
   await page.keyboard.press('Shift+F6');
   await expect(page.getByRole('main', { name: 'Source workspace' })).toBeFocused();
   await page.keyboard.press('Control+Alt+2');
@@ -333,14 +343,55 @@ async function openSyntheticProject(): Promise<string> {
   await desktop.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
   }, folder);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Original text.',
   );
   return folder;
 }
+
+test('opens and saves a project whose root path has spaces and non-ASCII characters', async () => {
+  const folder = join(userData, '研究 project paper');
+  await mkdir(folder);
+  await writeFile(
+    join(folder, 'main.tex'),
+    '\\documentclass{article}\n\\begin{document}\nOriginal text.\n\\end{document}\n',
+  );
+  await desktop.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, folder);
+
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
+  const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await expect(editor).toContainText('Original text.');
+  await editor.focus();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('% root path round trip');
+  await page.keyboard.press('Control+s');
+  await expect
+    .poll(() => readFile(join(folder, 'main.tex'), 'utf8'))
+    .toContain('% root path round trip');
+
+  await desktop.close();
+  await launchDesktop();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    '% root path round trip',
+  );
+});
+
 test('sidebar footer, folder navigation and row focus remain stable with many files', async () => {
   const folder = await openSyntheticProject();
   await page.keyboard.press('Control+Alt+3');
@@ -661,6 +712,7 @@ test('real project editing, external reconciliation, restart, IndexedDB, tabs an
   await page.keyboard.press('Control+s');
   await expect(page.locator('.readonly-label')).toHaveText('Saved to disk');
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(editor).toContainText('% Human addition');
   await expect(editor).toContainText('External text.');
   await page.evaluate(() => window.loom!.restartService());
@@ -699,6 +751,7 @@ test('unsent local edits and external overlaps remain reviewable', async () => {
   await expect(editor).toContainText('Human replacement');
   expect(await readFile(join(folder, 'main.tex'), 'utf8')).toBe('External replacement');
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible();
   await expect(editor).toContainText('Human replacement');
   await page.getByRole('button', { name: 'Keep local text' }).click();
@@ -749,7 +802,7 @@ test('file operations, root choice, search locations, find/replace and caret res
       .first()
       .evaluate((node) => getComputedStyle(node).backgroundImage),
   ).toBe('none');
-  expect(await findField.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('8px');
+  expect(await findField.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('12px');
   await page.screenshot({ path: 'artifacts/phase-2-find-panel.png', animations: 'disabled' });
   await dimensions(720, 540);
   await page.screenshot({ path: 'artifacts/phase-2-find-panel-small.png', animations: 'disabled' });
@@ -990,6 +1043,7 @@ test('IndexedDB-only edits survive renderer crash with disk divergence', async (
   });
   page = await recoveredWindow;
   await page.waitForLoadState('domcontentloaded');
+  await resumeFromLibrary(page);
   await expect(page.getByRole('region', { name: 'File conflict' })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
     'Recovered human text',
@@ -1003,8 +1057,13 @@ test('native project creation and ZIP import preserve ordinary source and assets
   await desktop.evaluate(({ dialog }, path) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: path });
   }, created);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Create project', exact: true })
+    .click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(await readFile(join(created, 'main.tex'), 'utf8')).toContain('\\documentclass{article}');
   const { zipSync, strToU8 } = await import('fflate');
@@ -1080,4 +1139,88 @@ test('failed working-state persistence keeps the native window open', async () =
     ipcMain.removeHandler('loom:project:command');
     ipcMain.handle('loom:project:command', () => snapshot);
   }, snapshot);
+});
+
+test('beta workspace actions stay compact, discoverable and keyboard accessible', async () => {
+  await openSyntheticProject();
+  await expect(page.getByText('Local workspace', { exact: true })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toHaveCount(0);
+  const toolbar = page.locator('.source-toolbar');
+  await expect(toolbar.getByRole('button', { name: 'Open Git repository' })).toBeVisible();
+  const tab = toolbar.getByRole('button', { name: 'main.tex', exact: true });
+  expect(await tab.evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const source = page.getByRole('textbox', { name: 'LaTeX source editor' });
+  await source.fill('Preserved while opening workspace actions.');
+  for (const width of [1440, 720]) {
+    await dimensions(width, width === 720 ? 540 : 900);
+    const overflow = page.getByRole('button', { name: 'More workspace actions' });
+    await overflow.focus();
+    await overflow.press('ArrowDown');
+    const scientificTools = page.getByRole('menuitem', { name: 'Scientific tools' });
+    await expect(scientificTools).toBeFocused();
+    await dimensions(width - 10, width === 720 ? 540 : 900);
+    await expect(scientificTools).toBeFocused();
+    await scientificTools.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
+    await expect(dialog).toBeVisible();
+    await page.screenshot({ path: `artifacts/beta-tools-${width}.png`, animations: 'disabled' });
+    await dialog.press('Escape');
+    await expect(overflow).toBeFocused();
+    await expect(source).toContainText('Preserved while opening workspace actions.');
+    expect(await toolbar.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({
+      path: `artifacts/beta-workspace-${width}.png`,
+      animations: 'disabled',
+    });
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: 'References', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'References', exact: true })).toBeVisible();
+});
+
+test('appearance themes apply immediately, persist and keep the small workspace usable', async () => {
+  await openSyntheticProject();
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Appearance', exact: true });
+  const schemes = dialog.getByRole('group', { name: 'Color scheme' });
+  const themes = dialog.getByRole('group', { name: 'Themes', exact: true });
+  await schemes.getByRole('button', { name: 'Light', exact: true }).click();
+  await themes.getByRole('button', { name: /Ocean/ }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+  expect(
+    await page.locator('.source-column').evaluate((node) => getComputedStyle(node).backgroundColor),
+  ).toBe('rgb(252, 252, 253)');
+  await dialog.getByRole('combobox', { name: 'Diff colors' }).selectOption('blue-amber');
+  await dialog.getByRole('combobox', { name: 'Chat width' }).selectOption('comfortable');
+  const contrast = dialog.getByRole('slider', { name: 'Interface contrast' });
+  await contrast.focus();
+  await contrast.press('ArrowRight');
+  await expect(contrast).toHaveValue('101');
+  await page.screenshot({ path: 'artifacts/appearance-light.png', animations: 'disabled' });
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await page.reload();
+  await resumeFromLibrary(page);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'ocean');
+  await expect(page.locator('html')).toHaveAttribute('data-diff', 'blue-amber');
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+  await expect(contrast).toHaveValue('101');
+  await schemes.getByRole('button', { name: 'Dark', exact: true }).click();
+  await themes.getByRole('button', { name: /Iris/ }).click();
+  await dialog.getByRole('combobox', { name: 'Chat width' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('combobox', { name: 'Chat width' })).toBeInViewport();
+  await page.screenshot({ path: 'artifacts/appearance-small.png', animations: 'disabled' });
+  await schemes.getByRole('button', { name: 'System', exact: true }).click();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('html')).toHaveAttribute('data-scheme', 'dark');
+  await dialog.getByRole('button', { name: 'Restore defaults', exact: true }).click();
+  await dialog.press('Escape');
+  await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'LaTeX source editor' })).toContainText(
+    'Original text.',
+  );
 });

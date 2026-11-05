@@ -202,6 +202,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 ### FR-05 — External harness connection
 
 - The initial selectable harnesses are OpenCode through its native structured local server/SDK and Codex through its app-server protocol. The user expanded Phase 4 to both on 4 November 2026, using T3 Code provider settings as inspiration. Further harnesses use explicit protocol adapters; model execution stays harness-owned.
+- Reconnect the paper’s last successfully connected Loom-owned harness after application reopen, preserving its native conversation and model/settings choices. Explicit Disconnect keeps it offline; external server credentials remain transient and attachment remains explicit. Reconnection must never resend a model request.
 - Discover installation and configuration state, show setup guidance, and provide connect/disconnect/reconnect actions. Provider settings separate connection status, the native model catalog and optional runtime configuration.
 - Run the local agent in the intended project context; show that project identity in the conversation.
 - Reuse the harness's supported authentication and configured models. An API key grants model access through the harness; it does not create a new Loom-owned agent runtime.
@@ -220,6 +221,7 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 - Project-wide context means relevant content can be accessed and traced across files. It does not promise that every project byte is sent in every request.
 - Allow users to attach selected text, files, and supported images and inspect which explicit attachments accompany a request.
 - Keep project conversations discoverable through the Chats area, with retained session identity and continuation. An idle conversation can switch between connected OpenCode and Codex agents, retaining separate native sessions and permissions with shared public context. Offer explicit conversation deletion with confirmation; preserve manuscript files, change recovery and harness-owned history.
+- Keep submitted file cards and each image preview attached to their originating author message across conversation refresh, switching and application restart. The preview must use the protected submitted copy, so later edits to the project asset cannot silently change what the author sent.
 - Label unavailable capabilities and interrupted work clearly. Preserve messages and author input across recoverable failures.
 - Distinguish an unexecuted suggestion from an actual computation or tool result. Do not report an experiment or verification as performed without evidence.
 
@@ -541,3 +543,13 @@ Milestones are dependency ordered rather than calendar estimates.
 - [Native application OAuth guidance](https://www.rfc-editor.org/rfc/rfc8252), for future account integration.
 
 This PRD supersedes earlier conversational assumptions where they differ from the explicit user decisions recorded in Section 1.2. It does not turn every idea from the research brief into a launch requirement; release scope is defined in Sections 3–5.
+
+### Manual beta interaction refinements (5 November 2026)
+
+- A completed agent source edit opens its changed passage in the matching successful PDF using source mapping. Preserve current writing and report unavailable mapping/builds instead of guessing a page or displaying stale output as current.
+- Authors can ask the connected agent to save editor work, create/delete/move ordinary project files into folders, and inspect or assign the main LaTeX document. Keep recovery and native permissions intact; manuscript operations do not authorize Git commits or pushes.
+- Appearance is reachable beside Settings, persists on this device, and supports system/light/dark schemes, paired color palettes, contrast, surface opacity, diff colors and message width. Settings, connections and appearance have distinct recognizable icons. Structural panels/dividers use unobtrusive focus cues without white frames; chat drag/hide controls avoid background pills.
+
+### Local project entry — user decision, 5 November 2026
+
+The desktop opens to a local project manager before entering the manuscript workspace. Authors can find and reopen previously registered folders, create projects, or open/import existing LaTeX work. Provide search and list/grid views following the supplied Prism project-library references. Returning from the workspace must preserve pending document work and save working-state preferences. Reopening restores the project's existing documents/recovery, chats, settings and native session references, with device appearance applied to both screens. Keep unavailable folders visible with actionable errors and retained recovery data. No account or authentication is required; shared/cloud project ownership is deferred.

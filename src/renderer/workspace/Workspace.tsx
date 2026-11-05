@@ -1,3 +1,6 @@
+import { ProjectManager } from '../projects/ProjectManager';
+import '../projects/projects.css';
+import { AppearanceDialog, createAppearance } from '../appearance/Appearance';
 import { References } from '../references/References';
 import {
   AgentChanges,
@@ -6,6 +9,7 @@ import {
   selectedChange,
   type ChangeSelection,
 } from '../agent/AgentChanges';
+import { createAgentChangePreview } from '../agent/changePreview';
 import { createAgentWorkspace } from '../agent/workspace';
 import {
   AgentChats,
@@ -35,10 +39,13 @@ import {
 } from 'solid-js';
 import type { LoomDesktop, ServiceStatus } from '../../contracts/desktop';
 import { Icon } from '../ui/Icon';
+import { ActionMenu } from '../ui/ActionMenu';
 import { EmptyState, IconButton, Modal } from '../ui/primitives';
 import { defaultLayout, loadLayout, saveLayout, type Layout } from './layout';
 import { exampleSource, tokenize } from './example';
 import { imageMime } from '../../domain/images';
+import { GitWorkspace } from '../git/GitWorkspace';
+import type { GitStatus } from '../../contracts/git';
 
 declare global {
   interface Window {
@@ -52,6 +59,8 @@ export function Workspace() {
     getItem: (key: string) => window.localStorage.getItem(key),
     setItem: (key: string, value: string) => window.localStorage.setItem(key, value),
   };
+  const appearance = createAppearance();
+  const [appearanceOpen, setAppearanceOpen] = createSignal(false);
   const initial = loadLayout(layoutStorage);
   const [layout, setLayout] = createSignal(initial.layout);
   const [notice, setNotice] = createSignal(initial.warning ?? '');
@@ -61,13 +70,109 @@ export function Workspace() {
     const timer = setTimeout(() => setNotice(''), 5000);
     onCleanup(() => clearTimeout(timer));
   });
-  const projects = createProjectWorkspace(setNotice);
+  const [libraryOpen, setLibraryOpen] = createSignal(true);
+  const projects = createProjectWorkspace(setNotice, { libraryFirst: true });
+  const [returningToLibrary, setReturningToLibrary] = createSignal(false);
+  let navigationTransition: ViewTransition | undefined;
+  function navigateLibrary(open: boolean) {
+    navigationTransition?.skipTransition();
+    layoutTransition?.skipTransition();
+    // Close the chooser now; a following PDF/setup dialog must survive the async update.
+    setDialog(null);
+    const previous = document.activeElement;
+    const apply = () => setLibraryOpen(open);
+    const focusDestination = () =>
+      requestAnimationFrame(() => {
+        if (
+          libraryOpen() !== open ||
+          (document.activeElement !== previous && document.activeElement !== document.body)
+        )
+          return;
+        const target = open
+          ? document.querySelector<HTMLElement>('#library-heading')
+          : effectiveMode() === 'pdf'
+            ? pdf
+            : (document.querySelector<HTMLElement>('.cm-content') ?? source);
+        target?.focus({ preventScroll: true });
+      });
+    if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const transition = document.startViewTransition({
+        types: ['project-navigation', open ? 'project-return' : 'project-open'],
+        update: apply,
+      });
+      navigationTransition = transition;
+      void transition.ready.catch(() => {});
+      void transition.updateCallbackDone.then(focusDestination).catch(() => {});
+      void transition.finished
+        .catch(() => {})
+        .finally(() => {
+          if (navigationTransition === transition) navigationTransition = undefined;
+        });
+    } else {
+      apply();
+      focusDestination();
+    }
+  }
+  onCleanup(() => navigationTransition?.skipTransition());
+  const showLibrary = async () => {
+    if (returningToLibrary()) return;
+    setReturningToLibrary(true);
+    try {
+      if (await projects.saveSession()) navigateLibrary(true);
+    } finally {
+      setReturningToLibrary(false);
+    }
+  };
+  const BackToProjects = () => (
+    <button
+      class="workspace-back"
+      aria-label="Back to projects"
+      title="Back to projects"
+      disabled={returningToLibrary() || projects.pending()}
+      aria-busy={returningToLibrary()}
+      onClick={() => void showLibrary()}
+    >
+      <Icon name="back" size={16} />
+      <span>Projects</span>
+    </button>
+  );
   const latex = createLatexWorkspace(projects, setNotice);
   const agent = createAgentWorkspace(projects, setNotice);
   const [chatHeight, setChatHeight] = createSignal(68);
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [referencesOpen, setReferencesOpen] = createSignal(false);
+  const [gitOpen, setGitOpen] = createSignal(false);
+  const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
+  const [cloneUrl, setCloneUrl] = createSignal('');
+  const [cloneBusy, setCloneBusy] = createSignal(false);
+  const [cloneError, setCloneError] = createSignal('');
+  const cloneFromChooser = async () => {
+    const url = cloneUrl().trim();
+    if (!url || !window.loom) return;
+    if (!(await projects.saveSession())) return;
+    setCloneBusy(true);
+    setCloneError('');
+    const result = await window.loom.cloneGit({ url });
+    setCloneBusy(false);
+    if (!result.ok) {
+      setCloneError(result.error.message);
+      return;
+    }
+    if (result.value) {
+      setCloneUrl('');
+      await projects.command({ type: 'current' });
+      setDialog(null);
+      navigateLibrary(false);
+    }
+  };
+  let gitProjectId: string | undefined;
+  createEffect(() => {
+    const id = projects.project()?.id;
+    if (id !== gitProjectId) setGitStatus(null);
+    gitProjectId = id;
+  });
   const [connectionsOpen, setConnectionsOpen] = createSignal(false);
+  const [newChatProject, setNewChatProject] = createSignal<string | null>(null);
   const [chatBeforeReview, setChatBeforeReview] = createSignal<number | null>(null);
   const [reviewSelection, setReviewSelection] = createSignal<ChangeSelection | null>(null);
   const [undoChanges, setUndoChanges] = createSignal<ChangeSelection[] | null>(null);
@@ -103,10 +208,29 @@ export function Workspace() {
     const target = reviewSelection();
     if (target && (await agent.review(target.turnId, target.path, 'keep'))) closeReview();
   };
-  const agentConnect = () => setConnectionsOpen(true);
+  const agentConnect = () => {
+    setNewChatProject(null);
+    setConnectionsOpen(true);
+  };
   const newChat = () => {
-    if (agent.state()?.connection === 'connected') void agent.newChat();
-    else agentConnect();
+    const projectId = projects.project()?.id;
+    if (!projectId || agent.busy()) return;
+    if (agent.state()?.running) {
+      agent.setError('Stop the current request before starting a new conversation.');
+      agent.setOpen(true);
+      return;
+    }
+    if (agent.state()?.connection === 'connected') {
+      void agent.newChat().then((ok) => {
+        if (ok)
+          requestAnimationFrame(() =>
+            document.querySelector<HTMLTextAreaElement>('.agent-prompt')?.focus(),
+          );
+      });
+    } else {
+      setNewChatProject(projectId);
+      setConnectionsOpen(true);
+    }
   };
   const [pdfPosition, setPdfPosition] = createSignal({ page: 1, zoom: 1, scroll: 0 });
   const pdfProjectIdentity = createMemo(() => projects.project()?.id);
@@ -161,7 +285,19 @@ export function Workspace() {
   let search!: HTMLInputElement;
   let shell!: HTMLDivElement;
   let dragCleanup: (() => void) | undefined;
-  const update = (patch: Partial<Layout>) => setLayout((old) => ({ ...old, ...patch }));
+  let layoutTransition: ViewTransition | undefined;
+  const update = (patch: Partial<Layout>) => {
+    const apply = () => setLayout((old) => ({ ...old, ...patch }));
+    const changesVisibility = 'sidebarOpen' in patch || 'pdfOpen' in patch || 'mode' in patch;
+    if (
+      changesVisibility &&
+      document.startViewTransition &&
+      !matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      layoutTransition?.skipTransition();
+      layoutTransition = document.startViewTransition(apply);
+    } else apply();
+  };
   const effectiveMode = () => (narrow() && layout().mode === 'split' ? 'source' : layout().mode);
   const sidebarVisible = () => layout().sidebarOpen && !narrow() && effectiveMode() === 'split';
   const sourceVisible = () => effectiveMode() !== 'pdf';
@@ -184,12 +320,18 @@ export function Workspace() {
   };
   const showExample = () => {
     setExample(true);
+    navigateLibrary(false);
     setNotice('Read-only example loaded. No project files were created.');
+  };
+  const afterLayout = (action: () => void) => {
+    if (layoutTransition)
+      void layoutTransition.updateCallbackDone.then(() => requestAnimationFrame(action));
+    else requestAnimationFrame(action);
   };
   const focusMode = (mode: Layout['mode']) => {
     const previous = document.activeElement;
     update({ mode });
-    requestAnimationFrame(() => {
+    afterLayout(() => {
       // A later keyboard/pointer action owns focus; do not steal it from a menu.
       if (document.activeElement === previous || document.activeElement === document.body)
         (mode === 'pdf' ? pdf : source)?.focus();
@@ -198,13 +340,20 @@ export function Workspace() {
   const togglePreview = () => {
     const open = !pdfVisible();
     update({ pdfOpen: open, mode: open && narrow() ? 'pdf' : 'split' });
-    requestAnimationFrame(() => {
+    afterLayout(() => {
       if (!open) previewToggle?.focus();
       else if (narrow()) pdf?.focus();
     });
   };
   const issue = () => pdfIssue(projects.project(), latex.state());
   const showPdf = () => update({ pdfOpen: true, mode: narrow() ? 'pdf' : 'split' });
+  createAgentChangePreview({
+    agent: agent.state,
+    project: projects.project,
+    latex,
+    openPdf: showPdf,
+    report: setNotice,
+  });
   async function createPdf(checkSetup = true) {
     showPdf();
     if (
@@ -237,7 +386,8 @@ export function Workspace() {
       if (introduction) await projects.select(introduction.id);
     }
     if (makePdf) showPdf();
-    else update({ pdfOpen: true, mode: 'split' });
+    else if (!projects.storedLayout()) update({ pdfOpen: true, mode: 'split' });
+    navigateLibrary(false);
     if (makePdf) {
       if (!opened.rootId || conflictingMain) setDialog('build');
       else await latex.compile();
@@ -364,7 +514,7 @@ export function Workspace() {
     });
     const handleResize = () => setNarrow(window.innerWidth < 1100);
     const shortcuts = (e: KeyboardEvent) => {
-      if (e.isComposing || dialog()) return;
+      if (e.isComposing || dialog() || libraryOpen()) return;
       if ((e.ctrlKey || e.metaKey) && e.altKey) {
         if (['1', '2', '3', 'b'].includes(e.key.toLowerCase())) e.preventDefault();
         if (e.key === '1') focusMode('source');
@@ -393,7 +543,31 @@ export function Workspace() {
     });
   });
   return (
-    <div class="app-shell" ref={shell}>
+    <div class="app-shell" classList={{ 'library-visible': libraryOpen() }} ref={shell}>
+      <Show when={libraryOpen()}>
+        <ProjectManager
+          pending={projects.pending()}
+          error={projects.error()}
+          current={projects.project()?.name}
+          onContinue={() => navigateLibrary(false)}
+          onChoose={(choice) => void openProject(choice)}
+          onOpen={async (projectId) => {
+            const opened = await projects.choose({ projectId });
+            if (opened) navigateLibrary(false);
+          }}
+          onAppearance={() => setAppearanceOpen(true)}
+          onMore={() => setDialog('projects')}
+          onSettings={() => setDialog('settings')}
+          onService={() => setDialog('service')}
+          serviceLabel={
+            service().state === 'ready'
+              ? 'Local service ready'
+              : service().state === 'starting'
+                ? 'Local service starting'
+                : 'Local service unavailable'
+          }
+        />
+      </Show>
       <a
         class="skip-link"
         href="#source"
@@ -405,7 +579,7 @@ export function Workspace() {
         Skip to source
       </a>
       <header class="compact-bar">
-        <span class="wordmark">Loom</span>
+        <BackToProjects />
         <nav aria-label="Workspace views">
           <button aria-pressed={effectiveMode() === 'source'} onClick={() => focusMode('source')}>
             Source
@@ -429,6 +603,7 @@ export function Workspace() {
           icon="settings"
           onClick={() => setDialog('settings')}
         />
+        <IconButton label="Appearance" icon="appearance" onClick={() => setAppearanceOpen(true)} />
       </header>
       <div class="workspace-grid" style={{ 'grid-template-columns': columns() }}>
         <Show when={sidebarVisible()}>
@@ -437,14 +612,21 @@ export function Workspace() {
               <span class="brand-mark" aria-hidden="true">
                 ◉
               </span>
-              <span class="wordmark">Loom</span>
+              <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
+                Loom
+              </button>
               <IconButton
                 label="Collapse sidebar"
                 icon="panel"
                 onClick={() => update({ sidebarOpen: false })}
               />
             </div>
-            <button class="project-selector" onClick={() => setDialog('projects')}>
+            <BackToProjects />
+            <button
+              class="project-selector"
+              title="Your projects"
+              onClick={() => void showLibrary()}
+            >
               <span>
                 {projects.project()?.name ?? (example() ? 'Example project' : 'No project open')}
               </span>
@@ -580,7 +762,7 @@ export function Workspace() {
               <ProjectPanel
                 latex={latex}
                 workspace={projects}
-                chats={<AgentChats agent={agent} onConnect={agentConnect} />}
+                chats={<AgentChats agent={agent} onConnect={agentConnect} onNewChat={newChat} />}
                 onNewChat={newChat}
                 tab={layout().tab}
                 onTabChange={(tab) => update({ tab })}
@@ -620,15 +802,15 @@ export function Workspace() {
               </section>
             </Show>
             <footer class="sidebar-footer">
-              <span class="avatar">L</span>
-              <div>
-                <span>Local workspace</span>
-                <small>No account required</small>
-              </div>
               <IconButton
                 label="Workspace settings"
                 icon="settings"
                 onClick={() => setDialog('settings')}
+              />
+              <IconButton
+                label="Appearance"
+                icon="appearance"
+                onClick={() => setAppearanceOpen(true)}
               />
             </footer>
           </aside>
@@ -705,7 +887,7 @@ export function Workspace() {
               </Show>
               <button
                 ref={previewToggle}
-                class="secondary-button preview-toggle"
+                class="icon-button preview-toggle"
                 aria-label={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
                 title={pdfVisible() ? 'Hide PDF preview' : 'Show PDF preview'}
                 aria-pressed={pdfVisible()}
@@ -713,19 +895,22 @@ export function Workspace() {
                 onClick={togglePreview}
               >
                 <Icon name="preview" />
-                <span>Preview</span>
               </button>
               <Show when={projects.project()}>
                 <button
-                  class="secondary-button compile-source"
+                  class="icon-button compile-source"
+                  aria-label={
+                    latex.running()
+                      ? 'Stop'
+                      : latex.state()?.successful
+                        ? 'Update PDF'
+                        : 'Create PDF'
+                  }
+                  title={latex.running() ? 'Stop build' : 'Build PDF'}
                   disabled={latex.busy()}
                   onClick={() => (latex.running() ? void latex.cancel() : void createPdf())}
                 >
-                  {latex.running()
-                    ? 'Stop'
-                    : latex.state()?.successful
-                      ? 'Update PDF'
-                      : 'Create PDF'}
+                  <Icon name={latex.running() ? 'stop' : 'build'} />
                 </button>
               </Show>
               <Show when={projects.project()}>
@@ -735,9 +920,24 @@ export function Workspace() {
                   onClick={() => setReferencesOpen(true)}
                 />
               </Show>
-              <button class="tools-button" onClick={() => setDialog('tools')}>
-                Tools <Icon name="tools" />
-              </button>
+              <IconButton
+                label="Open Git repository"
+                icon="gitBranch"
+                disabled={!projects.project() || example()}
+                onClick={() => setGitOpen(true)}
+              />
+              <ActionMenu
+                label="More workspace actions"
+                actions={[
+                  { label: 'Scientific tools', icon: 'science', run: () => setDialog('tools') },
+                  { label: 'Projects', icon: 'folder', run: () => void showLibrary() },
+                  {
+                    label: 'Workspace settings',
+                    icon: 'settings',
+                    run: () => setDialog('settings'),
+                  },
+                ]}
+              />
             </div>
             <Show when={projects.error()}>
               <div role="alert" class="project-error">
@@ -907,7 +1107,7 @@ export function Workspace() {
                           : 'Unsaved · recovery pending'
                   : example()
                     ? 'Example · read only'
-                    : 'Local workspace'}
+                    : 'Open a paper to begin'}
               </span>
               <Show when={projects.file()}>
                 <span class="document-path" title={projects.file()?.path}>
@@ -948,7 +1148,7 @@ export function Workspace() {
                   }
                 />
               </Show>
-              <AgentConversation agent={agent} />
+              <AgentConversation agent={agent} onNewChat={newChat} />
               <AgentChanges
                 agent={agent}
                 onSelect={selectReview}
@@ -957,7 +1157,7 @@ export function Workspace() {
                 onUndoChange={setUndoChanges}
               />
               <div class="composer-area">
-                <AgentComposer agent={agent} onConnect={agentConnect} />
+                <AgentComposer agent={agent} onConnect={agentConnect} onNewChat={newChat} />
               </div>
             </div>
           </main>
@@ -1134,12 +1334,65 @@ export function Workspace() {
               ? 'Local service starting'
               : 'Local service unavailable'}
         </button>
+        <button
+          class="status-button"
+          disabled={!projects.project() || example()}
+          onClick={() => setGitOpen(true)}
+          title={example() ? 'Git is unavailable for the synthetic example.' : undefined}
+        >
+          <Icon name="gitBranch" size={14} />
+          {gitStatus()?.repository
+            ? `Git · ${gitStatus()?.branch ?? 'detached'}${gitStatus()?.files.length ? ` · ${gitStatus()?.files.length} changed` : ''}`
+            : 'Git · check status'}
+        </button>
       </footer>
+      <AppearanceDialog
+        open={appearanceOpen()}
+        onClose={() => setAppearanceOpen(false)}
+        appearance={appearance}
+      />
+      <GitWorkspace
+        projectId={() => projects.project()?.id}
+        open={gitOpen}
+        onClose={() => setGitOpen(false)}
+        beforeMutation={async () => Boolean(await projects.flushPending())}
+        onCloned={async () => {
+          await projects.command({ type: 'current' });
+        }}
+        onStatus={setGitStatus}
+        onPreparePublication={() => {
+          const starter =
+            'Help adapt this manuscript for the journal or conference instructions I will provide. First inspect the instructions and relevant project files, explain proposed changes, and prepare an editable revision. Preserve scientific claims and source assets; do not send or commit changes automatically. I will review all edits and compile the result.';
+          const previous = agent.draft().trim();
+          agent.setDraft(previous ? `${previous}\n\n${starter}` : starter);
+          agent.setOpen(true);
+        }}
+        onSelectPath={async (path) => {
+          const file = projects
+            .project()
+            ?.files.find((entry) => entry.path === path && !entry.deleted);
+          if (file) {
+            await projects.select(file.id);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            document.querySelector<HTMLElement>('.cm-content')?.focus();
+          }
+        }}
+      />
       <AgentConnections
         agent={agent}
         open={connectionsOpen()}
-        onClose={() => setConnectionsOpen(false)}
+        onClose={() => {
+          setConnectionsOpen(false);
+          setNewChatProject(null);
+        }}
+        onConnected={() => {
+          if (newChatProject() !== projects.project()?.id) return;
+          setNewChatProject(null);
+          setConnectionsOpen(false);
+          newChat();
+        }}
         onOpenProject={() => {
+          setNewChatProject(null);
           setConnectionsOpen(false);
           setDialog('projects');
         }}
@@ -1169,6 +1422,9 @@ export function Workspace() {
         icon="folder"
         onClose={() => setDialog(null)}
       >
+        <button class="text-button" onClick={() => void showLibrary()}>
+          Your projects
+        </button>
         <p class="muted">Open an existing manuscript or start with a clean LaTeX project.</p>
         <Show when={example()}>
           <p>The workspace example is read-only. Open or create a project to edit files.</p>
@@ -1227,6 +1483,33 @@ export function Workspace() {
             </span>
           </button>
         </div>
+        <div class="project-clone">
+          <label class="project-clone-field">
+            Clone a Git repository
+            <input
+              aria-label="Repository URL to clone"
+              value={cloneUrl()}
+              maxLength={2000}
+              placeholder="HTTPS, SSH, or local file URL"
+              disabled={cloneBusy()}
+              onInput={(event) => setCloneUrl(event.currentTarget.value)}
+            />
+            <small>Uses your configured Git credential helper or SSH key.</small>
+          </label>
+          <button
+            class="secondary-button"
+            aria-label="Clone repository"
+            disabled={cloneBusy() || !cloneUrl().trim()}
+            onClick={() => void cloneFromChooser()}
+          >
+            {cloneBusy() ? 'Cloning…' : 'Choose location and clone'}
+          </button>
+        </div>
+        <Show when={cloneError()}>
+          <p class="inline-error" role="alert">
+            {cloneError()}
+          </p>
+        </Show>
         <details class="sample-library">
           <summary>More sample papers</summary>
           <div class="project-choices">
@@ -1331,6 +1614,10 @@ export function Workspace() {
               chats={
                 <AgentChats
                   agent={agent}
+                  onNewChat={() => {
+                    setDialog(null);
+                    newChat();
+                  }}
                   onConnect={() => {
                     setDialog(null);
                     agentConnect();
@@ -1399,7 +1686,7 @@ export function Workspace() {
                 class="secondary-button"
                 onClick={() =>
                   prepareScientificRequest(
-                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations instead of guessing. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
+                    'Convert the attached image into editable LaTeX, or TikZ for a suitable diagram. Identify uncertain marks or interpretations and ask me to clarify before inserting them. Ask where to insert it if I have not specified a location. Preserve the original image and existing assets; use project-relative paths. Explain any required packages and labels. A successful build does not establish scientific correctness.',
                     agent.attachments().some((path) => imageMime(path))
                       ? 'Request prepared. Review the draft and attached image before sending.'
                       : 'Request prepared. Attach an image and review the draft before sending.',
@@ -1505,7 +1792,6 @@ export function Workspace() {
               Merge Changes
             </button>
           </section>
-          <p class="muted">Phase 2 · local projects</p>
           <div class="settings-section">
             <h3>View</h3>
             <div class="view-buttons">

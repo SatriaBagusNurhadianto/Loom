@@ -259,6 +259,37 @@ export function createLatexWorkspace(
       Math.min(location.column, lines[line - 1].length);
     await projects.locate(file.id, offset);
   }
+  async function previewSource(location: SourceLocation, revision: string): Promise<boolean> {
+    const projectId = projects.project()?.id;
+    const build = state()?.successful;
+    if (
+      !projectId ||
+      !build ||
+      build.revision !== revision ||
+      projects.project()?.sourceRevision !== revision ||
+      stale()
+    )
+      return false;
+    const value = await request(
+      { type: 'forward', projectId, buildId: build.id, path: location.path, line: location.line },
+      true,
+    );
+    if (
+      value?.kind !== 'forward' ||
+      stale() ||
+      projects.project()?.sourceRevision !== revision ||
+      state()?.successful?.id !== build.id
+    )
+      return false;
+    setTarget({
+      buildId: build.id,
+      page: value.page,
+      x: value.x,
+      y: value.y,
+      sequence: (target()?.sequence ?? 0) + 1,
+    });
+    return true;
+  }
   async function forward() {
     const projectId = projects.project()?.id,
       buildId = state()?.successful?.id,
@@ -357,6 +388,7 @@ export function createLatexWorkspace(
     configure,
     locate,
     forward,
+    previewSource,
     reverse,
     exportPdf,
     cancel: () => {

@@ -11,7 +11,7 @@ export class MetadataStore {
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
     const version = (this.db.prepare('PRAGMA user_version').get() as { user_version: number })
       .user_version;
-    if (version > 2) {
+    if (version > 3) {
       this.db.close();
       throw new Error('This metadata database needs a newer Loom version.');
     }
@@ -23,8 +23,42 @@ export class MetadataStore {
       this.db.exec(
         'BEGIN; CREATE TABLE file_index (project TEXT NOT NULL, id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, PRIMARY KEY(project,id)); CREATE INDEX file_index_project ON file_index(project); PRAGMA user_version=2; COMMIT;',
       );
+    if (version < 3)
+      this.db.exec(`
+      BEGIN;
+      CREATE TABLE project_library (path TEXT PRIMARY KEY, id TEXT NOT NULL, name TEXT NOT NULL, last_opened REAL NOT NULL);
+      INSERT INTO project_library SELECT path, json_extract(value,'$.id'), json_extract(value,'$.name'), 0
+      FROM projects WHERE json_valid(value) AND json_type(value,'$.id')='text' AND json_type(value,'$.name')='text';
+      PRAGMA user_version=3; COMMIT;
+    `);
+  }
+  rememberProject(path: string, id: string, name: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO project_library VALUES (?,?,?,?) ON CONFLICT(path) DO UPDATE SET id=excluded.id,name=excluded.name,last_opened=excluded.last_opened',
+      )
+      .run(path, id, name, Date.now());
+  }
+  recentProjects(): Array<{ path: string; id: string; name: string; lastOpened: number }> {
+    return this.db
+      .prepare(
+        'SELECT path,id,name,last_opened AS lastOpened FROM project_library ORDER BY last_opened DESC,path',
+      )
+      .all() as Array<{ path: string; id: string; name: string; lastOpened: number }>;
   }
   index(project: string, files: Array<{ id: string; path: string; content: string }>): void {
+    const rows = this.db
+      .prepare('SELECT id,path,content FROM file_index WHERE project=?')
+      .all(project) as Array<{ id: string; path: string; content: string }>;
+    const desired = new Map(files.map((file) => [file.id, file]));
+    if (
+      rows.length === files.length &&
+      rows.every((row) => {
+        const file = desired.get(row.id);
+        return file?.path === row.path && file.content === row.content;
+      })
+    )
+      return;
     this.db.exec('BEGIN');
     try {
       this.db.prepare('DELETE FROM file_index WHERE project=?').run(project);
@@ -35,6 +69,10 @@ export class MetadataStore {
       this.db.exec('ROLLBACK');
       throw e;
     }
+  }
+  /** Includes direct same-connection writes, so a cleared derived index is repaired. */
+  changeCount(): number {
+    return (this.db.prepare('SELECT total_changes() AS n').get() as { n: number }).n;
   }
   search(project: string, query: string): string[] {
     return [...new Set(this.hits(project, query).map((hit) => hit.fileId))];
@@ -116,7 +154,11 @@ export class MetadataStore {
     );
   }
   save(path: string, value: string): void {
-    this.db.prepare('INSERT OR REPLACE INTO projects VALUES (?,?)').run(path, value);
+    this.db
+      .prepare(
+        'INSERT INTO projects VALUES (?,?) ON CONFLICT(path) DO UPDATE SET value=excluded.value WHERE projects.value<>excluded.value',
+      )
+      .run(path, value);
   }
   close(): void {
     this.db.close();

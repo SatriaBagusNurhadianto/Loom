@@ -27,6 +27,51 @@ afterEach(async () => {
   store.close();
   await rm(dir, { recursive: true, force: true });
 });
+it('keeps submitted file associations across restart without attaching them to older messages', async () => {
+  await changes.begin(
+    'native-session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    [],
+    ['older-user'],
+    ['main.tex'],
+  );
+  changes.linkSubmittedAttachments([{ id: 'older-user', role: 'user' }], 'native-session');
+  expect(changes.views()[0].messageId).toBeUndefined();
+  changes.linkSubmittedAttachments(
+    [
+      { id: 'older-user', role: 'user' },
+      { id: 'new-user', role: 'user' },
+    ],
+    'native-session',
+  );
+  await changes.finish('succeeded');
+  const reloaded = new AgentChanges(projects, join(dir, 'recovery'));
+  await reloaded.bind(id);
+  expect(reloaded.views()[0]).toMatchObject({
+    attachments: ['main.tex'],
+    messageId: 'new-user',
+    messageAssociationResolved: true,
+  });
+});
+it('does not associate explicitly rejected file attachments with a later request', async () => {
+  await changes.begin(
+    'native-session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    [],
+    [],
+    ['main.tex'],
+  );
+  await changes.finish('failed', false);
+  changes.linkSubmittedAttachments([{ id: 'later-user', role: 'user' }], 'native-session');
+  expect(changes.views()[0].messageId).toBeUndefined();
+  expect(changes.views()[0].messageAssociationResolved).toBe(true);
+});
 it('retains and verifies the exact submitted image through recovery and rejects altered checkpoints', async () => {
   const original = await readFile('tests/fixtures/whiteboard-equation.png');
   await writeFile(join(root, 'board.png'), original);
@@ -88,6 +133,36 @@ it('refuses overlapping newer writing and preserves disk and checkpoints', async
     ),
   ).rejects.toThrow('overlaps');
   expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('human');
+});
+it('preserves a newer scientific correction and the source image when reverting an overlapping agent edit', async () => {
+  const image = await readFile('tests/fixtures/whiteboard-diagram.png');
+  const baseline = '\\begin{equation} E = mc^2 \\end{equation}\n';
+  await writeFile(join(root, 'main.tex'), baseline);
+  await writeFile(join(root, 'board.png'), image);
+  await projects.refresh();
+  await changes.begin(
+    'session',
+    projects.snapshot().sourceRevision!,
+    false,
+    2147483647,
+    'conversation',
+    ['board.png'],
+  );
+  await writeFile(join(root, 'main.tex'), '\\begin{equation} E = m v^2 \\end{equation}\n');
+  await changes.finish('succeeded');
+  const turn = changes.views()[0];
+  expect(turn.changes[0]).toMatchObject({ path: 'main.tex', before: baseline });
+  const authorCorrection = '\\begin{equation} E = m c^2 / 2 \\end{equation}\n';
+  await writeFile(join(root, 'main.tex'), authorCorrection);
+  await projects.refresh();
+  await expect(
+    changes.review(turn.id, 'main.tex', 'revert', projects.snapshot().sourceRevision!),
+  ).rejects.toThrow('overlaps');
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toBe(authorCorrection);
+  expect(await readFile(join(root, 'board.png'))).toEqual(image);
+  expect((await changes.submittedImage(turn.id, 'board.png', 'conversation')).data).toBe(
+    image.toString('base64'),
+  );
 });
 it('restores created, deleted and binary files without discarding unrelated files', async () => {
   await writeFile(join(root, 'asset.bin'), Buffer.from([0, 1, 2]));

@@ -39,6 +39,169 @@ async function edit(text: string) {
     text,
   };
 }
+it('observes unchanged files without reading content or replacing the search index', async () => {
+  const reads = vi.spyOn(fs, 'readFile');
+  const index = vi.spyOn(store, 'index');
+  const before = store.db.prepare('SELECT total_changes() AS n').get();
+  for (let i = 0; i < 3; i++) await service.command({ type: 'refresh' });
+  expect(reads).not.toHaveBeenCalled();
+  expect(index).not.toHaveBeenCalled();
+  expect(store.db.prepare('SELECT total_changes() AS n').get()).toEqual(before);
+});
+it('indexes a 1,002-file project on open and preserves initial search through no-op observations', async () => {
+  const source = Array.from({ length: 100 }, (_, i) => `% synthetic line ${i}\n`).join('');
+  await mkdir(join(root, 'sections'));
+  // Bound setup concurrency; this is a synthetic service regression, not a
+  // packaged idle-CPU benchmark or a one-second wall-clock observer simulation.
+  for (let start = 0; start < 1000; start += 50) {
+    await Promise.all(
+      Array.from({ length: Math.min(50, 1000 - start) }, (_, offset) =>
+        writeFile(join(root, 'sections', `${start + offset}.tex`), source),
+      ),
+    );
+  }
+  await writeFile(
+    join(root, 'sections', 'large-file.tex'),
+    Array.from({ length: 10_000 }, (_, i) => `% large-file line ${i + 1}\n`).join(''),
+  );
+  // A fresh service/database must index every file on open, before any observer
+  // or explicit refresh and without loading the large document into a renderer.
+  store.close();
+  store = new MetadataStore(join(dir, 'fresh-data'));
+  service = new ProjectService(store);
+  await service.open(root);
+  expect(service.snapshot().files).toHaveLength(1002);
+  const large = service.snapshot().files.find((file) => file.path === 'sections/large-file.tex')!;
+  expect(large.loaded).toBe(false);
+  expect(store.hits(root, 'large-file line 9999')).toMatchObject([
+    { fileId: large.id, path: large.path, line: 9999 },
+  ]);
+  expect(
+    (await service.command({ type: 'search', query: 'large-file line 9999' }))?.matches,
+  ).toEqual([large.id]);
+  const reads = vi.spyOn(fs, 'readFile');
+  const index = vi.spyOn(store, 'index');
+  const revision = store.changeCount();
+  for (let i = 0; i < 3; i++) await service.command({ type: 'refresh' });
+  expect(reads).not.toHaveBeenCalled();
+  expect(index).not.toHaveBeenCalled();
+  expect(store.changeCount()).toBe(revision);
+  expect(
+    (await service.command({ type: 'search', query: 'large-file line 9999' }))?.matches,
+  ).toEqual([large.id]);
+});
+it('invalidates observation reads for same-sized writes, atomic replacements and unchanged-content touches', async () => {
+  const path = join(root, 'main.tex');
+  const original = await fs.stat(path);
+  await writeFile(path, 'ALPHA\nbeta\ngamma\n');
+  await fs.utimes(path, original.atime, original.mtime);
+  const reads = vi.spyOn(fs, 'readFile');
+  await service.command({ type: 'refresh' });
+  expect(reads).toHaveBeenCalledTimes(1);
+  expect(service.snapshot().files[0].text).toBe('ALPHA\nbeta\ngamma\n');
+  reads.mockClear();
+  await service.command({ type: 'refresh' });
+  expect(reads).not.toHaveBeenCalled();
+  const id = service.snapshot().files[0].id;
+  await writeFile(join(root, '.loom-save-replacement'), 'replacement');
+  await rename(join(root, '.loom-save-replacement'), path);
+  await service.command({ type: 'refresh' });
+  expect(service.snapshot().files[0]).toMatchObject({ id, text: 'replacement', conflict: false });
+  reads.mockClear();
+  const before = store.changeCount();
+  await fs.utimes(path, new Date(), new Date(Date.now() + 1000));
+  await service.command({ type: 'refresh' });
+  expect(reads).toHaveBeenCalledTimes(1);
+  expect(store.changeCount()).toBe(before);
+});
+it('observes creates, renames, deletes and binary changes without rereading unrelated files', async () => {
+  const reads = vi.spyOn(fs, 'readFile');
+  await writeFile(join(root, 'new.tex'), 'new searchable source');
+  await service.command({ type: 'refresh' });
+  expect(reads.mock.calls.map(([path]) => path)).toEqual([join(root, 'new.tex')]);
+  const id = service.snapshot().files.find((file) => file.path === 'new.tex')!.id;
+  await rename(join(root, 'new.tex'), join(root, 'renamed.tex'));
+  await service.command({ type: 'refresh' });
+  expect(service.snapshot().files.find((file) => file.id === id)?.path).toBe('renamed.tex');
+  expect(store.hits(root, 'searchable')[0].path).toBe('renamed.tex');
+  await rm(join(root, 'renamed.tex'));
+  await service.command({ type: 'refresh' });
+  expect(service.snapshot().files.find((file) => file.id === id)).toMatchObject({
+    conflict: true,
+    diskKind: 'missing',
+  });
+  await writeFile(join(root, 'main.tex'), Buffer.from([0, 255]));
+  await service.command({ type: 'refresh' });
+  expect(service.snapshot().files[0]).toMatchObject({ conflict: true, diskKind: 'binary' });
+  const revision = service.snapshot().files[0].diskRevision;
+  await writeFile(join(root, 'main.tex'), Buffer.from([0, 254]));
+  await service.command({ type: 'refresh' });
+  expect(service.snapshot().files[0].diskRevision).not.toBe(revision);
+});
+it('retains dirty recovery and updates its index when disk content is cached', async () => {
+  vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('interrupted'));
+  await expect(service.command(await edit('human recovery'))).rejects.toThrow('interrupted');
+  const reads = vi.spyOn(fs, 'readFile');
+  // A plain observation reconciles but does not attempt to save; the same disk
+  // bytes must not hide a changed live document from indexing or recovery.
+  await service.refresh(true);
+  expect(reads).not.toHaveBeenCalled();
+  expect(store.search(root, 'human recovery')).toEqual([service.snapshot().files[0].id]);
+  expect(service.snapshot().files[0]).toMatchObject({ text: 'human recovery', saved: false });
+  await writeFile(join(root, 'main.tex'), 'external replacement');
+  await service.refresh(true);
+  expect(service.snapshot().files[0]).toMatchObject({
+    text: 'human recovery',
+    baseline: 'alpha\nbeta\ngamma\n',
+    disk: 'external replacement',
+    conflict: true,
+  });
+  await service.open(root);
+  await service.command({ type: 'load', fileId: service.snapshot().files[0].id });
+  expect(service.snapshot().files[0]).toMatchObject({ text: 'human recovery', conflict: true });
+});
+it('does not cache a read that overlaps an external write', async () => {
+  const actual = fs.readFile.bind(fs);
+  await writeFile(join(root, 'main.tex'), 'first external');
+  const reads = vi.spyOn(fs, 'readFile').mockImplementationOnce(async (...args) => {
+    const bytes = await actual(...args);
+    await writeFile(join(root, 'main.tex'), 'newer external');
+    return bytes;
+  });
+  await service.refresh(true);
+  await service.refresh(true);
+  expect(reads).toHaveBeenCalledTimes(2);
+  expect(service.snapshot().files[0].text).toBe('newer external');
+});
+it('keeps pre-operation refreshes authoritative and isolates caches across project switches', async () => {
+  const reads = vi.spyOn(fs, 'readFile');
+  await service.command({ type: 'search', query: 'alpha' });
+  expect(reads).toHaveBeenCalledWith(join(root, 'main.tex'));
+  const other = join(dir, 'other');
+  await mkdir(other);
+  await writeFile(join(other, 'main.tex'), 'other paper');
+  await service.open(other);
+  reads.mockClear();
+  await service.command({ type: 'refresh' });
+  expect(reads).not.toHaveBeenCalled();
+  expect(store.search(other, 'other paper')).toHaveLength(1);
+  await service.open(root);
+  expect(store.search(root, 'alpha')).toHaveLength(1);
+  await service.command({ type: 'load', fileId: service.snapshot().files[0].id });
+  expect(service.snapshot().files[0].baseline).toBe('alpha\nbeta\ngamma\n');
+});
+it('enforces aggregate limits even when earlier files are cached and retries failed scans', async () => {
+  for (let i = 0; i < 4; i++)
+    await writeFile(join(root, `asset-${i}.bin`), Buffer.alloc(8 * 1024 * 1024));
+  await expect(service.refresh(true)).rejects.toThrow('32 MiB');
+  await rm(join(root, 'asset-3.bin'));
+  await service.refresh(true);
+  const reads = vi.spyOn(fs, 'readFile');
+  await service.refresh(true);
+  expect(reads).not.toHaveBeenCalled();
+  await writeFile(join(root, 'asset-3.bin'), Buffer.alloc(8 * 1024 * 1024));
+  await expect(service.refresh(true)).rejects.toThrow('32 MiB');
+});
 describe('ordinary projects and persistence', () => {
   it('imports a pasted image exclusively and preserves existing files on invalid or repeated input', async () => {
     const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
@@ -450,9 +613,9 @@ it('does not merge a folder import into an existing destination', async () => {
   expect(await readFile(join(dest, 'precious'), 'utf8')).toBe('keep');
 });
 
-it('migrates schema v1 to v2 without losing recoverable project identity', async () => {
+it('migrates schema v1 to v3 without losing recoverable project identity', async () => {
   const id = service.snapshot().id;
-  store.db.exec('DROP TABLE file_index; PRAGMA user_version=1;');
+  store.db.exec('DROP TABLE file_index; DROP TABLE project_library; PRAGMA user_version=1;');
   store.close();
   store = new MetadataStore(join(dir, 'data'));
   service = new ProjectService(store);

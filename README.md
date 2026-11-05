@@ -1,8 +1,8 @@
 # Loom
 
-Electron workspace for scientific LaTeX writing. Phases 1–4 provide ordinary folder/ZIP projects, CodeMirror/Yjs source, durable recovery, local TeX compilation, TexLab language features a real synchronized PDF viewer and selectable OpenCode/Codex agents on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
+Electron workspace for scientific LaTeX writing. Loom supports ordinary folder/ZIP projects, durable source recovery, local TeX compilation, synchronized PDF review, OpenCode/Codex agents, research workflows, Git collaboration and portable publication export on the exercised Linux desktop target. See project_status.md for recorded verification and limits.
 
-Open or create a project from the workspace, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. PDF export, native agent revision and literature/citation workflows are available; Git/source-export UI remains later-phase work. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
+Choose a project from the startup manager, edit source, and use **Save** or Ctrl S. Files remain standard `.tex`, `.bib` and assets. Choose **Create PDF** or **Update PDF** to preview your writing, and **Download PDF** to share it. **Tools → PDF settings** has automatic updates and progressively disclosed advanced settings, setup help and diagnostics. **Try a sample paper** opens an editable paper and creates its PDF without finding a folder. A read-only example remains available for layout comparison. The Files sidebar uses folder navigation and **…** menus for rename, root selection and deletion. **+** opens the native file picker; the toolbar **Project** icon opens a compact navigator at smaller widths.
 
 Use the sidebar search icon for fuzzy filename and text search: `mtex` finds `main.tex`, and `intrduction` finds `Introduction`. Exact matches rank first. Matching text is highlighted in results and source; selecting a result focuses its passage. Clear removes the highlights. Ctrl F retains precise CodeMirror find/replace.
 
@@ -11,6 +11,8 @@ Use **Preview** beside Tools to show or hide the PDF pane, including after closi
 Use **Connect agent** in the bottom-center composer to choose **OpenCode** or **Codex**, then choose one of its configured models. Use **Big Pickle** with OpenCode in this development setup. **Reasoning** and **Permissions** beside the composer configure the current chat using the native harness’s supported settings. Loom reuses the installed agent's account and execution loop. Ask about the paper, attach source text if helpful, and respond to its permission requests or questions. Agents can write files directly; **Merge Changes** lists observed files above the composer. **Review** opens a source diff with keep/undo controls; **Keep all** and **Undo all** handle the listed changes. Reverting preserves compatible newer writing and refuses conflicting changes. Choose **Update PDF** to see the revised paper. Existing OpenCode servers are supported under **Agent connections → Runtime**. See [Phase 4 setup and testing](docs/phase-4-testing.md) for supported versions, privacy, recovery and live checks.
 
 Use **References** (the open-book icon before Tools, or **Tools → Research**) to search your project bibliography, arXiv or the running local Zotero library. Inspect metadata, source links and abstract-only evidence; preview the entry/key before **Import and cite**. Repeated imports reuse existing entries. **Discuss with agent** adds the identified evidence to your draft for review before sending. Zotero access requires its local API to be enabled and never edits the library. See [Phase 5 testing](docs/phase-5-testing.md) for setup, citation conventions, recovery and live verification.
+
+Git collaboration and portable publication exports are available from the compact Git control at the bottom of the workspace. Use branch controls, per-file staged/worktree diffs, reviewed commits, Fetch/Pull/Push, and publication preflight. Preflight lists included/excluded files and supported citation, label, bibliography and asset warnings; source ZIP and PDF exports remain explicit author actions. See [Phase 7 testing](docs/phase-7-testing.md), or run the disposable demo below.
 
 ## Run it
 
@@ -29,13 +31,27 @@ npm run dev:ui
 
 Open <http://127.0.0.1:5173>. Browser preview intentionally reports the desktop service as unavailable. The real transport and recovery checks require Electron. Run one dev server at a time; both use port 5173.
 
+## Local projects
+
+Loom opens at **Your projects**. Create a project, open an existing folder, or reopen a saved project from the searchable list/grid. **Import project** copies a folder or ZIP into a new destination; **Open folder** edits the existing folder. Use **← Projects** in the workspace sidebar or compact header to return to the manager. The project name and Projects menu remain alternate routes. **More options** includes Git cloning and the sample library.
+
+Source and assets remain ordinary files in your chosen folder. Loom keeps chats, session references, editor state, recovery records and builds in its local application data; appearance is saved for this device. Keep both your project folders and Loom application data for a complete-session backup. Reconnect missing drives or restore folders at their original paths to preserve local identity. No account is needed.
+
 ## Try Phase 3
 
 ```bash
 npm run try:phase3
 ```
 
-This starts an isolated Electron profile. Click **Try a sample paper** (or click the current project name to open Projects first). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. Before the first PDF build on Linux x86_64, run `npm run setup:latex` to install the full official TeX Live bundle and TexLab into your user account. Loom also supports an existing system TeX installation. No administrator access or shell-profile changes are needed. See [setup and testing](docs/phase-3-testing.md).
+This starts an isolated Electron profile. Click **Try a sample paper** (or open **More options** in the project manager). Loom opens the introduction and creates the PDF. Edit a sentence, choose **Update PDF**, then **Download PDF**. **Projects → More sample papers** includes references, main-document selection, intentional-error and missing-package examples. Existing sample edits are preserved. Before the first PDF build on Linux x86_64, run `npm run setup:latex` to install the full official TeX Live bundle and TexLab into your user account. Loom also supports an existing system TeX installation. No administrator access or shell-profile changes are needed. See [setup and testing](docs/phase-3-testing.md).
+
+## Try Phase 7
+
+```bash
+npm run try:phase7
+```
+
+This creates two synthetic author clones and a local bare remote under `.cache/phase-7-demo-*`, then builds and starts Loom with a separate profile. Open the printed `author-one` folder. The [Phase 7 guide](docs/phase-7-testing.md#interactive-local-demo) walks through private-file blocking, selective stage and reviewed commit, branch changes, a two-author merge conflict, push/pull, clone, PDF freshness and source ZIP export. Nothing is sent to GitHub. The demo folder stays in place for inspection; remove only the printed demo folder when finished. PDF build and compilation steps need a configured local TeX toolchain.
 
 ## Commands
 
@@ -43,6 +59,7 @@ This starts an isolated Electron profile. Click **Try a sample paper** (or click
 | -------------------------- | ------------------------------------------------------------------------------- |
 | `npm ci`                   | Install exact dependencies from the lockfile                                    |
 | `npm run try:phase3`       | Isolated Phase 3 workspace with editable samples and available local test tools |
+| `npm run try:phase7`       | Disposable two-author Git and publication-export walkthrough                    |
 | `npm run dev`              | Electron development workspace                                                  |
 | `npm run dev:ui`           | Renderer browser preview on port 5173                                           |
 | `npm run format`           | Format repository sources and documents                                         |

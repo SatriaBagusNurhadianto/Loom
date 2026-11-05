@@ -19,8 +19,8 @@ typography:
   paper:
     fontFamily: Liberation Serif, Times New Roman, serif
 rounded:
-  control: 8px
-  panel: 14px
+  control: 12px
+  panel: 20px
   pill: 999px
 spacing:
   small: 4px
@@ -100,13 +100,15 @@ Proposed placement of Loom additions, pending user discussion:
 
 Panel sizes and focus should survive routine edits and compilation. Loading and error states should preserve layout. Narrow windows should use explicit focus modes instead of squeezing every panel into view.
 
+Git status stays in the compact workspace footer. The Git review surface opens on demand and groups file status/diffs, staged commit review, branch/remote actions, conflict inputs, and publication preflight without displacing the center-column assistant composer. The preflight shows included and excluded files and its warning state before the native export picker. At a 720×540 window, the scrollable surface keeps actions and focusable file review within the dialog.
+
 ## Elevation & Depth
 
 Match the reference's surface hierarchy after visual inspection. Supplementary tools should appear in contextual panels, menus, and review surfaces without obscuring the passage under review.
 
 ## Shapes
 
-Match the reference after measurement. No alternative shape system has been approved.
+The 5 November beta polish uses a shared 12px control radius, 20px surface/dialog radius and pill shapes only for circular or capsule controls. Avoid bright decorative outlines; use surface contrast for grouping and retain visible keyboard focus.
 
 ## Components
 
@@ -130,7 +132,8 @@ Motion design tokens live in `src/renderer/ui/tokens.css`:
 
 - `--duration-fast`: 80ms for active tactile click feedback (subtle scale: 0.99 on buttons, 0.96 on icon buttons).
 - `--duration-normal`: 140ms with easing `--ease-standard: cubic-bezier(0.16, 1, 0.3, 1)` for smooth hover backgrounds, borders, colors, and shadows.
-- `--duration-modal`: 160ms for dialog fade/scale pop-in, toast notice slide-up, and outline accordion rotation.
+- `--duration-modal`: 160ms for local disclosure fades, toast notice slide-up, and outline accordion rotation.
+- `--duration-panel`: 220ms for native dialog enter/exit, workspace view transitions and content-sized disclosures. Forms and command details fade while keeping natural geometry, preserving keyboard/native-select access and output scrolling.
 
 All transitions and animations are strictly disabled under `@media (prefers-reduced-motion: reduce)`, ensuring full accessibility and immediate responsiveness for users requesting reduced motion.
 
@@ -216,7 +219,7 @@ The user supplied T3 Code's provider settings as inspiration on 4 November 2026.
 
 The assistant composer remains at the bottom of the center column. It holds a saved local prompt draft, optional source/file chips, harness connection, searchable model picker, compact Reasoning/Permissions menus and Send/Stop. Model favorites are optional local preferences. Native model effort choices are shown only when reported; Big Pickle uses its native default. Per-chat permission choices explain actual harness policy: OpenCode omits Codex-only Auto review. These are native top-layer nonmodal popovers with explicit keyboard focus, arrow navigation, Escape return and viewport bounds. Native default settings remain available; private chain-of-thought is never fabricated. Up from model search selects the last result and Down selects the first. Settings and model changes that reset an unsupported effort complete their native acknowledgment before returning keyboard focus to the re-enabled trigger. Attachment actions explain supported project files and image-model capability. **Attach a source selection** explains when a selection is needed. Source attachments and messages render as text, never injected HTML. Public native responses appear in a bounded conversation immediately above the composer, without remounting source. Chats in the existing sidebar select project-bound conversations, with their harness identified. Collapsing the conversation retains access to the manuscript.
 
-Questions and permissions remain in the conversation, using labeled native controls and explicit **Deny** / **Allow once** actions. Polling preserves focus, typed answers and the original author prompt. Permission text reflects actual native requests; Loom does not claim a pre-write approval boundary. Running state, cancellation and reconnect guidance distinguish the agent from the local Electron service. New work remains blocked while a native operation's stop is unconfirmed.
+Questions and permissions remain in the conversation, using labeled native controls and explicit **Deny** / **Allow once** actions. Polling preserves focus, typed answers and the original author prompt. Permission text reflects actual native requests; Loom does not claim a pre-write approval boundary. Running state, cancellation and reconnect guidance distinguish the agent from the local Electron service. On stream loss, the composer clearly marks the agent interrupted, retains partial work, disables Stop/Send until recovery, and keeps the recovery action visible even in a compact window. Managed connections offer reconnect; an external OpenCode attachment asks the author to re-enter its address and password because Loom does not retain those credentials. New work remains blocked while a native operation's stop is unconfirmed.
 
 **Merge Changes** is the canonical inline change-review card (`agent/AgentChanges.tsx`, styled by `agent/changes.css`) immediately above the composer. It replaces the former review dialog and duplicate review entry points. Rows identify the observed file, change type, additions/deletions and **Review**. **Keep all** marks review without changing source; **Undo all** uses the shared Modal for explicit confirmation and invokes the established safe per-file recovery newest-first. It stops on failure, retaining completed progress and unreviewed records. Native execution must stop before keep/undo. Partial/cancelled/interrupted work stays labeled. These are observations during a request, not proof of sole authorship.
 
@@ -232,17 +235,19 @@ The user's newer chat screenshots supersede the earlier expanded conversation tr
 
 ## Compact chat controls and conversation management
 
-Pasting a supported image into the composer saves a uniquely named file in the paper and adds its attachment chip. The file picker can also copy explicitly selected external images into the paper; it reports how many were copied. The status reports the saved path for paste; removing a chip does not delete the asset. Clipboard text is allowed to paste alongside an image. Unsupported images and busy operations explain why they cannot be attached.
+Pasting a supported image into the composer saves a uniquely named file in the paper and adds a thumbnail above the prompt. Image thumbnails, file cards (icon, filename and type), and selected-passage cards share the attachment-card presentation. Draft cards form one horizontally scrolling row with a separate, always-visible remove control; removal returns focus to the prompt and does not delete the asset. Compact windows shorten the cards and prompt while preserving send/error visibility. The file picker can also copy explicitly selected external images into the paper; it reports how many were copied. Clipboard text is allowed to paste alongside an image. Unsupported images and busy operations explain why they cannot be attached.
 
-Image attachments can open a bounded project-image preview over the source. It identifies the current file and warns that it may differ from what was sent. On short windows an open preview temporarily hides the expanded transcript, with an explanation; closing it restores the conversation. Source, composer, model guidance and the close action stay reachable.
+Image attachments can open a bounded project-image preview over the source. It identifies the current file and warns that it may differ from what was sent. Zoom and scrolling support close inspection while the composer remains available. Expand opens a larger shared dialog; closing it returns focus to Expand and preserves the preview and zoom.
 
-Submitted images remain available from their conversation as time-labeled comparison actions. Their preview identifies the saved request image, distinct from the current project file. The author can compare it with the editable manuscript and use the normal conversation and review surfaces to correct an interpretation.
+Submitted images and files remain as cards above the text inside the author message that sent them. Image thumbnails load lazily from the protected submitted copy, stay associated with the same message after conversation refresh or restart, and open the existing bounded comparison preview. File cards identify the submitted project path without implying that current project bytes are the submitted copy. Older image turns without a reliable message association appear as dated thumbnail groups in an Earlier attachments section inside the scrolling conversation. Attachment history never accumulates below the composer. The preview identifies the saved request image, distinct from the current project file, and states that a successful build does not verify the interpretation. `AgentAttachmentCard` owns draft, sent and earlier-record card presentation; workspace CSS owns its token-based visual variants.
 
 Native shell activity retains its harness status and offers a keyboard-operable disclosure for its reported command and output. Assistant prose stays separate. A short-window disclosure scrolls its bounded details into view while keeping the composer available; missing output and truncation are stated explicitly.
 
 Workspace tools offers Convert image, Revise notation, and Table or figure as editable request starters. They append to the author's draft and never send automatically. A current source selection is attached only when no passage is already attached; retained or unavailable selections are reported. Image guidance reflects whether an image is already attached.
 
 Model selection uses a 340px popover with provider-logo buttons for connected/installed harnesses; reasoning uses 210px and permissions 300px, bounded to the desktop viewport. Provider changes keep one Loom conversation and distinct native sessions/settings. Public assistant messages identify the harness that produced them. A failed native resume retains readable history and offers New conversation while Send stays blocked. Chats rows provide a labeled trash action and the shared confirmation Modal. Delete removes local conversation history; manuscript/recovery and native harness history stay intact. Active or unsettled requests must stop before deletion or provider changes.
+
+New conversation uses the same action from the sidebar, empty state, conversation header and unavailable-session recovery. It stays available when disconnected: connection setup opens, and a successful connection continues the requested chat creation and focuses the prompt. Cancelling setup drops that pending action; project changes cannot apply it to another paper. Active requests must stop before starting another conversation.
 
 The composer plus opens the native multi-file selector directly, for text files in the open paper and supported images selected from inside or outside it; cancellation leaves attachments unchanged and unsupported files explain scope. An image attached to a model without reported image input keeps the draft and shows model-switch guidance beside the composer. A selected source passage exposes a small Attach selected text action. Panel resize targets remain keyboard/pointer accessible while their visual strokes are one or two pixels. Source, PDF and transcript each own their necessary scroll region; wrapped code blocks have no nested horizontal scrollbar. Merge Changes scrolls only its file list when needed, leaving actions visible.
 
@@ -253,3 +258,45 @@ The composer plus opens the native multi-file selector directly, for text files 
 The wide dialog pairs a bounded results list with a selected record; smaller windows stack these within the shared scrolling modal body. Focus, Escape/return, buttons, native selects and form fields follow canonical primitives and `ui/tokens.css`; no separate theme is introduced. Native select popups are intentionally OS-owned, consistent with PDF settings. Source metadata, dates, DOI, direct source URL, provenance and explicit record/abstract evidence remain visible. Abstracts are bounded scroll regions, not full-text claims. Bibliography notices distinguish incomplete/missing/duplicate records from informational unused entries.
 
 Insertion previews the key, bibliography file (including literal declared missing files) and supported citation command. Known identifiers reuse an unambiguous existing entry; title-only matches require explicit author confirmation. Key collisions stay inline. Literal main-document dependencies determine which bibliography resources are actually in the paper; unsupported dynamic declarations require source editing rather than guessed linkage. An interrupted group exposes copyable saved versions, Finish/Undo, and a reviewed **Keep current files** escape for newer divergent work. **Discuss with agent** appends identified evidence to the existing draft and retains a selected claim; sending remains explicit. Citation and recovery success return to the editor with shared status feedback. Updating the PDF remains the existing build action.
+
+Native command details show the harness-reported command and output separately from assistant prose. The disclosure explains that files read by the command may be absent and invites the author to ask for inputs; it does not imply complete input tracing.
+
+## Beta UX polish — 5 November 2026
+
+The user authorized a quieter, more rounded workspace while retaining the reference arrangement. Remove the local workspace/avatar identity until accounts arrive. Use icon-only source actions with accessible names and native tooltips. Keep document tabs beside compact actions when space permits and give them their own row below 480px of source width; hide tab scroll chrome while retaining wheel/trackpad and keyboard access. Replace the prominent blue Tools control with a More workspace actions menu; scientific request starters remain available there. References and Git have dedicated actions. Git review uses distinct clone/fetch/pull/push/branch/commit icons with explanatory text at the operation boundary. Blue/lavender references, warm build and muted green Git accents give controls meaning without coloring the manuscript workspace.
+
+Chat surfaces and active tabs have no decorative bright borders. Scroll tracks and corners are transparent; retain thin thumbs for genuinely overflowing content. Native dialogs use short enter/exit transitions; explicit workspace view changes use interruptible view transitions, bypassed during resizing and under reduced motion. Preserve focus, source state and the center-column composer. Later minor changes to Loom's broader design language are separate follow-up work.
+
+## Appearance and structural focus — manual beta feedback
+
+The 5 November follow-up authorizes saved system/light/dark schemes and six paired light/dark palettes: Loom graphite/blue, Ocean blue/sea glass, Grove forest/sage, Ember charcoal/copper, Iris ink/lavender and Rose plum/rose. The signature is paired pigment swatches above a working manuscript, following the supplied appearance inspiration without moving the source/composer/PDF arrangement. Keep typography and radius tokens unchanged. Themes adjust application surfaces and source syntax; compiled paper remains white and document-defined. No theme may hide state or rely on color alone.
+
+The Appearance palette icon sits beside the conventional gear at the sidebar’s bottom left; both remain reachable in the compact header when the sidebar is hidden. The agent connection control uses a plug. File, folder, save, provider, reference, Git and build icons use distinct semantic colors; labels/tooltips remain authoritative. Large focus outlines around whole panels are removed. F6 focus is shown by a toolbar/brand surface change; keyboard dividers and the chat grip highlight their stroke, while actionable buttons retain local focus outlines. Pointer hover on chat collapse/hide and resizing handles never paints a pill behind the control.
+
+Ownership: `appearance/preferences.ts` defines the strict version-1 device preference, palette pairs and root-token mapping; `appearance/Appearance.tsx` owns the shared dialog and system-color-scheme listener; `appearance/appearance.css` maps scheme/theme/diff/opacity/contrast choices onto the canonical semantic CSS variables. `ui/tokens.css` remains the dark fallback and the owner of typography, spacing and shape. Apply the preference before the first rendered frame. Save failures preserve this window’s choice and explain the persistence failure. Native selects and range inputs retain OS keyboard behavior. System mode follows OS changes live; Restore defaults returns to the original dark Loom direction. Opacity is bounded at 80–100% for readability; contrast at 90–120%; comfortable chat bounds message measure without hiding horizontal content. Custom theme import/editing and unrelated composer/worktree controls are outside this request.
+
+Reconcile drift:
+
+| Existing rule                                  | Observed drift                                       | Resolution                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Quiet panel chrome with visible keyboard focus | Whole-panel outline looked like a broken white frame | Mark the focused toolbar/brand and individual resize strokes instead                             |
+| Distinct recognizable actions                  | Settings gear was reused for agent connections       | Conventional cog for settings; plug for connections; palette for appearance                      |
+| Shared runtime tokens                          | Only dark fallback existed                           | Add validated paired-theme overrides of those same roles, preserving paper and shape/type owners |
+
+The maintained PRD/architecture and this file are the UX contract for this desktop product. Appearance uses the existing shared Modal, native select/slider controls, local status feedback and app scroll ownership. These resolve the applicable Form, Select/Listbox, Scrollbar and Toast rows of the canonical UI map; no new equivalent primitives are introduced. English scientific desktop use remains the audience; no Japan-market or authentication change is implied.
+
+Completed agent source edits reveal the first changed passage that SyncTeX can map in the exact resulting PDF snapshot. Keep the source/editor and conversation layout intact on large windows; reveal the PDF view at narrow widths. Navigation never replays historical turns or guesses from stale output. Preserve source review and use existing status feedback when mapping or a matching build is unavailable. `agent/changePreview.ts` owns turn/revision coordination; the canonical LaTeX workspace/viewer owns source mapping, page selection and passage highlighting.
+
+## Startup project manager — 5 November 2026
+
+The two supplied Prism project-library references establish the startup screen: a quiet left navigation rail and a rounded charcoal content surface, with a search field, list/grid toggle, open/import and New project actions along the top. Use the workspace's existing semantic tokens and appearance preferences. Show local folder names, paths and last-opened dates; the white document glyph is a file representation, not a fabricated PDF thumbnail. The smaller 720×540 layout drops the rail and wraps the toolbar while retaining every primary action. The content list owns scrolling; footer and actions remain reachable.
+
+Launch into Your projects even when a recent project exists. Choosing a project enters the existing workspace; the project selector and compact Loom button return to the library after a document/preferences flush. Returning to the same open workspace preserves its mounted editor and conversation. Reopening another project uses its existing stable local identity and saved working state. A failed/cancelled open stays on the library. Missing folders remain listed with a recovery explanation; no source or recovery deletion is offered. Search is immediate local state with a clear button; last-opened/name sorting is explicit and list/grid choice persists on this device. The library renders all registered local projects in its bounded scroller. Search and sort reset on each visit because this desktop navigation state is transient, contains private paths and has no shareable URL.
+
+Reuse `IconButton`, `ActionMenu`, `EmptyState`, the existing native project pickers, shared Modal and Appearance dialog. `projects/ProjectManager.tsx` owns library presentation, `projects/projects.css` maps it onto shared semantic tokens, and the existing project workspace owns safe switching and restoration. Do not invent account names, avatars or a Shared with you section. Local workspace is a storage location label. Accounts and authentication remain later work.
+
+### Project navigation polish — 5 November 2026
+
+Make the return path explicit: a quiet left arrow and **Projects** button, accessible as **Back to projects**, sits above the project selector in the wide sidebar and at the left of the compact header. Reuse the same button presentation and save-before-navigation action in both places. Keep the project selector and existing Projects menu route as alternatives. Disable repeat return requests while saving; failed persistence stays in the workspace with its existing error. Returning focuses the library heading; reopening/continuing focuses the visible source or PDF without replacing the mounted editor or stealing focus from a later user action.
+
+Manager/workspace navigation uses one composed-page View Transition with a 280ms eased crossfade and 4–8px vertical travel. `--duration-navigation` in `ui/tokens.css` owns that duration; `projects/projects.css` owns the scoped `project-navigation` transition treatment. Suppress independent source/sidebar/PDF transition names only during this page transition, preserving their existing behavior for panel changes. New navigation interrupts the previous transition; controls remain interactive during the animation. Reduced-motion and unavailable View Transition support use immediate navigation. Opening, creating, importing, cloning, returning and continuing share this route transition. Keep native picker/loading/error behavior honest; animation does not add a simulated wait.

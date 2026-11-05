@@ -1,4 +1,8 @@
-import { portableBuildSchema, type BuildSettings } from '../../contracts/latex';
+import {
+  defaultBuildSettings,
+  portableBuildSchema,
+  type BuildSettings,
+} from '../../contracts/latex';
 import { constants, promises as fs } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -9,6 +13,9 @@ import { MetadataStore } from './store';
 import { reconcile, textChanges } from './reconcile';
 import { imageMime } from '../../domain/images';
 import { imageBytesMatch, validateImage } from '../agents/images';
+type DiskFile = { text: string | null; inode: string; revision: string };
+type CachedDiskFile = { signature: string; file: DiskFile };
+type IndexInput = { id: string; path: string; binary: boolean; state: number[] };
 type RecordFile = {
   id: string;
   path: string;
@@ -44,6 +51,8 @@ export class ProjectService {
   private project: Project | null = null;
   private documents = new Map<string, Y.Doc>();
   private queue: Promise<unknown> = Promise.resolve();
+  private scanCache = new Map<string, CachedDiskFile>();
+  private indexed: { inputs: IndexInput[]; revision: number } | null = null;
   constructor(readonly store: MetadataStore) {}
   run<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action);
@@ -113,10 +122,14 @@ export class ProjectService {
     }
     return target;
   }
-  private async scan(): Promise<
-    Map<string, { text: string | null; inode: string; revision: string }>
-  > {
-    const found = new Map<string, { text: string | null; inode: string; revision: string }>();
+  private async scan(observe: boolean): Promise<Map<string, DiskFile>> {
+    const found = new Map<string, DiskFile>();
+    const cache = new Map<string, CachedDiskFile>();
+    // Nanosecond metadata is only an observer invalidation hint. Operation refreshes
+    // still read/hash content, and saves retain their independent disk comparisons.
+    const statFile = (path: string) => fs.lstat(path, { bigint: true });
+    const signature = (stat: Awaited<ReturnType<typeof statFile>>) =>
+      `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}:${stat.mode}`;
     let total = 0;
     const walk = async (dir: string) => {
       for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
@@ -126,16 +139,27 @@ export class ProjectService {
         if (entry.isDirectory()) await walk(path);
         else if (entry.isFile()) {
           if (found.size >= 2000) throw new Error('This pilot supports up to 2,000 project files.');
-          const stat = await fs.stat(path);
-          let text: string | null = null;
-          let revision = `stat:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-          if (stat.size <= MAX_FILE) {
-            total += stat.size;
+          const stat = await statFile(path);
+          if (!stat.isFile()) continue;
+          const key = relative(this.root, path).split(sep).join('/');
+          const stamp = signature(stat);
+          // Enforce limits on every scan, including cache hits.
+          if (stat.size <= BigInt(MAX_FILE)) {
+            total += Number(stat.size);
             if (total > 32 * 1024 * 1024)
               throw new Error('This pilot supports up to 32 MiB of indexed project content.');
-            const bytes = await fs.readFile(
-              await this.safe(relative(this.root, path).split(sep).join('/')),
-            );
+          }
+          const cached = observe ? this.scanCache.get(key) : undefined;
+          if (cached?.signature === stamp) {
+            found.set(key, cached.file);
+            cache.set(key, cached);
+            continue;
+          }
+          let text: string | null = null;
+          let revision = `stat:${stat.size}:${Number(stat.mtimeNs) / 1e6}:${Number(stat.ctimeNs) / 1e6}`;
+          let stable = true;
+          if (stat.size <= BigInt(MAX_FILE)) {
+            const bytes = await fs.readFile(await this.safe(key));
             revision = hash(bytes);
             try {
               const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -143,16 +167,26 @@ export class ProjectService {
             } catch {
               /* Binary assets stay on disk. */
             }
+            // Never cache a read spanning a replacement or an in-place write.
+            stable = signature(await statFile(path)) === stamp;
           }
-          found.set(relative(this.root, path).split(sep).join('/'), {
-            text,
-            revision,
-            inode: `${stat.dev}:${stat.ino}`,
-          });
+          const file = { text, revision, inode: `${stat.dev}:${stat.ino}` };
+          found.set(key, file);
+          if (stable) cache.set(key, { signature: stamp, file });
         }
       }
     };
-    await walk(this.root);
+    try {
+      await walk(this.root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new Error(
+          'A project folder or file is unavailable. Reconnect its drive or restore its folder. Saved recovery data has been retained.',
+        );
+      throw error;
+    }
+    // Publish only complete scans; removals evict cached paths, and failures retry.
+    this.scanCache = cache;
     return found;
   }
   async open(path: string): Promise<ProjectSnapshot> {
@@ -164,8 +198,12 @@ export class ProjectService {
       project: this.project,
       documents: this.documents,
       loadedId: this.loadedId,
+      scanCache: this.scanCache,
+      indexed: this.indexed,
     };
     this.documents = new Map();
+    this.scanCache = new Map();
+    this.indexed = null;
     this.root = root;
     this.loadedId = '';
     try {
@@ -177,6 +215,7 @@ export class ProjectService {
       await this.refresh();
       this.persist();
       this.store.set('lastProject', root);
+      this.store.rememberProject(root, this.project!.id, this.project!.name);
       for (const doc of previous.documents.values()) doc.destroy();
       return this.snapshot();
     } catch (error) {
@@ -185,14 +224,50 @@ export class ProjectService {
       this.project = previous.project;
       this.documents = previous.documents;
       this.loadedId = previous.loadedId;
+      this.scanCache = previous.scanCache;
+      this.indexed = previous.indexed;
       throw error;
     }
   }
 
-  async current(): Promise<ProjectSnapshot | null> {
+  async library() {
+    return Promise.all(
+      this.store.recentProjects().map(async (entry) => {
+        let available = false;
+        try {
+          available = (await fs.stat(entry.path)).isDirectory();
+        } catch {
+          /* Keep missing projects visible. */
+        }
+        return { ...entry, available };
+      }),
+    );
+  }
+  async reopen(projectId: string) {
+    const entry = this.store.recentProjects().find((entry) => entry.id === projectId);
+    if (!entry)
+      throw new Error('This project is not in the local library. Open its folder to add it.');
+    try {
+      return await this.open(entry.path);
+    } catch {
+      throw new Error(
+        'This project folder is unavailable or could not be loaded. Reconnect its drive or restore its folder at the original location. Saved recovery data has been retained.',
+      );
+    }
+  }
+  async current(allowMissing = false): Promise<ProjectSnapshot | null> {
     if (!this.project) {
       const last = this.store.get('lastProject');
       if (last) {
+        if (allowMissing) {
+          try {
+            if (!(await fs.stat(last)).isDirectory()) return null;
+          } catch (error) {
+            if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+              return null;
+            throw error;
+          }
+        }
         try {
           return await this.open(last);
         } catch {
@@ -366,9 +441,9 @@ export class ProjectService {
     }
     return this.open(destination);
   }
-  async refresh(): Promise<void> {
+  async refresh(observe = false): Promise<void> {
     if (!this.project) return;
-    const disk = await this.scan();
+    const disk = await this.scan(observe);
     for (const file of this.project.files) {
       let found = disk.get(file.path);
       if (!found && !file.deleted) {
@@ -451,18 +526,36 @@ export class ProjectService {
     }
     this.readBuildConfiguration();
     this.persist();
-    this.store.index(
-      this.root,
-      this.project.files
-        .filter((f) => !f.deleted)
-        .map((f) => ({
-          id: f.id,
-          path: f.path,
-          content: f.binary ? '' : this.doc(f).getText('source').toString(),
+    const liveFiles = this.project.files.filter((file) => !file.deleted);
+    const inputs = liveFiles.map(({ id, path, binary, state }) => ({ id, path, binary, state }));
+    const previous = this.indexed;
+    if (
+      !previous ||
+      previous.revision !== this.store.changeCount() ||
+      inputs.length !== previous.inputs.length ||
+      inputs.some((file, i) => {
+        const old = previous.inputs[i];
+        return (
+          file.id !== old.id ||
+          file.path !== old.path ||
+          file.binary !== old.binary ||
+          file.state !== old.state
+        );
+      })
+    ) {
+      this.store.index(
+        this.root,
+        liveFiles.map((file) => ({
+          id: file.id,
+          path: file.path,
+          content: file.binary ? '' : this.doc(file).getText('source').toString(),
         })),
-    );
+      );
+      this.indexed = { inputs, revision: this.store.changeCount() };
+    }
   }
-  private async save(file: RecordFile): Promise<void> {
+
+  private async save(file: RecordFile, source: 'human' | 'agent' = 'human'): Promise<void> {
     if (file.binary || file.deleted || file.conflict) return;
     const text = this.doc(file).getText('source').toString();
     if (text === file.baseline) return;
@@ -482,7 +575,7 @@ export class ProjectService {
       this.persist();
       return;
     }
-    this.onHumanWrite?.(file.path);
+    if (source === 'human') this.onHumanWrite?.(file.path);
     this.persist();
     const temp = join(dirname(target), `.loom-save-${randomUUID()}`);
     try {
@@ -531,9 +624,17 @@ export class ProjectService {
     }
   }
   async command(command: ProjectCommand): Promise<ProjectSnapshot | null> {
+    if (command.type === 'reopen') return this.reopen(command.projectId);
+    if (command.type === 'library') throw new Error('Use the library result boundary.');
     if (command.type === 'current') return this.current();
     if (!this.project) await this.current();
     if (!this.project) throw new Error('Open a project first.');
+    // Preferences are private metadata; an unplugged project must not prevent saving working state or leaving it.
+    if (command.type === 'preferences') {
+      this.project.preferences = command.value;
+      this.persist();
+      return this.snapshot();
+    }
     if (command.type === 'load') this.loadedId = command.fileId;
     if (command.type === 'sync') {
       this.loadedId = command.fileId;
@@ -556,7 +657,7 @@ export class ProjectService {
       file.state = Array.from(Y.encodeStateAsUpdate(this.doc(file)));
       this.persist();
     }
-    await this.refresh();
+    await this.refresh(command.type === 'refresh');
     if (command.type === 'preview-image') {
       if (this.project.id !== command.projectId) throw new Error('The open paper changed.');
       const file = this.project.files.find((f) => f.path === command.path && !f.deleted);
@@ -594,11 +695,6 @@ export class ProjectService {
         matches: [...new Set(hits.map((hit) => hit.fileId))],
         hits,
       };
-    }
-    if (command.type === 'preferences') {
-      this.project.preferences = command.value;
-      this.persist();
-      return this.snapshot();
     }
     if (command.type === 'import-image') {
       return this.saveImage(command.projectId, command.path, Buffer.from(command.data, 'base64'));
@@ -710,7 +806,11 @@ export class ProjectService {
         'Invalid, missing-root or conflicting loom.build.json. Review the file, select the root and save build settings to repair it.';
     }
   }
-  async configureBuild(projectId: string, settings: BuildSettings) {
+  async configureBuild(
+    projectId: string,
+    settings: BuildSettings,
+    source: 'human' | 'agent' = 'human',
+  ) {
     const context = this.buildContext(projectId);
     const root = context.files.find((f) => f.id === context.snapshot.rootId)?.path;
     if (!root) throw new Error('Choose a root .tex document before saving build settings.');
@@ -726,12 +826,48 @@ export class ProjectService {
     if (!this.setText(file, JSON.stringify({ version: 1, root, settings }, null, 2) + '\n'))
       throw new Error('Build configuration is too complex to update safely. Edit it manually.');
     this.persist();
-    await this.save(file);
+    await this.save(file, source);
     if (file.conflict)
       throw new Error(
         'Build configuration changed on disk. Review the conflict before saving settings.',
       );
     await this.refresh();
+  }
+  /** Agent writes enter the same observed filesystem bridge; call inside run() after editor flush. */
+  async agentCreateFile(projectId: string, path: string, text: string) {
+    this.buildContext(projectId);
+    if (Buffer.byteLength(text, 'utf8') > MAX_FILE || text.includes('\0'))
+      throw new Error('Use a bounded UTF-8 text file.');
+    const target = await this.safe(path);
+    await fs.mkdir(dirname(target), { recursive: true });
+    const temporary = join(dirname(target), `.loom-save-${randomUUID()}`);
+    try {
+      const handle = await fs.open(temporary, 'wx', 0o600);
+      try {
+        await handle.writeFile(text, 'utf8');
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.link(temporary, target);
+      const folder = await fs.open(dirname(target), 'r');
+      try {
+        await folder.sync();
+      } finally {
+        await folder.close();
+      }
+    } finally {
+      await fs.rm(temporary, { force: true });
+    }
+    await this.refresh();
+  }
+  async agentSetRoot(projectId: string, path: string) {
+    const context = this.buildContext(projectId);
+    const file = this.project!.files.find((file) => !file.deleted && file.path === path);
+    if (!file || file.binary || file.conflict || !path.endsWith('.tex'))
+      throw new Error('Choose an available, conflict-free .tex document.');
+    this.project!.rootId = file.id;
+    await this.configureBuild(projectId, context.settings ?? defaultBuildSettings, 'agent');
   }
   /** Internal only: native roots never cross the renderer bridge. Call inside run(). */
   buildContext(projectId: string) {

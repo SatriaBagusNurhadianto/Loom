@@ -9,6 +9,7 @@ import { harnessExecutable } from './runtime';
 import { openCodeServerEndpoint } from './startup';
 import { OpenCodeClassicAdapter, supportedClassicVersion } from './opencode-classic';
 import { openCodeExecution } from './evidence';
+import { agentRequestError } from './request-error';
 
 const nativeObject = z.record(z.string(), z.unknown());
 export const object = (value: unknown): Record<string, unknown> => nativeObject.parse(value);
@@ -96,6 +97,13 @@ export class OpenCodeAdapter implements HarnessAdapter {
       responseStyle: 'data',
       fetch: async (input, init) => fetch(input, { ...init, redirect: 'error' }),
     });
+    this.client.interceptors.error.use((error, response) =>
+      response
+        ? new Error('OpenCode returned an HTTP error response.', {
+            cause: { status: response.status },
+          })
+        : error,
+    );
   }
   async request(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
@@ -112,10 +120,8 @@ export class OpenCodeAdapter implements HarnessAdapter {
         responseStyle: 'data',
         throwOnError: true,
       });
-    } catch {
-      throw new Error(
-        'OpenCode did not accept the request. Check the connection, provider sign-in and supported version, then reconnect.',
-      );
+    } catch (error) {
+      throw agentRequestError('OpenCode', error);
     }
   }
   static async detect(override?: string) {

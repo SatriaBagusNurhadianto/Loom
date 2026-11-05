@@ -1,0 +1,234 @@
+dialog:has(.git-workspace) {
+  width: min(1100px, calc(100vw - 32px));
+  max-width: none;
+}
+.git-workspace {
+  width: min(100%, 1050px);
+  min-width: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.git-publish-remote {
+  display: grid;
+  gap: 4px;
+  min-width: 120px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.git-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.git-toolbar p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.git-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.git-actions > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.git-actions .text-button {
+  white-space: normal;
+  text-align: left;
+}
+.git-branch-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.git-branch-controls label {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.git-branch-controls input,
+.git-branch-controls select {
+  min-width: 0;
+  max-width: 280px;
+}
+.git-clone-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.git-clone-controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.git-clone-controls input {
+  width: 100%;
+  min-width: 0;
+}
+.git-clone-controls .muted {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.git-commit-review {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.git-commit-review p,
+.git-commit-review ul {
+  margin: 0;
+}
+.git-commit-review ul {
+  max-width: 100%;
+  padding-left: 20px;
+  font-size: 11px;
+}
+.git-commit-review label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.git-publication {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.git-publication p {
+  margin: 0;
+}
+.git-publication details {
+  font-size: 11px;
+}
+.git-publication summary {
+  cursor: pointer;
+}
+.git-publication details ul {
+  margin: 6px 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+.git-preflight-warnings {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.git-commit-review textarea {
+  width: 100%;
+  resize: vertical;
+}
+.git-callout {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.git-review-grid {
+  min-height: 220px;
+  height: min(48vh, 440px);
+  display: grid;
+  grid-template-columns: minmax(190px, 0.38fr) minmax(260px, 0.62fr);
+  gap: 10px;
+}
+.git-file-list,
+.git-diff {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.git-file {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.git-file-path {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
+}
+.git-file > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.git-file .text-button {
+  font-size: 11px;
+}
+.git-diff {
+  padding: 10px;
+}
+.git-diff h3 {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.git-diff h3 small {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.git-diff pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.5 var(--font-mono);
+}
+.git-workspace > .muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+@media (max-width: 700px) {
+  dialog:has(.git-workspace) {
+    width: calc(100vw - 24px);
+  }
+  .git-workspace {
+    width: 100%;
+    min-width: 0;
+  }
+  .git-review-grid {
+    height: 48vh;
+    min-height: 180px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(90px, 0.36fr) minmax(100px, 0.64fr);
+  }
+  .git-clone-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.git-actions button,
+.git-clone-controls button,
+.git-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.git-actions button svg {
+  flex-shrink: 0;
+  color: var(--icon-git);
+}
+.git-label {
+  justify-content: flex-start;
+}

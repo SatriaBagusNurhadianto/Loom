@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { imageMime } from '../../domain/images';
 import { openCodeExecution } from './evidence';
+import { agentRequestError } from './request-error';
 import type { AgentMessage, AgentModel, AgentSettings } from '../../contracts/agent';
 import type { spawnOwnedTool } from '../latex/tools';
 import { list, object, privateEndpoint, string, type HarnessAdapter } from './opencode';
@@ -45,6 +46,13 @@ export class OpenCodeClassicAdapter implements HarnessAdapter {
       responseStyle: 'data',
       fetch: async (input, init) => fetch(input, { ...init, redirect: 'error' }),
     });
+    this.client.interceptors.error.use((error, response) =>
+      response
+        ? new Error('OpenCode returned an HTTP error response.', {
+            cause: { status: response.status },
+          })
+        : error,
+    );
   }
   adoptProcess(child: ReturnType<typeof spawnOwnedTool>) {
     this.process = child;
@@ -69,21 +77,7 @@ export class OpenCodeClassicAdapter implements HarnessAdapter {
         throwOnError: true,
       });
     } catch (error) {
-      const detail =
-        error instanceof Error &&
-        error.cause &&
-        typeof error.cause === 'object' &&
-        'code' in error.cause
-          ? String(error.cause.code)
-              .replace(/[^A-Z_0-9]/g, '')
-              .slice(0, 40)
-          : '';
-      const cause =
-        error instanceof Error ? error.name + (detail ? ': ' + detail : '') : 'HTTP response';
-      throw new Error(
-        `OpenCode ${method} ${path.split('?')[0]} failed (${cause}). Check the connection, provider sign-in and supported version, then reconnect.`,
-        { cause: error },
-      );
+      throw agentRequestError('OpenCode', error);
     }
   }
   async verify() {

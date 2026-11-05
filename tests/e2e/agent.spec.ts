@@ -1,9 +1,18 @@
+import { resumeFromLibrary } from './helpers/project-library';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { cp, link, mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
+import { cpus, release, tmpdir, totalmem } from 'node:os';
+import { createHash } from 'node:crypto';
+import {
+  compileGateReady,
+  compileGateRelease,
+  withCompileGate,
+} from '../helpers/phase8-compile-gate';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 let app: ElectronApplication,
   page: Page,
   directory: string,
@@ -24,6 +33,9 @@ let sessions: Record<
   }
 >;
 let modelsAvailable = true;
+let closeNextEventStream = false;
+let promptFailure: 'image413' | 'beforeAdmission503' | 'afterAdmission503' | null = null;
+let failStatusReads = false;
 let includeSecondaryModel = false;
 let imageModel = false;
 let requestBodies: { path: string; method: string; body: Record<string, unknown> }[];
@@ -82,8 +94,13 @@ async function openProjectIfNeeded() {
   )
     return;
   await stubNativeOpenDialog([root]);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-editor')).toBeVisible();
 }
 async function restartElectron() {
@@ -97,6 +114,59 @@ async function restartElectron() {
 function later(action: () => void, ms: number) {
   pendingTimers.push(setTimeout(action, ms));
 }
+function processTree(pid: number): Array<{ pid: number; ppid: number; rssKb: number }> {
+  const records = execFileSync('ps', ['-eo', 'pid=,ppid=,rss='], { encoding: 'utf8' })
+    .trim()
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/).map(Number))
+    .filter((parts) => parts.length === 3)
+    .map(([child, parent, rss]) => ({ pid: child!, ppid: parent!, rssKb: rss! }));
+  const tree = new Set([pid]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const record of records) {
+      if (tree.has(record.ppid) && !tree.has(record.pid)) {
+        tree.add(record.pid);
+        changed = true;
+      }
+    }
+  }
+  return records.filter((record) => tree.has(record.pid));
+}
+async function concurrentMemorySnapshot(pid: number) {
+  const processes = await Promise.all(
+    processTree(pid).map(async (record) => {
+      try {
+        const rollup = await readFile(`/proc/${record.pid}/smaps_rollup`, 'utf8');
+        const match = /^Pss:\s+(\d+) kB$/m.exec(rollup);
+        return { ...record, pssKb: match ? Number(match[1]) : null };
+      } catch {
+        return { ...record, pssKb: null };
+      }
+    }),
+  );
+  const complete = processes.length > 0 && processes.every((record) => record.pssKb !== null);
+  return {
+    processes,
+    pssMb: complete ? processes.reduce((sum, record) => sum + record.pssKb!, 0) / 1024 : null,
+    rssSumMb: processes.reduce((sum, record) => sum + record.rssKb, 0) / 1024,
+  };
+}
+function processTreeCpuTicks(pid: number): number {
+  return processTree(pid).reduce((sum, record) => {
+    try {
+      const stat = execFileSync('cat', [`/proc/${record.pid}/stat`], { encoding: 'utf8' });
+      const fields = stat
+        .slice(stat.lastIndexOf(')') + 2)
+        .trim()
+        .split(/\s+/);
+      return sum + Number(fields[11]) + Number(fields[12]);
+    } catch {
+      return sum;
+    }
+  }, 0);
+}
 test.beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'loom-agent-e2e-'));
   root = join(directory, 'paper');
@@ -105,6 +175,9 @@ test.beforeEach(async () => {
   await writeFile(join(root, 'references.bib'), '@article{synthetic,title={Synthetic study}}\n');
   sessions = {};
   modelsAvailable = true;
+  closeNextEventStream = false;
+  promptFailure = null;
+  failStatusReads = false;
   includeSecondaryModel = false;
   imageModel = false;
   requests = [];
@@ -125,6 +198,10 @@ test.beforeEach(async () => {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: ' + JSON.stringify({ type: 'server.connected', data: {} }) + '\n\n');
       streams.push(res);
+      if (closeNextEventStream) {
+        closeNextEventStream = false;
+        setImmediate(() => res.destroy());
+      }
       return;
     }
     let body: Record<string, unknown> = {};
@@ -195,10 +272,52 @@ test.beforeEach(async () => {
         outcome: s.outcome,
       });
       if (ids.length === 4) value = { data: native() };
-      else if (path.endsWith('/message')) value = { data: [...s.messages].reverse() };
+      else if (path.endsWith('/message') && failStatusReads) {
+        res
+          .writeHead(503, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+        return;
+      } else if (path.endsWith('/message')) value = { data: [...s.messages].reverse() };
       else if (path.endsWith('/permission')) value = { data: s.permissions };
       else if (path.endsWith('/form')) value = { data: s.forms };
       else if (path.endsWith('/prompt')) {
+        if (
+          promptFailure === 'image413' &&
+          Array.isArray(body.files) &&
+          body.files.some((file) => String((file as { uri?: string }).uri).endsWith('.png'))
+        ) {
+          promptFailure = null;
+          res.writeHead(413, { 'Content-Type': 'application/json' }).end(
+            JSON.stringify({
+              name: 'Payload Too Large',
+              data: { message: 'Image input too large.' },
+            }),
+          );
+          return;
+        }
+        if (promptFailure === 'beforeAdmission503') {
+          promptFailure = null;
+          res
+            .writeHead(503, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+          return;
+        }
+        if (promptFailure === 'afterAdmission503') {
+          promptFailure = null;
+          s.active = true;
+          delete s.time.idle;
+          delete s.outcome;
+          s.messages.push({
+            id: 'user-' + s.messages.length,
+            type: 'user',
+            text: body.text,
+            metadata: body.metadata,
+          });
+          res
+            .writeHead(503, { 'Content-Type': 'application/json' })
+            .end(JSON.stringify({ name: 'Service Unavailable', data: {} }));
+          return;
+        }
         s.active = true;
         delete s.time.idle;
         delete s.outcome;
@@ -223,6 +342,20 @@ test.beforeEach(async () => {
             type: 'assistant',
             content: [{ type: 'text', text: 'First file updated; continuing…' }],
           });
+        } else if (String(body.text).includes('preview third page')) {
+          later(() => {
+            void (async () => {
+              const text = await readFile(join(root, 'main.tex'), 'utf8');
+              await writeFile(
+                join(root, 'main.tex'),
+                text.replace('Third page original.', 'Third page revised by agent.'),
+              );
+              s.active = false;
+              s.outcome = 'succeeded';
+              s.time.idle = Date.now();
+              s.messages.push({ id: 'preview-idle', type: 'idle', outcome: 'succeeded' });
+            })();
+          }, 1200);
         } else if (String(body.text).includes('numeric question')) {
           s.forms = [
             {
@@ -257,6 +390,27 @@ test.beforeEach(async () => {
           s.outcome = 'succeeded';
           s.time.idle = Date.now();
           s.messages.push({ id: 'computation-idle', type: 'idle', outcome: 'succeeded' });
+        } else if (String(body.text).includes('Phase 8 streamed workload output')) {
+          const streamed = {
+            id: 'phase8-stream',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'Phase 8 streamed chunk 0' }],
+          };
+          s.messages.push(streamed);
+          let chunks = 0;
+          const appendChunk = () => {
+            chunks += 1;
+            streamed.content[0]!.text = `Phase 8 streamed chunk ${chunks}`;
+            s.time.updated = Date.now();
+            if (chunks < 120) later(appendChunk, 500);
+            else {
+              s.active = false;
+              s.outcome = 'succeeded';
+              s.time.idle = Date.now();
+              s.messages.push({ id: 'phase8-stream-idle', type: 'idle', outcome: 'succeeded' });
+            }
+          };
+          later(appendChunk, 500);
         } else if (String(body.text).includes('markdown rendering')) {
           s.messages.push({
             id: 'markdown-response',
@@ -355,8 +509,13 @@ test.beforeEach(async () => {
   endpoint = `http://127.0.0.1:${address.port}`;
   await launchElectron();
   await stubNativeOpenDialog([root]);
-  await page.getByRole('button', { name: 'Open or create project', exact: true }).click();
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page
+    .getByRole('button', { name: /^(Open or create project|More options)$/, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Projects', exact: true })
+    .getByRole('button', { name: 'Open folder', exact: true })
+    .click();
   await expect(page.locator('.cm-editor')).toBeVisible();
 });
 test.afterEach(async () => {
@@ -535,6 +694,7 @@ test('partial cancellation, retained draft and project chat continuation after r
   );
   await page.getByRole('button', { name: 'Back to editor', exact: true }).click();
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('.cm-editor')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
     'Keep this next draft across reconnect.',
@@ -663,6 +823,7 @@ test('native reasoning and permission controls persist with the chat and reach t
   await page.getByRole('button', { name: 'Stop agent request', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Send to agent', exact: true })).toBeVisible();
   await page.reload();
+  await resumeFromLibrary(page);
   await expect(page.locator('.cm-editor')).toBeVisible();
   await connect();
   await expect(page.getByRole('button', { name: 'Reasoning', exact: true })).toHaveText('High');
@@ -750,7 +911,9 @@ test('native attachment picker preserves cancellation, rejects outside-paper fil
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+a');
   await page.getByRole('button', { name: 'Attach selected text', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Remove selected passage main.tex' }),
+  ).toBeVisible();
 });
 
 test('picker copies outside images and retains project files in a mixed selection', async () => {
@@ -763,12 +926,17 @@ test('picker copies outside images and retains project files in a mixed selectio
   await expect(page.getByRole('button', { name: 'Remove attached file main.tex' })).toBeVisible();
   const chip = page.getByRole('button', { name: /Remove attached file loom-import-.*\.png/ });
   await expect(chip).toBeVisible();
+  const tray = page.getByRole('group', { name: 'Attachments to send' });
+  await expect(tray.locator('img')).toBeVisible();
+  await expect(tray.locator('.agent-attachment-file')).toContainText('main.tex');
   const name = (await chip.getAttribute('aria-label'))!.replace('Remove attached file ', '');
   expect(await readFile(join(root, name))).toEqual(bytes);
   expect(await readFile(external)).toEqual(bytes);
   await expect(page.getByText('1 image copied into this paper.')).toBeVisible();
   await expect(page.locator('.cm-editor')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Tools', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'More workspace actions', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Attach paper files or images' })).toBeInViewport();
   await page.evaluate(
     () =>
@@ -776,10 +944,16 @@ test('picker copies outside images and retains project files in a mixed selectio
         requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
       ),
   );
+  await page.waitForTimeout(400);
   await page.screenshot({
     path: resolve('artifacts/phase-6-import-image-small.png'),
     animations: 'disabled',
   });
+  await chip.focus();
+  await page.keyboard.press('Enter');
+  await expect(chip).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeFocused();
+  expect(await readFile(join(root, name))).toEqual(bytes);
 });
 
 test('picker reports a partial import without attaching an unimported file', async () => {
@@ -899,6 +1073,14 @@ test('pasting an image saves an ordinary project asset and keeps clipboard text'
   });
   await page.getByRole('button', { name: 'Close image' }).click();
   await expect(image).toHaveCount(0);
+  const thumbnail = page.getByRole('button', { name: `View image ${name}` }).locator('img');
+  const originalThumbnail = await thumbnail.getAttribute('src');
+  await writeFile(
+    join(root, name),
+    await readFile(resolve('tests/fixtures/whiteboard-diagram.png')),
+  );
+  await expect.poll(() => thumbnail.getAttribute('src')).not.toBe(originalThumbnail);
+  await expect(thumbnail).toBeVisible();
 });
 
 test('submitted image snapshot stays available after the project file changes and after restart', async () => {
@@ -906,13 +1088,28 @@ test('submitted image snapshot stays available after the project file changes an
   const bytes = await readFile(resolve('tests/fixtures/whiteboard-equation.png'));
   await writeFile(join(root, 'board.png'), bytes);
   await connect();
-  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await stubNativeOpenDialog([join(root, 'board.png'), join(root, 'main.tex')]);
   await page.getByRole('button', { name: 'Attach paper files or images' }).click();
   await page
     .getByRole('textbox', { name: 'Ask about your paper' })
     .fill('Show markdown rendering.');
   await page.getByRole('button', { name: 'Send to agent' }).click();
-  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
+  const sentImage = page.getByRole('button', { name: 'View submitted image board.png' });
+  await expect(sentImage).toBeVisible();
+  await sentImage.scrollIntoViewIfNeeded();
+  await expect(sentImage.locator('img')).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-attachment-file')).toContainText(
+    'main.tex',
+  );
+  const fileCard = page.locator('.agent-message-user .agent-attachment-card:not(.is-image)');
+  expect((await fileCard.boundingBox())!.height).toBeLessThan(
+    (await sentImage.boundingBox())!.height,
+  );
+  await expect(page.locator('.composer-area [aria-label="Submitted images"]')).toHaveCount(0);
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-sent-image-message-small.png'),
+    animations: 'disabled',
+  });
   const payload = requestBodies.find((entry) => entry.path.endsWith('/prompt'))!.body;
   expect(payload.text).toContain('project-relative files, in attachment order: board.png');
   const files = payload.files as Array<{ uri: string }>;
@@ -921,16 +1118,201 @@ test('submitted image snapshot stays available after the project file changes an
   expect(await readFile(snapshotPath)).toEqual(bytes);
   await writeFile(join(root, 'board.png'), Buffer.from('changed'));
   await dimensions(720, 540);
-  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await sentImage.click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+  const preview = page.getByRole('region', { name: 'Project image preview' });
+  const image = preview.getByRole('img', { name: 'Submitted image: board.png' });
+  const originalWidth = (await image.boundingBox())!.width;
+  await preview.getByRole('button', { name: 'Zoom in' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(preview.getByText('150%')).toBeVisible();
+  expect((await image.boundingBox())!.width).toBeGreaterThan(originalWidth);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeVisible();
+  await preview.getByRole('button', { name: 'Expand' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Inspect image' });
+  await expect(dialog.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
   await page.screenshot({
-    path: resolve('artifacts/phase-6-submitted-image-small.png'),
+    path: resolve('artifacts/phase-6-image-inspection-small.png'),
     animations: 'disabled',
   });
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(preview.getByRole('button', { name: 'Expand' })).toBeFocused();
   await restartElectron();
-  await expect(page.getByRole('button', { name: /Compare board\.png/ })).toBeVisible();
-  await page.getByRole('button', { name: /Compare board\.png/ }).click();
+  await page.getByRole('button', { name: 'Show conversation' }).click();
+  const restoredImage = page.getByRole('button', { name: 'View submitted image board.png' });
+  await expect(restoredImage).toBeVisible();
+  await restoredImage.scrollIntoViewIfNeeded();
+  await expect(restoredImage.locator('img')).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-attachment-file')).toContainText(
+    'main.tex',
+  );
+  await restoredImage.click();
   await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+});
+
+test('older image records use conversation thumbnails instead of rows below the composer', async () => {
+  imageModel = true;
+  await writeFile(
+    join(root, 'board.png'),
+    await readFile(resolve('tests/fixtures/whiteboard-equation.png')),
+  );
+  await connect();
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(page.getByRole('button', { name: 'View submitted image board.png' })).toBeVisible();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().forEach((window) => window.destroy()),
+  );
+  await app.close();
+  // Reproduce a pre-association recovery record, without changing its saved image bytes.
+  const db = new DatabaseSync(join(directory, 'data', 'metadata.sqlite'));
+  try {
+    const row = db
+      .prepare("SELECT key,value FROM preferences WHERE key LIKE 'agent-turns:%'")
+      .get() as { key: string; value: string };
+    const record = JSON.parse(row.value);
+    for (const turn of record.turns) {
+      delete turn.knownMessageIds;
+      delete turn.view.messageId;
+      delete turn.view.messageAssociationResolved;
+      delete turn.view.attachments;
+    }
+    db.prepare('UPDATE preferences SET value=? WHERE key=?').run(JSON.stringify(record), row.key);
+  } finally {
+    db.close();
+  }
+  await launchElectron();
+  await openProjectIfNeeded();
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Show conversation' }).click();
+  const earlier = page.getByRole('region', { name: 'Earlier request attachments' });
+  const thumbnail = earlier.getByRole('button', { name: 'View submitted image board.png' });
+  await thumbnail.scrollIntoViewIfNeeded();
+  await expect(thumbnail.locator('img')).toBeVisible();
+  await expect(page.locator('.composer-area [aria-label="Submitted images"]')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-legacy-attachment-cards-small.png'),
+    animations: 'disabled',
+  });
+  await thumbnail.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('img', { name: 'Submitted image: board.png' })).toBeVisible();
+});
+
+test('a rejected image request keeps the session connected and retains the draft and attachment', async () => {
+  imageModel = true;
+  await writeFile(
+    join(root, 'board.png'),
+    await readFile(resolve('tests/fixtures/whiteboard-equation.png')),
+  );
+  await connect();
+  await stubNativeOpenDialog([join(root, 'board.png')]);
+  await page.getByRole('button', { name: 'Attach paper files or images' }).click();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Transcribe this image.');
+  await expect(page.getByText('Agent connected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send to agent' })).toBeEnabled();
+  promptFailure = 'image413';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect.poll(() => requests.filter((request) => request.endsWith('/prompt')).length).toBe(1);
+  await expect(page.getByRole('alert')).toContainText('HTTP 413');
+  await expect(page.getByRole('alert')).toContainText('Use a smaller image');
+  await dimensions(720, 540);
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-image-rejection-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await expect(page.getByText('Agent connected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Transcribe this image.',
+  );
+  await expect(page.getByRole('button', { name: 'Remove attached file board.png' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove attached file board.png' }).click();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue without image.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  await expect(page.locator('.agent-message-user .agent-attachment-card.is-image')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /View submitted image board\.png/ })).toHaveCount(
+    0,
+  );
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(2);
+});
+
+test('an ambiguous 503 before admission is shown honestly and never retried automatically', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Try this request once.');
+  promptFailure = 'beforeAdmission503';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('HTTP 503');
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Request status uncertain',
+  );
+  await dimensions(720, 540);
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-uncertain-request-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toHaveValue(
+    'Try this request once.',
+  );
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
+});
+
+test('polling resolves an ambiguous 503 when the server confirms the turn was admitted', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Continue this request.');
+  promptFailure = 'afterAdmission503';
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText('Agent working');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('Continue this request.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
+});
+
+test('a transient status-read failure keeps the connection and reports unavailable status', async () => {
+  await connect();
+  await page.getByRole('textbox', { name: 'Ask about your paper' }).fill('Keep this request safe.');
+  await page.getByRole('button', { name: 'Send to agent' }).click();
+  await expect
+    .poll(
+      () => requests.filter((request) => request === 'POST /api/session/session-0/prompt').length,
+    )
+    .toBe(1);
+  failStatusReads = true;
+
+  await expect(page.getByRole('alert')).toContainText('Could not refresh agent status');
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Agent status unavailable',
+  );
+  await expect(page.getByRole('button', { name: 'Stop agent request' })).toBeEnabled();
+  failStatusReads = false;
+  await expect(page.locator('.agent-composer-status [role="status"]')).toHaveText(
+    'Needs your permission',
+  );
+  await expect(page.getByText('Permission needed: edit', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toHaveCount(0);
+  expect(
+    requests.filter((request) => request === 'POST /api/session/session-0/prompt'),
+  ).toHaveLength(1);
 });
 
 test('native computation activity exposes the reported command and result', async () => {
@@ -944,6 +1326,7 @@ test('native computation activity exposes the reported command and result', asyn
   await page.keyboard.press('Enter');
   await expect(details).toContainText('python -c "print(2 + 2)"');
   await expect(details).toContainText('4');
+  await expect(details).toContainText('Files read by this command may not be shown');
   await expect(details.locator('pre').last()).toBeInViewport();
   await page.screenshot({
     path: resolve('artifacts/phase-6-computation-small.png'),
@@ -955,13 +1338,249 @@ test('native computation activity exposes the reported command and result', asyn
   await expect(page.getByText('Tool activity · completed')).toBeInViewport();
 });
 
+test('packaged large project stays editable during compilation and streamed agent output', async ({}, testInfo) => {
+  const workload = process.env.LOOM_PHASE8_PROJECT;
+  test.skip(
+    !workload ||
+      process.env.LOOM_TEST_TEX !== '1' ||
+      process.env.LOOM_AGENT_PACKAGED !== '1' ||
+      process.platform !== 'linux',
+    'Set LOOM_PHASE8_PROJECT, LOOM_AGENT_PACKAGED=1 and LOOM_TEST_TEX=1 on Linux for the packaged compile/stream workload.',
+  );
+  test.setTimeout(240_000);
+  if (!workload) throw new Error('Missing LOOM_PHASE8_PROJECT.');
+
+  const metricsPath = resolve('artifacts/phase-8-concurrency-metrics.json');
+  const metrics: Record<string, unknown> = {
+    schemaVersion: 2,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    viewport: {
+      state: 'unavailable',
+      reason: 'Attempt ended before renderer dimensions were captured.',
+    },
+    test: testInfo.title,
+    workload,
+    executable:
+      process.env.LOOM_AGENT_PACKAGED === '1'
+        ? resolve('release/linux-unpacked/loom')
+        : 'development',
+    limitation:
+      'Synthetic OpenCode stream, not live provider evidence. The private source has a test-only TeX typesetting loop released after all 50 frames: overlap is synchronized, not ordinary compile throughput. Full observed build duration includes this gate. CPU/PSS are one uncontrolled shaped-workload sample, not provider latency or memory-growth evidence. Animation frames are not physical display presentation.',
+  };
+  await mkdir(resolve('artifacts'), { recursive: true });
+  const saveMetrics = async () => {
+    const bytes = `${JSON.stringify(metrics, null, 2)}\n`;
+    await writeFile(metricsPath, bytes);
+    await writeFile(testInfo.outputPath('phase-8-concurrency-metrics.json'), bytes);
+  };
+  // Replace stale success evidence before setup can fail.
+  await saveMetrics();
+  const originalMain = await readFile(join(workload, 'main.tex'));
+  metrics.fixtureMainSha256Before = createHash('sha256').update(originalMain).digest('hex');
+  let gateOutput: string | undefined;
+  const compilerLog = join(directory, 'concurrency-compiler.log');
+  try {
+    // Copy generated files into this test's private paper; never mutate the input fixture.
+    await cp(workload, root, { recursive: true });
+    await writeFile(join(root, 'main.tex'), withCompileGate(originalMain.toString('utf8')));
+    const editor = page.getByRole('textbox', { name: 'LaTeX source editor' });
+    await expect(editor).toContainText('Test-only synchronization', { timeout: 60_000 });
+    await connect();
+    await page
+      .getByRole('textbox', { name: 'Ask about your paper' })
+      .fill(
+        'Phase 8 streamed workload output; keep reporting short progress updates for this performance check.',
+      );
+    await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+    await expect(page.getByText('Phase 8 streamed chunk 1', { exact: false })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const compileStart = performance.now();
+    await page.locator('.compile-source').click();
+    const stopBuild = page.locator('button.pdf-stop');
+    await expect(stopBuild).toBeVisible({ timeout: 15_000 });
+    // A ready marker proves the native engine reached the synchronization loop;
+    // a visible Stop control alone could still mean snapshot preparation.
+    await expect
+      .poll(
+        async () => {
+          const paths = await readdir(join(directory, 'data'), { recursive: true });
+          const marker = paths.find((path) => path.endsWith(`/output/${compileGateReady}`));
+          if (marker) gateOutput = dirname(join(directory, 'data', marker));
+          return Boolean(gateOutput);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    // Retain the full native log even when Loom removes a failed build snapshot.
+    await link(join(gateOutput!, 'main.log'), compilerLog);
+    const gateReadyObservedAt = performance.now();
+    metrics.compileRequestToGateReadyObservedMs = gateReadyObservedAt - compileStart;
+    const completion = page
+      .waitForFunction(
+        () =>
+          !document.querySelector('button.pdf-stop') &&
+          (document.querySelector('.build-status')?.textContent ?? '').trim() !== 'Creating PDF…',
+        undefined,
+        { timeout: 180_000 },
+      )
+      .then(
+        () => ({ observedAt: performance.now() }),
+        (error: unknown) => ({ error: String(error) }),
+      );
+    const editorPid = app.process().pid;
+    if (editorPid === undefined) throw new Error('Packaged Electron PID is unavailable.');
+    const ticksPerSecond = Number(
+      execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim(),
+    );
+    if (!Number.isFinite(ticksPerSecond) || ticksPerSecond <= 0)
+      throw new Error('Could not determine Linux CPU ticks per second.');
+
+    const typingToFrameMs = await page.evaluate(() => {
+      const samples: number[] = [];
+      document.querySelector('.cm-content')?.addEventListener(
+        'keydown',
+        () => {
+          const started = performance.now();
+          requestAnimationFrame(() => samples.push(performance.now() - started));
+        },
+        { capture: true },
+      );
+      (window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf = samples;
+      return true;
+    });
+    expect(typingToFrameMs).toBe(true);
+    await editor.focus();
+    const cpuStartTicks = processTreeCpuTicks(editorPid);
+    const overlapStart = performance.now();
+    for (let index = 0; index < 50; index++) {
+      await page.keyboard.press('x');
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf?.length,
+          ),
+        )
+        .toBe(index + 1);
+      await page.waitForTimeout(80);
+    }
+    const overlapDurationMs = performance.now() - overlapStart;
+    const cpuEndTicks = processTreeCpuTicks(editorPid);
+    const cpuPercentOfOneCore =
+      ((cpuEndTicks - cpuStartTicks) / ticksPerSecond / (overlapDurationMs / 1000)) * 100;
+    // Check overlap immediately after the last sample, before slower resource reads.
+
+    const streamActiveDuringTyping = Object.values(sessions).some((session) => session.active);
+    const buildActiveAfterTyping = await stopBuild.isVisible().catch(() => false);
+    metrics.streamActiveDuringTyping = streamActiveDuringTyping;
+    metrics.buildActiveAfterTyping = buildActiveAfterTyping;
+    metrics.overlapDurationMs = overlapDurationMs;
+    const interactionPss = await concurrentMemorySnapshot(editorPid);
+    metrics.gateReadyToReleaseObservedMs = performance.now() - gateReadyObservedAt;
+    await writeFile(join(gateOutput!, compileGateRelease), 'release\n');
+    const streamedText = await page
+      .getByText(/Phase 8 streamed chunk \d+/)
+      .last()
+      .textContent();
+    const sortedTyping = await page.evaluate(() =>
+      [...((window as unknown as { __phase8OverlapRaf?: number[] }).__phase8OverlapRaf ?? [])].sort(
+        (a, b) => a - b,
+      ),
+    );
+    const keydownToFrame = {
+      p50Ms: sortedTyping[Math.floor(sortedTyping.length * 0.5)] ?? 0,
+      p95Ms: sortedTyping[Math.ceil(sortedTyping.length * 0.95) - 1] ?? 0,
+      maxMs: sortedTyping.at(-1) ?? 0,
+    };
+    Object.assign(metrics, {
+      test: 'packaged large project with real TeX compilation and synthetic streamed harness output',
+      workload,
+      viewport: await page.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        devicePixelRatio,
+        source: 'renderer window',
+      })),
+      host: {
+        platform: process.platform,
+        kernelRelease: release(),
+        cpuModel: cpus()[0]?.model ?? 'unknown',
+        cpuCount: execFileSync('getconf', ['_NPROCESSORS_ONLN'], { encoding: 'utf8' }).trim(),
+        totalMemoryBytes: totalmem(),
+      },
+      buildRequestToReadyObservedMs: null,
+      postBuildStatus: null as string | null,
+      overlapDurationMs,
+      streamActiveDuringTyping,
+      buildActiveAfterTyping,
+      lastStreamedText: streamedText,
+      keydownToNextAnimationFrame: keydownToFrame,
+      processTreeCpuPercentOfOneCore: cpuPercentOfOneCore,
+      processTreePssDuringOverlapMb: interactionPss.pssMb,
+      processTreeRssSumDuringOverlapMb: interactionPss.rssSumMb,
+      processAccounting: interactionPss.processes,
+      sampleCount: sortedTyping.length,
+    });
+    await saveMetrics();
+    expect(sortedTyping).toHaveLength(50);
+    expect(streamActiveDuringTyping, 'The synthetic harness should still be streaming.').toBe(true);
+    expect(
+      buildActiveAfterTyping,
+      'The real local TeX build should overlap the typing window.',
+    ).toBe(true);
+
+    const buildStatus = page.locator('.build-status');
+    const completed = await completion;
+    if ('error' in completed) throw new Error(completed.error);
+    metrics.buildRequestToReadyObservedMs = completed.observedAt - compileStart;
+    metrics.postBuildStatus = await buildStatus.textContent();
+    expect(metrics.postBuildStatus, 'Native compilation must succeed after gate release.').toMatch(
+      /^(PDF ready|Changes not in PDF)$/,
+    );
+    metrics.status = 'passed';
+  } catch (error) {
+    metrics.status = 'failed';
+    metrics.error = String(error);
+    throw error;
+  } finally {
+    // Release even on assertion/measurement failure; normal afterEach still closes
+    // Electron and its supervised tools before removing the disposable directory.
+    if (gateOutput)
+      await writeFile(join(gateOutput, compileGateRelease), 'release\n').catch(() => {});
+    const nativeLog = await readFile(compilerLog).catch(() => null);
+    if (nativeLog) {
+      const logPath = testInfo.outputPath('phase-8-native-compiler.log');
+      await writeFile(logPath, nativeLog);
+      await testInfo.attach('phase-8-native-compiler-log', {
+        path: logPath,
+        contentType: 'text/plain',
+      });
+    }
+    const after = await readFile(join(workload, 'main.tex'));
+    metrics.fixtureMainSha256After = createHash('sha256').update(after).digest('hex');
+    metrics.fixtureMainUnchanged = after.equals(originalMain);
+    if (!after.equals(originalMain)) metrics.status = 'failed';
+    metrics.finishedAt = new Date().toISOString();
+    await saveMetrics();
+    await testInfo.attach('phase-8-concurrency-metrics', {
+      path: testInfo.outputPath('phase-8-concurrency-metrics.json'),
+      contentType: 'application/json',
+    });
+    expect(after, 'The supplied fixture must remain byte-identical.').toEqual(originalMain);
+  }
+});
+
 test('scientific request templates preserve the draft and selected source', async () => {
   await dimensions(720, 540);
   const input = page.getByRole('textbox', { name: 'Ask about your paper' });
   await input.fill('My existing note.');
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+a');
-  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Workspace tools' });
   await expect(dialog.getByRole('heading', { name: 'Scientific content' })).toBeVisible();
   await page.screenshot({
@@ -971,12 +1590,15 @@ test('scientific request templates preserve the draft and selected source', asyn
   await dialog.getByRole('button', { name: 'Convert image' }).focus();
   await page.keyboard.press('Enter');
   await expect(input).toHaveValue(/My existing note\.[\s\S]*Convert the attached image/);
-  await expect(page.getByRole('button', { name: 'Selected passage · main.tex ×' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Remove selected passage main.tex' }),
+  ).toBeVisible();
   await expect(input).toBeFocused();
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+Home');
   await page.keyboard.press('Shift+End');
-  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page.getByRole('button', { name: 'More workspace actions', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Scientific tools', exact: true }).click();
   await dialog.getByRole('button', { name: 'Revise notation' }).click();
   await expect(page.getByText(/previously attached passage was retained/)).toBeVisible();
   await expect(input).toHaveValue(
@@ -1015,6 +1637,99 @@ test('agent messages render supported Markdown as safe native elements', async (
     path: resolve('artifacts/phase-4-agent-markdown.png'),
     animations: 'disabled',
   });
+});
+
+test('message copy reports clipboard failures and confirms successful copies', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+
+  const assistantMessage = page.locator('.agent-message-harness').last();
+  const copyButton = assistantMessage.getByRole('button', { name: 'Copy message' });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  await copyButton.click();
+  await expect(page.getByRole('alert')).toContainText(/could not copy/i);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error('Clipboard write rejected.');
+        },
+      },
+    });
+  });
+  await assistantMessage.getByRole('button', { name: 'Copy message' }).click();
+  await expect(page.getByRole('alert')).toContainText(/could not copy/i);
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          (window as any).__loomCopiedText = value;
+        },
+      },
+    });
+  });
+  await assistantMessage.getByRole('button', { name: 'Copy message' }).click();
+  await expect(assistantMessage.getByRole('button', { name: 'Message copied' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__loomCopiedText)).toContain('Research update');
+});
+
+test('new conversation remains available while disconnected and continues after connecting', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Show markdown rendering.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.locator('.agent-message-harness')).toBeVisible();
+  const previousSessions = Object.keys(sessions).length;
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  const newConversation = page
+    .locator('.agent-conversation-heading')
+    .getByRole('button', { name: 'New conversation', exact: true });
+  await expect(newConversation).toBeEnabled();
+  await newConversation.click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Use an existing server').check();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(() => Object.keys(sessions).length).toBe(previousSessions + 1);
+  await expect(page.locator('.agent-message')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Ask about your paper' })).toBeFocused();
+  await dimensions(720, 540);
+  await newConversation.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => Object.keys(sessions).length).toBe(previousSessions + 2);
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-new-conversation-small.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await newConversation.click();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await connect();
+  expect(Object.keys(sessions).length).toBe(previousSessions + 2);
+  await dimensions(1440, 900);
+  await page.getByRole('button', { name: 'Chats', exact: true }).click();
+  await expect(
+    page.locator('.agent-chat-row').filter({ hasText: 'Show markdown rendering.' }),
+  ).toBeVisible();
 });
 
 test('Chats deletion can be cancelled and remains deleted after an Electron restart', async () => {
@@ -1123,6 +1838,71 @@ test('utility interruption preserves partial external writes and reconnects befo
   );
   expect(Object.values(sessions)[0].active).toBe(false);
 });
+test('agent stream interruption offers a safe reconnect path and preserves partial work', async () => {
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Perform a partial operation.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByText('First file updated; continuing…', { exact: true })).toBeVisible();
+  streams[0].destroy();
+  await expect(page.getByRole('alert')).toContainText(
+    'Agent connection interrupted. Partial work is retained.',
+  );
+  await expect(page.getByText('Agent interrupted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request', exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole('button', { name: 'Agent interrupted', exact: true })).toBeDisabled();
+  await dimensions(720, 540);
+  await expect(page.getByRole('alert')).toBeInViewport();
+  await page.screenshot({
+    path: resolve('artifacts/phase-6-connection-interrupted-small.png'),
+    animations: 'disabled',
+  });
+  await expect(page.getByRole('button', { name: 'Reconnect OpenCode', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Connection details', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await expect(dialog.getByLabel('Use an existing server')).toBeChecked();
+  await expect(dialog.getByText(/does not retain its address or password/i)).toBeVisible();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Reconnect OpenCode', exact: true }).click();
+  await expect(dialog.getByText('Connected to this paper', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Merge Changes' })).toContainText(
+    'interrupted request',
+  );
+  expect(await readFile(join(root, 'main.tex'), 'utf8')).toContain('Partial agent sentence.');
+});
+
+test('a stream that closes during initial connection is reported as interrupted', async () => {
+  closeNextEventStream = true;
+  await page.getByRole('button', { name: 'Agent connections', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await dialog.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await dialog.getByLabel('Use an existing server').check();
+  await dialog.getByLabel('Server address').fill(endpoint);
+  await dialog.getByLabel('Server password', { exact: true }).fill('fixture-password');
+  await dialog.getByRole('button', { name: 'Connect OpenCode', exact: true }).click();
+  // Setup failure and stream interruption can race to report the same closed connection.
+  await expect(dialog.getByRole('alert')).toHaveText(
+    /^(?:The agent connection closed during setup\. Reconnect and try again\.|Agent connection interrupted\. Reconnect to recover the conversation and review partial changes\.)$/,
+  );
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.getByText('Agent interrupted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Stop agent request', exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole('button', { name: 'Connection details', exact: true }).click();
+  const recovery = page.getByRole('dialog', { name: 'Agent connections', exact: true });
+  await recovery.getByRole('tab', { name: 'Runtime', exact: true }).click();
+  await expect(recovery.getByLabel('Use an existing server')).toBeChecked();
+  await expect(recovery.getByText(/does not retain its address or password/i)).toBeVisible();
+});
+
 test('overlapping author and native writes preserve both versions in a conflict', async () => {
   await connect();
   await page
@@ -1267,4 +2047,60 @@ test('authorized live native agent creates LaTeX files, compiles and safely reve
     .getByRole('button', { name: 'Undo changes', exact: true })
     .click();
   await expect.poll(() => readFile(join(root, 'main.tex'), 'utf8')).toBe(source);
+});
+
+test('panel focus and chat drag/collapse controls do not paint surrounding frames or pills', async () => {
+  await page.getByRole('button', { name: 'Show conversation', exact: true }).click();
+  const grip = page.getByRole('button', { name: 'Resize conversation' });
+  await grip.hover();
+  expect(await grip.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const hide = page.getByRole('button', { name: 'Hide conversation', exact: true }).last();
+  await hide.hover();
+  expect(await hide.evaluate((node) => getComputedStyle(node).backgroundColor)).toBe(
+    'rgba(0, 0, 0, 0)',
+  );
+  const source = page.getByRole('main', { name: 'Source workspace' });
+  await source.focus();
+  expect(await source.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  const divider = page.getByRole('separator', { name: 'Sidebar width' });
+  await divider.focus();
+  expect(await divider.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('none');
+  await page.screenshot({ path: 'artifacts/followup-focus-chrome.png', animations: 'disabled' });
+});
+
+test('agent changes open their exact page in a real multi-page PDF', async () => {
+  test.skip(process.env.LOOM_TEST_TEX !== '1', 'Requires the installed local TeX toolchain.');
+  test.setTimeout(90000);
+  await writeFile(
+    join(root, 'main.tex'),
+    String.raw`\documentclass{article}
+\begin{document}
+First page.
+\newpage
+Second page.
+\newpage
+Third page original.
+\end{document}
+`,
+  );
+  await expect(page.locator('.cm-content')).toContainText('Third page original.');
+  await connect();
+  await page
+    .getByRole('textbox', { name: 'Ask about your paper' })
+    .fill('Please preview third page after editing.');
+  await page.getByRole('button', { name: 'Send to agent', exact: true }).click();
+  await expect(page.getByRole('spinbutton', { name: 'PDF page number', exact: true })).toHaveValue(
+    '3',
+    {
+      timeout: 60000,
+    },
+  );
+  await expect(page.getByLabel('Rendered PDF page 3', { exact: true })).toBeVisible();
+  await expect(page.locator('.textLayer')).toContainText('Third page revised by agent.');
+  await page.screenshot({
+    path: resolve('artifacts/agent-change-page-three.png'),
+    animations: 'disabled',
+  });
 });

@@ -1,0 +1,402 @@
+.library-visible > .compact-bar,
+.library-visible > .workspace-grid,
+.library-visible > .workspace-statusbar,
+.library-visible > .skip-link {
+  display: none !important;
+}
+.project-manager {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+}
+.library-sidebar {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 18px 12px;
+  gap: 38px;
+}
+.library-brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.library-sidebar nav p {
+  padding: 0 14px;
+  font-size: 12px;
+}
+.library-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  text-align: left;
+  background: var(--surface-raised);
+}
+.library-local {
+  margin-top: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--text-muted);
+  padding: 12px 6px;
+}
+.library-local small {
+  display: block;
+  font-size: 11px;
+}
+.library-settings {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: -34px;
+}
+.library-settings > button:last-child {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px;
+}
+.library-main {
+  background: color-mix(in srgb, var(--surface-sidebar) 65%, var(--surface-raised));
+  border-radius: var(--radius-panel);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.library-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.library-toolbar h1 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  margin: 0;
+  flex: 1;
+  white-space: nowrap;
+}
+.library-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.library-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  height: 42px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  width: clamp(180px, 20vw, 330px);
+}
+.library-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  color: var(--text-primary);
+  border: 0;
+  outline: none;
+}
+.library-search:focus-within {
+  outline: 1px solid var(--focus);
+}
+.library-search .icon-button {
+  width: 25px;
+  height: 28px;
+  min-width: 25px;
+}
+.library-views {
+  display: flex;
+  background: var(--surface-raised);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+}
+.library-views .icon-button {
+  width: 34px;
+  height: 34px;
+}
+.library-views [aria-pressed='true'] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.library-open,
+.library-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  white-space: nowrap;
+}
+.library-new {
+  background: var(--text-primary);
+  color: var(--surface-sidebar);
+  border-radius: var(--radius-pill);
+}
+.library-new:hover {
+  background: color-mix(in srgb, var(--text-primary) 85%, var(--surface-sidebar));
+}
+.library-subheader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 28px;
+  color: var(--text-muted);
+  font-size: 12px;
+  min-height: 56px;
+}
+.library-subheader > span {
+  flex: 1;
+}
+.library-subheader > button:not(.icon-button) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+}
+.library-error {
+  padding: 12px 28px;
+  color: var(--error);
+}
+.library-error button {
+  margin-left: 12px;
+}
+.library-resume {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin: 0 28px 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+.library-resume button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.library-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.library-content .empty-state {
+  min-height: 320px;
+  height: 100%;
+  padding: 32px;
+}
+.library-content .empty-state .button-row {
+  justify-content: center;
+  margin: 22px 0 12px;
+}
+.library-projects {
+  list-style: none;
+  padding: 0 28px 24px;
+  margin: 0;
+}
+.library-project {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  width: 100%;
+  padding: 18px 8px;
+  text-align: left;
+  border-radius: var(--radius-control);
+}
+.library-list li + li {
+  border-top: 1px solid var(--border);
+}
+.library-document {
+  width: 46px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--pdf-paper);
+  color: var(--pdf-muted);
+  border: 1px solid var(--pdf-border);
+  border-radius: 3px;
+}
+.library-project-info {
+  flex: 1;
+  min-width: 0;
+}
+.library-project-info strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.library-path {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-date {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.library-missing {
+  color: var(--error);
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 24px 16px;
+  padding-top: 16px;
+}
+.library-grid .library-project {
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  height: 100%;
+}
+.library-grid .library-document {
+  width: 105px;
+  height: 135px;
+  border-radius: 5px;
+}
+.library-grid .library-project-info {
+  width: 100%;
+  flex: auto;
+}
+.library-grid .library-project > svg {
+  display: none;
+}
+.library-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.library-footer > span {
+  flex: 1;
+}
+.library-footer button {
+  font-size: 12px;
+}
+@media (max-width: 1200px) {
+  .project-manager {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .library-actions {
+    width: 100%;
+  }
+  .library-search {
+    flex: 1;
+  }
+  .library-toolbar {
+    gap: 16px;
+  }
+}
+@media (max-width: 850px) {
+  .project-manager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .library-sidebar {
+    display: none;
+  }
+  .library-toolbar {
+    padding: 20px;
+  }
+  .library-subheader {
+    padding: 8px 20px;
+  }
+  .library-projects {
+    padding: 0 20px 20px;
+  }
+  .library-project {
+    gap: 16px;
+  }
+  .library-resume {
+    margin-inline: 20px;
+  }
+  .library-footer {
+    padding-inline: 20px;
+  }
+}
+
+/* One quiet return affordance in the wide sidebar or the compact header. */
+.workspace-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 9px;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.workspace-back:hover {
+  color: var(--text-primary);
+}
+.sidebar > .workspace-back {
+  align-self: flex-start;
+  margin: -9px 0 8px;
+}
+#library-heading:focus {
+  outline: none;
+}
+
+/* Capture a single composed page; editor/PDF panel morphs remain for view changes. */
+:root:active-view-transition-type(project-navigation) .source-column,
+:root:active-view-transition-type(project-navigation) .sidebar,
+:root:active-view-transition-type(project-navigation) .pdf-column {
+  view-transition-name: none;
+}
+:root:active-view-transition-type(project-navigation)::view-transition {
+  pointer-events: none;
+}
+:root:active-view-transition-type(project-navigation)::view-transition-old(root) {
+  animation: project-page-out var(--duration-navigation) var(--ease-standard) both;
+}
+:root:active-view-transition-type(project-navigation)::view-transition-new(root) {
+  animation: project-page-in var(--duration-navigation) var(--ease-standard) both;
+}
+@keyframes project-page-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes project-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:active-view-transition-type(project-navigation)::view-transition-old(root),
+  :root:active-view-transition-type(project-navigation)::view-transition-new(root) {
+    animation: none !important;
+  }
+}

@@ -13,6 +13,7 @@ export function AgentConnections(props: {
   agent: AgentWorkspace;
   open: boolean;
   onClose: () => void;
+  onConnected?: () => void;
   onOpenProject: () => void;
 }) {
   const a = props.agent;
@@ -38,7 +39,7 @@ export function AgentConnections(props: {
       setModelLimit(100);
       if (
         a.state()?.harness === 'opencode' &&
-        a.state()?.connection === 'connected' &&
+        (a.state()?.connection === 'connected' || a.state()?.connection === 'interrupted') &&
         a.state()?.ownership === 'external' &&
         !external()
       ) {
@@ -163,6 +164,7 @@ export function AgentConnections(props: {
           setPassword('');
           setTab('overview');
           if (selected() === 'opencode' && external()) setExternalDetailsKnown(true);
+          props.onConnected?.();
         }
       });
   };
@@ -528,6 +530,12 @@ export function AgentConnections(props: {
                     <span>Use an existing server</span>
                   </label>
                   <Show when={external()}>
+                    <Show when={interrupted()}>
+                      <p class="agent-runtime-unknown-server">
+                        This existing server was interrupted. Loom does not retain its address or
+                        password; enter them again to reconnect.
+                      </p>
+                    </Show>
                     <Show
                       when={!connected() || externalDetailsKnown()}
                       fallback={
@@ -592,13 +600,20 @@ export function AgentConnections(props: {
                 </Show>
               </section>
             </div>
+            <p class="agent-reconnect-note">
+              {connected() && a.state()?.ownership === 'external'
+                ? 'Existing servers require their connection details again after reopening Loom.'
+                : 'Loom reconnects this paper’s last connected local agent when you reopen it. Disconnect to keep it offline.'}
+            </p>
             <div class="agent-connection-actions">
               <Show
                 when={connected()}
                 fallback={
                   <button
                     class="primary-button"
-                    disabled={a.busy() || !!a.state()?.running}
+                    disabled={
+                      a.busy() || (!!a.state()?.running && a.state()?.connection === 'connected')
+                    }
                     onClick={onConnect}
                   >
                     <Icon name={isSetupRequired() ? 'bookOpen' : 'plug'} size={16} />

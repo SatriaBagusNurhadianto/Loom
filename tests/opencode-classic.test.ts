@@ -7,6 +7,7 @@ import {
   OpenCodeClassicAdapter,
   supportedClassicVersion,
 } from '../src/services/agents/opencode-classic';
+import { AgentRequestError } from '../src/services/agents/request-error';
 
 it('uses the classic API for directory-bound turns, permissions, questions and terminal outcomes', async () => {
   const operations: Array<{
@@ -19,6 +20,7 @@ it('uses the classic API for directory-bound turns, permissions, questions and t
   let completed = Date.now() + 1000;
   let busy = false;
   let abortResult = true;
+  let rejectPrompt = false;
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, 'http://127.0.0.1');
     let text = '';
@@ -35,6 +37,12 @@ it('uses the classic API for directory-bound turns, permissions, questions and t
       'Basic ' + Buffer.from('opencode:password').toString('base64')
     ) {
       res.writeHead(401).end();
+      return;
+    }
+    if (url.pathname.endsWith('/prompt_async') && rejectPrompt) {
+      res
+        .writeHead(413, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ name: 'Payload Too Large', data: { message: 'Image too large.' } }));
       return;
     }
     const response: Record<string, unknown> = {
@@ -210,6 +218,12 @@ it('uses the classic API for directory-bound turns, permissions, questions and t
     await expect(
       adapter.configureTools('/paper', 'http://127.0.0.1:1/mcp', 'token'),
     ).rejects.toThrow('attached');
+    rejectPrompt = true;
+    const rejected = await adapter
+      .request('POST', '/session/ses_1/prompt_async?directory=%2Fpaper', {})
+      .catch((error: unknown) => error);
+    expect(rejected).toBeInstanceOf(AgentRequestError);
+    expect(rejected).toMatchObject({ status: 413, disposition: 'rejected' });
   } finally {
     await adapter.close();
     server.closeAllConnections();

@@ -99,7 +99,7 @@ dialog:has(.agent-connections) .modal-body {
   color: var(--text-primary);
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 .agent-provider-mark.codex {
@@ -109,7 +109,7 @@ dialog:has(.agent-connections) .modal-body {
 .agent-provider-mark.large {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 
 .agent-provider-option-copy {
@@ -552,7 +552,7 @@ dialog:has(.agent-connections) .modal-body {
   color: var(--text-muted);
   background: var(--surface-editor);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
 }
 
 .agent-catalog-empty h4 {
@@ -711,7 +711,7 @@ dialog:has(.agent-connections) .modal-body {
   color: var(--text-muted);
   background: var(--surface-editor);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
 }
 
 .agent-project-required p {
@@ -897,4 +897,13 @@ dialog:has(.agent-connections) .modal-body {
   .agent-model-capabilities span {
     border-color: ButtonText;
   }
+}
+
+.agent-reconnect-note {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 20px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
 }

@@ -20,7 +20,10 @@ export type LiveDocument = {
   dirty: boolean;
   initialized: boolean;
 };
-export function createProjectWorkspace(report: (message: string) => void) {
+export function createProjectWorkspace(
+  report: (message: string) => void,
+  options: { libraryFirst?: boolean } = {},
+) {
   const [project, setProject] = createSignal<ProjectSnapshot | null>(null),
     [active, setActive] = createSignal(''),
     [tabs, setTabs] = createSignal<string[]>([]),
@@ -317,7 +320,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
       setPending(false);
     }
   }
-  async function choose(choice: ProjectChoice) {
+  async function choose(choice: ProjectChoice | { projectId: string }) {
     if (pending()) return;
     if (!window.loom) {
       setError('Project folders require the Electron desktop app.');
@@ -330,7 +333,10 @@ export function createProjectWorkspace(report: (message: string) => void) {
       const preferencesResult = await persistPreferences();
       if (project() && !preferencesResult?.ok) return;
       await queue;
-      const result = await window.loom.chooseProject(choice);
+      const result =
+        typeof choice === 'string'
+          ? await window.loom.chooseProject(choice)
+          : await window.loom.project({ type: 'reopen', projectId: choice.projectId });
       if (result.ok) {
         accept(result.value);
         if (result.value) {
@@ -363,7 +369,7 @@ export function createProjectWorkspace(report: (message: string) => void) {
   }
   const search = createProjectSearch({ project, command, locate });
   onMount(() => {
-    void request({ type: 'current' });
+    if (!options.libraryFirst) void request({ type: 'current' });
     let refreshing = false;
     const interval = setInterval(async () => {
       if (refreshing || !project() || pending()) return;
@@ -388,7 +394,8 @@ export function createProjectWorkspace(report: (message: string) => void) {
       closing = true;
       void (async () => {
         try {
-          for (const id of docs.keys()) {
+          for (const [id, document] of docs) {
+            if (!document.dirty) continue;
             const result = await flush(id);
             if (result && !result.ok) return;
           }
@@ -463,6 +470,13 @@ export function createProjectWorkspace(report: (message: string) => void) {
     choose,
     newFile,
     flushPending,
+    saveSession: async () => {
+      if (pending() || !(await flushPending())) return false;
+      clearTimeout(preferencesTimer);
+      const result = await persistPreferences();
+      await queue;
+      return !project() || !!result?.ok;
+    },
     research: async (command: ResearchCommand, isCurrent: () => boolean = () => true) => {
       if (!(await flushPending()) || !window.loom) return;
       await queue;

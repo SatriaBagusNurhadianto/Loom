@@ -10,7 +10,12 @@ export type MenuAction = {
 };
 
 /** Native top-layer popover, with menu keyboard navigation and explicit focus return. */
-export function ActionMenu(props: { label: string; actions: MenuAction[]; disabled?: boolean }) {
+export function ActionMenu(props: {
+  label: string;
+  actions: MenuAction[];
+  icon?: IconName;
+  disabled?: boolean;
+}) {
   const id = createUniqueId();
   const [open, setOpen] = createSignal(false);
   let trigger!: HTMLButtonElement;
@@ -20,16 +25,21 @@ export function ActionMenu(props: { label: string; actions: MenuAction[]; disabl
     if (menu.matches(':popover-open')) menu.hidePopover();
     if (restore) trigger.focus();
   }
-  function show(last = false) {
-    menu.showPopover();
+  function position() {
     const rect = trigger.getBoundingClientRect();
     const bounds = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(rect.right - bounds.width, innerWidth - bounds.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(rect.bottom + 6, innerHeight - bounds.height - 8))}px`;
+  }
+  function show(last = false) {
+    menu.showPopover();
+    position();
     const buttons = items();
     (last ? buttons.at(-1) : buttons[0])?.focus();
   }
-  const resize = () => close();
+  const resize = () => {
+    if (menu.matches(':popover-open')) position();
+  };
   window.addEventListener('resize', resize);
   onCleanup(() => window.removeEventListener('resize', resize));
   return (
@@ -51,7 +61,7 @@ export function ActionMenu(props: { label: string; actions: MenuAction[]; disabl
           }
         }}
       >
-        <Icon name="more" />
+        <Icon name={props.icon ?? 'more'} />
       </button>
       <div
         ref={menu}

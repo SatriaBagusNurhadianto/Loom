@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import {
   readConversations,
   mergeConversation,
@@ -22,7 +23,11 @@ import { CodexAdapter } from './codex';
 import { AgentTools } from './tools';
 import { imageMime } from '../../domain/images';
 import { validateImage } from './images';
+import { AgentRequestError } from './request-error';
 
+const reconnectSchema = z
+  .object({ version: z.literal(1), harness: harnessSchema.nullable() })
+  .strict();
 type SessionRef = ConversationRef;
 type Connection = {
   adapter: HarnessAdapter;
@@ -52,6 +57,13 @@ export class AgentService {
   private tools: AgentTools | null = null;
   private connections = new Map<HarnessKind, Connection>();
   private persisted = '';
+  private saveWaiter: {
+    id: string;
+    resolve: (revision: string) => void;
+    reject: (error: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
+  private reconnectPending: HarnessKind | null = null;
   private changes: AgentChanges;
   private projectId = '';
   private generation = 0;
@@ -79,7 +91,8 @@ export class AgentService {
     }, 650);
   }
   async initialize() {
-    const current = await this.projects.run(() => this.projects.current());
+    // A disconnected drive retains its recovery records and must not lock the startup library.
+    const current = await this.projects.run(() => this.projects.current(true));
     if (current) await this.serialized(() => this.bind(current.id));
   }
   private serialized<T>(action: () => Promise<T>): Promise<T> {
@@ -130,9 +143,17 @@ export class AgentService {
     const ref = this.sessions?.find((ref) => ref.id === this.state?.sessionId);
     if (!ref) {
       this.state!.messages = clean;
+      this.changes.linkSubmittedAttachments(clean, nativeSessionKey(this.state!.harness, nativeId));
       return;
     }
     this.state!.messages = mergeConversation(ref, this.state!.harness, nativeId, clean);
+    this.changes.linkSubmittedAttachments(
+      clean.map((message) => ({
+        ...message,
+        id: nativeSessionKey(this.state!.harness, nativeId + '\0' + message.id),
+      })),
+      nativeSessionKey(this.state!.harness, nativeId),
+    );
     this.persist();
   }
   private async activate(kind: HarnessKind) {
@@ -183,8 +204,7 @@ export class AgentService {
       s.sessionUnavailable = true;
       s.permissions = [];
       s.questions = [];
-      s.error =
-        'The saved conversation is unavailable on this server. Start a new chat to continue; recovery comparisons are retained.';
+      s.error = `The saved conversation is unavailable on this server. Start a new chat to continue; recovery comparisons are retained. ${error instanceof Error ? error.message : ''}`;
     }
   }
   private async discardInterrupted(kind: HarnessKind) {
@@ -252,6 +272,16 @@ export class AgentService {
       error: '',
       toolsAvailable: false,
     };
+    this.reconnectPending = null;
+    const savedConnection = this.projects.store.get(`agent-reconnect:${projectId}`);
+    if (savedConnection) {
+      try {
+        this.reconnectPending = reconnectSchema.parse(JSON.parse(savedConnection)).harness;
+      } catch {
+        this.state.error =
+          'The saved agent connection needs a compatible Loom version. Connect an agent to update it; chats and recovery data are retained.';
+      }
+    }
     this.publishSessions();
     const recovered = await this.projects.run(() => this.changes.recoverInterrupted());
     if (!recovered)
@@ -299,6 +329,12 @@ export class AgentService {
   }
   private async disconnect(outcome: 'interrupted' | 'cancelled' = 'interrupted') {
     ++this.generation;
+    if (this.saveWaiter) {
+      clearTimeout(this.saveWaiter.timer);
+      this.saveWaiter.reject(new Error('Agent disconnected before the editor confirmed saving.'));
+      this.saveWaiter = null;
+      if (this.state) delete this.state.saveRequest;
+    }
     const adapter = this.adapter,
       s = this.state;
     if (adapter) {
@@ -340,15 +376,213 @@ export class AgentService {
       s.toolsAvailable = false;
     }
   }
+  private requestProjectSave(): Promise<string> {
+    if (!this.state?.running || !this.changes.running() || this.adapter?.ownership !== 'loom')
+      return Promise.reject(
+        new Error('Project changes require an active checkpointed Loom agent request.'),
+      );
+    if (this.saveWaiter) return Promise.reject(new Error('A project save is already pending.'));
+    const id = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.saveWaiter?.id !== id) return;
+        this.saveWaiter = null;
+        if (this.state) delete this.state.saveRequest;
+        reject(
+          new Error(
+            'The editor did not confirm saving. Keep Loom open and retry the paper operation.',
+          ),
+        );
+      }, 12000);
+      this.saveWaiter = { id, resolve, reject, timer };
+      this.state!.saveRequest = { id };
+    });
+  }
+  private rememberConnection() {
+    this.projects.store.set(
+      `agent-reconnect:${this.projectId}`,
+      JSON.stringify({
+        version: 1,
+        harness: this.state?.ownership === 'loom' ? this.state.harness : null,
+      }),
+    );
+  }
+  private async connect(command: Extract<AgentCommand, { type: 'connect' }>): Promise<AgentState> {
+    const s = this.state!;
+    if (s.running && s.connection === 'connected')
+      throw new Error('Stop the current request before changing agent connections.');
+    if (this.active() && s.harness !== command.harness)
+      throw new Error('Stop or recover the current request before switching agents.');
+    if (this.adapter && s.connection === 'connected' && s.sessionId) await this.refresh();
+    const available = this.connections.get(command.harness);
+    if (available && !available.interrupted) {
+      await this.activate(command.harness);
+      await this.resumeCurrent();
+      this.rememberConnection();
+      this.persist();
+      return structuredClone(s);
+    }
+    const previousKind = s.harness;
+    await this.discardInterrupted(command.harness);
+    if (s.harness === command.harness && this.adapter) await this.disconnect();
+    else {
+      this.adapter = null;
+      this.tools = null;
+    }
+    if (s.harness !== command.harness) s.settings = defaultAgentSettings();
+    s.harness = command.harness;
+    s.error = '';
+    const context = await this.projects.run(async () =>
+      this.projects.buildContext(command.projectId),
+    );
+    ++this.generation;
+    try {
+      this.tools = await new AgentTools(this.projects, this.builds, command.projectId, {
+        save: () => this.requestProjectSave(),
+        canMutate: () =>
+          !!this.state?.running && !!this.changes.running() && this.adapter?.ownership === 'loom',
+      }).start();
+      const adapter =
+        command.harness === 'codex'
+          ? await CodexAdapter.owned(
+              context.root,
+              {
+                url: this.tools.url,
+                token: this.tools.token,
+              },
+              command.executable ?? this.projects.store.get('agent-runtime:codex') ?? undefined,
+            )
+          : command.endpoint
+            ? await OpenCodeAdapter.attach(
+                command.endpoint,
+                command.password ?? '',
+                command.username ?? 'opencode',
+              )
+            : await OpenCodeAdapter.owned(
+                context.root,
+                command.executable ??
+                  this.projects.store.get('agent-runtime:opencode') ??
+                  undefined,
+              );
+      this.adapter = adapter;
+      const connection: Connection = {
+        adapter,
+        tools: this.tools!,
+        models: [],
+        interrupted: false,
+      };
+      this.connections.set(command.harness, connection);
+      adapter.onLost = () => {
+        connection.interrupted = true;
+        s.providers = s.providers.map((provider) =>
+          provider.id === command.harness ? { ...provider, connected: false } : provider,
+        );
+        if (this.adapter !== adapter) return;
+        // Invalidate any status refresh that is still awaiting this adapter's HTTP calls.
+        ++this.generation;
+        s.connection = 'interrupted';
+        s.error =
+          'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
+        s.permissions = [];
+        s.questions = [];
+        // Keep the request unsettled until native execution is known to have stopped.
+      };
+      s.version = adapter.version;
+      s.installed = true;
+      s.ownership = adapter.ownership;
+      s.connection = 'connected';
+      s.toolsAvailable = adapter.ownership === 'loom';
+      s.models = await adapter.models(context.root);
+      connection.models = s.models;
+      if (adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter) {
+        await adapter.verify();
+        if (adapter.ownership === 'loom')
+          await adapter.configureTools(context.root, this.tools.url, this.tools.token);
+        await adapter.stream();
+      }
+      if (connection.interrupted)
+        throw new Error('The agent connection closed during setup. Reconnect and try again.');
+      const authentication =
+        adapter instanceof CodexAdapter
+          ? adapter.auth
+          : adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter
+            ? await adapter.authentication(context.root)
+            : 'unknown';
+      if (connection.interrupted)
+        throw new Error('The agent connection closed during setup. Reconnect and try again.');
+      s.providers = s.providers.map((p) =>
+        p.id === s.harness
+          ? {
+              ...p,
+              installed: true,
+              version: adapter.version,
+              auth: authentication,
+              connected: true,
+            }
+          : p,
+      );
+      const currentRef = this.sessions.find((ref) => ref.id === s.sessionId);
+      s.settings = currentRef?.nativeSettings?.[s.harness] ?? defaultAgentSettings();
+      if (currentRef) {
+        currentRef.harness = s.harness;
+        currentRef.settings = { ...s.settings };
+      }
+      await this.resumeCurrent();
+      if (command.executable !== undefined)
+        this.projects.store.set('agent-runtime:' + command.harness, command.executable);
+      this.rememberConnection();
+      this.persist();
+      return structuredClone(s);
+    } catch (error) {
+      const lostDuringSetup = this.connections.get(command.harness)?.interrupted ?? false;
+      const failedOwnership = this.connections.get(command.harness)?.adapter.ownership;
+      await this.disconnect();
+      const restoredPrevious =
+        previousKind !== command.harness &&
+        !!this.connections.get(previousKind) &&
+        !this.connections.get(previousKind)?.interrupted;
+      if (restoredPrevious) await this.activate(previousKind);
+      if (lostDuringSetup && !restoredPrevious) {
+        s.connection = 'interrupted';
+        s.ownership = failedOwnership ?? null;
+      }
+      s.error = error instanceof Error ? error.message : 'Agent connection failed.';
+      throw error;
+    }
+  }
   async command(command: AgentCommand): Promise<AgentState> {
     // Cancel/permission requests must not wait behind a long model execution; submit returns only admission.
     return this.serialized(async () => {
       await this.bind(command.projectId);
       const s = this.state!;
+      if (command.type === 'save-result') {
+        const pending = this.saveWaiter;
+        if (!pending || pending.id !== command.requestId) return structuredClone(s);
+        clearTimeout(pending.timer);
+        this.saveWaiter = null;
+        delete s.saveRequest;
+        if (command.saved && command.revision) pending.resolve(command.revision);
+        else
+          pending.reject(
+            new Error(
+              'The editor could not save the paper. Resolve its save or recovery message before retrying.',
+            ),
+          );
+        return structuredClone(s);
+      }
       if (command.type === 'status') {
         if (!s.running && this.changes.unsettled() && !this.changes.unsettledExternal()) {
           const recovered = await this.projects.run(() => this.changes.recoverInterrupted());
           if (recovered) s.error = '';
+        }
+        if (this.reconnectPending && !this.changes.unsettled()) {
+          const harness = this.reconnectPending;
+          this.reconnectPending = null;
+          try {
+            await this.connect({ type: 'connect', projectId: command.projectId, harness });
+          } catch (error) {
+            s.error = `Could not reconnect ${harness === 'codex' ? 'Codex' : 'OpenCode'}: ${error instanceof Error ? error.message : 'Connection failed'}. Open Agent connections to retry.`;
+          }
         }
         if (command.detect || s.version === 'Not checked') await this.detect();
         if (this.adapter) await this.refresh();
@@ -396,127 +630,13 @@ export class AgentService {
       }
       if (command.type === 'disconnect') {
         await this.disconnect();
+        this.reconnectPending = null;
+        this.rememberConnection();
         return structuredClone(s);
       }
       if (command.type === 'connect') {
-        if (s.running && s.connection === 'connected')
-          throw new Error('Stop the current request before changing agent connections.');
-        if (this.active() && s.harness !== command.harness)
-          throw new Error('Stop or recover the current request before switching agents.');
-        if (this.adapter && s.connection === 'connected' && s.sessionId) await this.refresh();
-        const available = this.connections.get(command.harness);
-        if (available && !available.interrupted) {
-          await this.activate(command.harness);
-          await this.resumeCurrent();
-          this.persist();
-          return structuredClone(s);
-        }
-        const previousKind = s.harness;
-        await this.discardInterrupted(command.harness);
-        if (s.harness === command.harness && this.adapter) await this.disconnect();
-        else {
-          this.adapter = null;
-          this.tools = null;
-        }
-        if (s.harness !== command.harness) s.settings = defaultAgentSettings();
-        s.harness = command.harness;
-        s.error = '';
-        const context = await this.projects.run(async () =>
-          this.projects.buildContext(command.projectId),
-        );
-        ++this.generation;
-        try {
-          this.tools = await new AgentTools(this.projects, this.builds, command.projectId).start();
-          const adapter =
-            command.harness === 'codex'
-              ? await CodexAdapter.owned(
-                  context.root,
-                  {
-                    url: this.tools.url,
-                    token: this.tools.token,
-                  },
-                  command.executable ?? this.projects.store.get('agent-runtime:codex') ?? undefined,
-                )
-              : command.endpoint
-                ? await OpenCodeAdapter.attach(
-                    command.endpoint,
-                    command.password ?? '',
-                    command.username ?? 'opencode',
-                  )
-                : await OpenCodeAdapter.owned(
-                    context.root,
-                    command.executable ??
-                      this.projects.store.get('agent-runtime:opencode') ??
-                      undefined,
-                  );
-          this.adapter = adapter;
-          s.models = await adapter.models(context.root);
-          if (adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter) {
-            await adapter.verify();
-            if (adapter.ownership === 'loom')
-              await adapter.configureTools(context.root, this.tools.url, this.tools.token);
-            await adapter.stream();
-          }
-          this.connections.set(command.harness, {
-            adapter,
-            tools: this.tools!,
-            models: s.models,
-            interrupted: false,
-          });
-          s.version = adapter.version;
-          s.installed = true;
-          s.ownership = adapter.ownership;
-          s.connection = 'connected';
-          s.toolsAvailable = adapter.ownership === 'loom';
-          const authentication =
-            adapter instanceof CodexAdapter
-              ? adapter.auth
-              : adapter instanceof OpenCodeAdapter || adapter instanceof OpenCodeClassicAdapter
-                ? await adapter.authentication(context.root)
-                : 'unknown';
-          s.providers = s.providers.map((p) =>
-            p.id === s.harness
-              ? {
-                  ...p,
-                  installed: true,
-                  version: adapter.version,
-                  auth: authentication,
-                  connected: true,
-                }
-              : p,
-          );
-          adapter.onLost = () => {
-            const connection = this.connections.get(command.harness);
-            if (connection?.adapter !== adapter) return;
-            connection.interrupted = true;
-            s.providers = s.providers.map((provider) =>
-              provider.id === command.harness ? { ...provider, connected: false } : provider,
-            );
-            if (this.adapter !== adapter) return;
-            s.connection = 'interrupted';
-            s.error =
-              'Agent connection interrupted. Reconnect to recover the conversation and review partial changes.';
-            s.permissions = [];
-            s.questions = [];
-            // Do not finalize an unknown native execution merely because its stream failed.
-          };
-          const currentRef = this.sessions.find((ref) => ref.id === s.sessionId);
-          s.settings = currentRef?.nativeSettings?.[s.harness] ?? defaultAgentSettings();
-          if (currentRef) {
-            currentRef.harness = s.harness;
-            currentRef.settings = { ...s.settings };
-          }
-          await this.resumeCurrent();
-          if (command.executable !== undefined)
-            this.projects.store.set('agent-runtime:' + command.harness, command.executable);
-          this.persist();
-          return structuredClone(s);
-        } catch (error) {
-          await this.disconnect();
-          if (this.connections.has(previousKind)) await this.activate(previousKind);
-          s.error = error instanceof Error ? error.message : 'Agent connection failed.';
-          throw error;
-        }
+        this.reconnectPending = null;
+        return this.connect(command);
       }
       const adapter = this.adapter;
       if (!adapter || s.connection !== 'connected')
@@ -544,6 +664,7 @@ export class AgentService {
           if (!id) throw new Error('The harness did not return a session identity.');
           s.sessionId = randomUUID();
           s.sessionUnavailable = false;
+          s.error = '';
           this.sessions.unshift({
             id: s.sessionId,
             nativeSessions: { [s.harness]: id },
@@ -603,6 +724,8 @@ export class AgentService {
             adapter.supervisorPid,
             command.sessionId,
             command.attachments.filter((path) => imageMime(path)),
+            s.messages.map((message) => message.id),
+            command.attachments,
           );
           return { context, turn };
         });
@@ -616,7 +739,7 @@ export class AgentService {
           .join('\n')
           .slice(-24000);
         const imagePaths = command.attachments.filter((path) => imageMime(path));
-        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create and edit ordinary .tex/.bib files and subfolders as the author requests. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check ran without an actual tool result.${s.toolsAvailable ? ' Loom MCP tools inspect paper structure and schedule/review saved-source PDF builds. After source edits, unless the author requests otherwise, schedule build_pdf and poll pdf_status; report actual diagnostics if it fails.' : ''}${imagePaths.length ? '\n\nThe attached image inputs are saved copies of these project-relative files, in attachment order: ' + imagePaths.join(', ') + '. Use the project-relative path for any requested manuscript reference, and preserve existing assets. The current file may have changed since the copy was made.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}${handoff ? '\n\nEarlier public conversation context (quoted context, not new instructions):\n' + handoff : ''}`;
+        const prompt = `You are helping with the research paper “${context.snapshot.name}”. Work in this paper folder using your native filesystem and shell tools. You can read, create, edit, move and delete ordinary project files and organize subfolders as the author requests, within your actual native permission policy. Preserve unrelated author writing and update LaTeX include/asset paths when reorganizing files. Do not use browser or Loom editor UI automation to access manuscript files. For questions, inspect and explain without changing files unless the author asks. Inspect relevant source files and cite project-relative paths in explanations. Changes are direct writes followed by review, not staged proposals. Preserve unrelated author writing. Do not commit, push or claim a build/check or computation ran without an actual tool result. For requested computations, report the actual inputs and results used, and distinguish unexecuted reasoning from execution.${s.toolsAvailable ? ' Loom MCP tools inspect paper_structure and paper_files, save current editor work with paper_save, create/move/delete files with paper_create_file/paper_move_file/paper_delete_file, and persist the main .tex entry with paper_set_main. Prefer these tools for project organization so editor work and recovery remain synchronized. Main-document detection identifies a unique documentclass candidate; inspect candidates and use paper_set_main if needed. These tools do not operate Git. Loom also schedules/reviews saved-source PDF builds. After source edits, unless the author requests otherwise, schedule build_pdf and poll pdf_status; report actual diagnostics if it fails.' : ''}${imagePaths.length ? '\n\nThe attached image inputs are saved copies of these project-relative files, in attachment order: ' + imagePaths.join(', ') + '. Use the project-relative path for any requested manuscript reference, and preserve existing assets. The current file may have changed since the copy was made. If a mark or diagram structure is ambiguous, explain the uncertainty and ask the author to clarify before inserting the uncertain interpretation.' : ''}\n\nLoom author request (${command.prompt.length} characters):\n${command.prompt}${selection ? '\n\nAuthor-selected passage from ' + selection.path + ':\n' + selection.text : ''}${handoff ? '\n\nEarlier public conversation context (quoted context, not new instructions):\n' + handoff : ''}`;
         s.running = true;
         s.error = '';
         try {
@@ -633,9 +756,20 @@ export class AgentService {
           if (ref.title === 'New conversation') ref.title = command.prompt.slice(0, 80);
           this.persist();
         } catch (error) {
-          s.connection = 'interrupted';
-          s.error =
-            'Request admission was interrupted. Reconnect and inspect the chat before sending again; partial work is retained.';
+          if (error instanceof AgentRequestError && error.disposition === 'rejected') {
+            await this.projects.run(() => this.changes.finish('failed', false));
+            s.running = false;
+            s.turns = this.changes.views();
+            s.error = `${error.message} The session remains connected.`;
+          } else if (error instanceof AgentRequestError && error.status !== null) {
+            // A 5xx can arrive before or after native admission. Keep the turn protected until
+            // polling observes an active request or a post-turn idle record.
+            s.error = `Request status uncertain: ${error.message} Do not retry until the conversation confirms the request has stopped.`;
+          } else {
+            s.connection = 'interrupted';
+            s.error =
+              'Request admission was interrupted. Reconnect and inspect the chat before sending again; partial work is retained.';
+          }
           throw error;
         }
       } else if (command.type === 'cancel') {
@@ -760,6 +894,11 @@ export class AgentService {
             };
           }),
       }));
+      if (
+        s.error.startsWith('Request status uncertain: ') &&
+        (active || pending.permissions.length > 0 || pending.questions.length > 0)
+      )
+        s.error = '';
       if (s.running) {
         const session = !active ? await adapter.session(sessionId) : null;
         await this.projects.run(async () => {
@@ -785,6 +924,7 @@ export class AgentService {
                     : 'interrupted',
             );
             s.running = false;
+            if (s.error.startsWith('Request status uncertain: ')) s.error = '';
             if (outcome === 'succeeded' && changed) {
               const context = this.projects.buildContext(this.projectId);
               if (
@@ -799,19 +939,12 @@ export class AgentService {
         });
       }
       s.turns = this.changes.views();
+      if (s.error.startsWith('Could not refresh agent status: ')) s.error = '';
     } catch {
       if (generation === this.generation) {
-        const connection = this.connections?.get(s.harness);
-        if (connection?.adapter === adapter) connection.interrupted = true;
-        s.providers =
-          s.providers?.map((provider) =>
-            provider.id === s.harness ? { ...provider, connected: false } : provider,
-          ) ?? [];
-        s.connection = 'interrupted';
-        s.error =
-          'The agent connection was interrupted. Reconnect before continuing. Partial work is retained.';
-        s.permissions = [];
-        s.questions = [];
+        s.error = s.error.startsWith('Request status uncertain: ')
+          ? 'Request status uncertain: the status check failed. The conversation and recovery data are retained; do not retry until you confirm the request has stopped.'
+          : 'Could not refresh agent status: the request was rejected or timed out. The conversation and its recovery data are retained; retrying the status check.';
       }
     } finally {
       this.refreshBusy = false;

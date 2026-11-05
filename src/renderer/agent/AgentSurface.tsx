@@ -6,14 +6,19 @@ import { ProviderLogo } from '../ui/ProviderLogo';
 import { type AgentWorkspace } from './workspace';
 import { AgentChatMenus } from './AgentMenus';
 import { imageMime } from '../../domain/images';
+import type { AgentTurn } from '../../contracts/agent';
+import { AgentAttachmentCard } from './AgentAttachmentCard';
 export { AgentConnections } from './AgentConnections';
 
 const questionFieldId = (questionId: string, fieldKey: string) =>
   `agent-question-${encodeURIComponent(questionId)}-${encodeURIComponent(fieldKey)}`;
+const attachedPaths = (turn: AgentTurn) =>
+  turn.attachments ?? turn.images?.map((image) => image.path) ?? [];
 
 export function AgentChats(props: {
   agent: AgentWorkspace;
   onConnect: () => void;
+  onNewChat: () => void;
   onSelect?: () => void;
 }) {
   const a = props.agent;
@@ -30,11 +35,10 @@ export function AgentChats(props: {
             <span>Ask about your paper or work on a revision together.</span>
             <button
               class="text-button"
-              onClick={() =>
-                a.state()?.connection === 'connected' ? void a.newChat() : props.onConnect()
-              }
+              disabled={a.busy() || !!a.state()?.running}
+              onClick={props.onNewChat}
             >
-              {a.state()?.connection === 'connected' ? 'New conversation' : 'Connect an agent'}
+              New conversation
             </button>
           </div>
         }
@@ -129,10 +133,39 @@ export function AgentChats(props: {
     </div>
   );
 }
-export function AgentConversation(props: { agent: AgentWorkspace }) {
+export function AgentConversation(props: { agent: AgentWorkspace; onNewChat: () => void }) {
   const a = props.agent;
+  const earlierAttachments = createMemo(() =>
+    a
+      .state()
+      ?.turns.filter(
+        (turn) =>
+          turn.conversationId === a.state()?.sessionId &&
+          attachedPaths(turn).length &&
+          !turn.messageId &&
+          !turn.messageAssociationResolved &&
+          turn.status !== 'running',
+      ),
+  );
   let scroller!: HTMLDivElement;
   const [copyError, setCopyError] = createSignal('');
+  const [copiedMessage, setCopiedMessage] = createSignal('');
+  let copyFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(copyFeedbackTimer));
+  const copyMessage = async (id: string, text: string) => {
+    try {
+      const clipboard = navigator.clipboard;
+      if (!clipboard?.writeText) throw new Error('Clipboard access is unavailable.');
+      await clipboard.writeText(text);
+      setCopyError('');
+      setCopiedMessage(id);
+      clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = setTimeout(() => setCopiedMessage(''), 1800);
+    } catch {
+      setCopiedMessage('');
+      setCopyError('Could not copy this message. Select its text and copy it instead.');
+    }
+  };
   const [follow, setFollow] = createSignal(true),
     [questionErrors, setQuestionErrors] = createSignal<
       Record<string, { message: string; fieldId: string }>
@@ -198,8 +231,8 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
             <IconButton
               icon="plus"
               label="New conversation"
-              disabled={a.busy() || a.state()?.running || a.state()?.connection !== 'connected'}
-              onClick={() => void a.newChat()}
+              disabled={a.busy() || !!a.state()?.running}
+              onClick={props.onNewChat}
             />
           </div>
         </div>
@@ -262,6 +295,19 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                           : 'Request status'}
                     {message.state ? ' · ' + message.state : ''}
                   </small>
+                  <Show when={message.role === 'user'}>
+                    <For
+                      each={a
+                        .state()
+                        ?.turns.filter(
+                          (turn) =>
+                            turn.conversationId === a.state()?.sessionId &&
+                            turn.messageId === message.id,
+                        )}
+                    >
+                      {(turn) => <AgentTurnAttachments agent={a} turn={turn} />}
+                    </For>
+                  </Show>
                   <MessageBody text={message.text} />
                   <Show when={message.execution}>
                     {(execution) => (
@@ -283,6 +329,10 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                         }}
                       >
                         <summary>Native command details</summary>
+                        <small>
+                          Files read by this command may not be shown. Ask the agent to identify the
+                          inputs used.
+                        </small>
                         <strong>Command</strong>
                         <pre>{execution().command}</pre>
                         <strong>
@@ -298,22 +348,33 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
                   </Show>
                   <Show when={message.role === 'assistant' || message.role === 'user'}>
                     <IconButton
-                      icon="copy"
-                      label="Copy message"
-                      onClick={() => {
-                        void navigator.clipboard
-                          .writeText(message.text)
-                          .catch(() =>
-                            setCopyError(
-                              'Could not copy this message. Select its text and copy it instead.',
-                            ),
-                          );
-                      }}
+                      icon={copiedMessage() === message.id ? 'check' : 'copy'}
+                      label={copiedMessage() === message.id ? 'Message copied' : 'Copy message'}
+                      onClick={() => void copyMessage(message.id, message.text)}
                     />
+                    <span class="agent-copy-status" role="status" aria-live="polite">
+                      {copiedMessage() === message.id ? 'Copied' : ''}
+                    </span>
                   </Show>
                 </div>
               )}
             </For>
+          </Show>
+          <Show when={earlierAttachments()?.length}>
+            <section class="agent-earlier-attachments" aria-label="Earlier request attachments">
+              <h4>Earlier attachments</h4>
+              <p>Saved with earlier requests in this conversation.</p>
+              <For each={earlierAttachments()?.slice().reverse()}>
+                {(turn) => (
+                  <div>
+                    <time dateTime={turn.startedAt}>
+                      {new Date(turn.startedAt).toLocaleString()}
+                    </time>
+                    <AgentTurnAttachments agent={a} turn={turn} compact />
+                  </div>
+                )}
+              </For>
+            </section>
           </Show>
           <Show when={copyError()}>
             <p role="alert" class="agent-inline-error">
@@ -601,44 +662,220 @@ export function AgentConversation(props: { agent: AgentWorkspace }) {
     </Show>
   );
 }
-export function AgentImagePreview(props: { agent: AgentWorkspace }) {
-  const a = props.agent;
+
+function AgentTurnAttachments(props: {
+  agent: AgentWorkspace;
+  turn: AgentTurn;
+  compact?: boolean;
+}) {
   return (
-    <Show when={a.imagePreview()}>
-      {(preview) => (
-        <div class="agent-image-preview" aria-label="Project image preview">
-          <div>
-            <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
-            <span title={preview().path}>{preview().path}</span>
-            <button class="text-button" onClick={a.closeImage}>
-              Close image
-            </button>
-          </div>
-          <small>
-            {preview().submitted
-              ? 'Saved with this request for comparison.'
-              : 'Current project file; it may have changed since it was sent.'}
-          </small>
-          <Show when={a.open()}>
-            <small class="agent-image-short-hint">Close image to return to the conversation.</small>
-          </Show>
-          <img
-            src={preview().url}
-            alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+    <div class="agent-message-attachments" role="group" aria-label="Message attachments">
+      <For each={attachedPaths(props.turn)}>
+        {(path) => (
+          <AgentAttachmentCard
+            path={path}
+            compact={props.compact}
+            image={props.turn.images?.some((image) => image.path === path)}
+            previewLabel={`View submitted image ${path}`}
+            thumbnail={
+              imageMime(path)
+                ? () => props.agent.submittedImageThumbnail(props.turn.id, path)
+                : undefined
+            }
+            onPreview={() => void props.agent.showSubmittedImage(props.turn.id, path)}
           />
-        </div>
-      )}
-    </Show>
+        )}
+      </For>
+    </div>
   );
 }
-export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => void }) {
+export function AgentImagePreview(props: { agent: AgentWorkspace }) {
+  const a = props.agent;
+  const [zoom, setZoom] = createSignal(1);
+  const [expanded, setExpanded] = createSignal(false);
+  createEffect(() => {
+    a.imagePreview();
+    setExpanded(false);
+    setZoom(1);
+  });
+  return (
+    <>
+      <Show when={a.imagePreview()}>
+        {(preview) => (
+          <section class="agent-image-preview" aria-label="Project image preview">
+            <div class="agent-image-preview-heading">
+              <strong>{preview().submitted ? 'Submitted image' : 'Project image'}</strong>
+              <span title={preview().path}>{preview().path}</span>
+              <button class="text-button" onClick={() => setExpanded(true)}>
+                Expand
+              </button>
+              <button class="text-button" onClick={a.closeImage}>
+                Close image
+              </button>
+            </div>
+            <small>
+              {preview().submitted
+                ? 'Saved with this request for comparison.'
+                : 'Current project file; it may have changed since it was sent.'}{' '}
+              A successful build does not verify the interpretation.
+            </small>
+            <div class="agent-image-preview-toolbar">
+              <button
+                class="text-button"
+                disabled={zoom() <= 1}
+                onClick={() => setZoom(Math.max(1, zoom() - 0.5))}
+              >
+                Zoom out
+              </button>
+              <span aria-live="polite">{Math.round(zoom() * 100)}%</span>
+              <button
+                class="text-button"
+                disabled={zoom() >= 4}
+                onClick={() => setZoom(Math.min(4, zoom() + 0.5))}
+              >
+                Zoom in
+              </button>
+            </div>
+            <div
+              class="agent-image-preview-canvas"
+              tabindex="0"
+              aria-label="Image; scroll to inspect"
+            >
+              <img
+                src={preview().url}
+                alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+                style={{ width: `${zoom() * 100}%` }}
+              />
+            </div>
+          </section>
+        )}
+      </Show>
+      <Modal
+        title="Inspect image"
+        open={expanded() && !!a.imagePreview()}
+        onClose={() => setExpanded(false)}
+      >
+        <Show when={a.imagePreview()}>
+          {(preview) => (
+            <>
+              <p class="muted">
+                {preview().submitted
+                  ? 'Submitted image saved with the request'
+                  : 'Current project image'}
+                : {preview().path}
+              </p>
+              <div class="agent-image-preview-toolbar">
+                <button
+                  class="text-button"
+                  disabled={zoom() <= 1}
+                  onClick={() => setZoom(Math.max(1, zoom() - 0.5))}
+                >
+                  Zoom out
+                </button>
+                <span aria-live="polite">{Math.round(zoom() * 100)}%</span>
+                <button
+                  class="text-button"
+                  disabled={zoom() >= 4}
+                  onClick={() => setZoom(Math.min(4, zoom() + 0.5))}
+                >
+                  Zoom in
+                </button>
+              </div>
+              <div
+                class="agent-image-expanded-canvas"
+                tabindex="0"
+                aria-label="Expanded image; scroll to inspect"
+              >
+                <img
+                  src={preview().url}
+                  alt={`${preview().submitted ? 'Submitted image' : 'Current project image'}: ${preview().path}`}
+                  style={{ width: `${zoom() * 100}%` }}
+                />
+              </div>
+            </>
+          )}
+        </Show>
+      </Modal>
+    </>
+  );
+}
+export function AgentComposer(props: {
+  agent: AgentWorkspace;
+  onConnect: () => void;
+  onNewChat: () => void;
+}) {
   const a = props.agent;
   let input!: HTMLTextAreaElement;
   const ready = () => a.state()?.connection === 'connected',
-    running = () => a.state()?.running || a.submitting();
+    running = () => a.state()?.running || a.submitting(),
+    requestUncertain = () => a.state()?.error.startsWith('Request status uncertain: ') ?? false,
+    statusUnavailable = () =>
+      a.state()?.error.startsWith('Could not refresh agent status: ') ?? false;
   return (
     <>
       <div class="composer agent-composer">
+        <Show when={a.state()?.connection === 'interrupted'}>
+          <div class="agent-connection-warning" role="alert">
+            <span>Agent connection interrupted. Partial work is retained.</span>
+            <Show
+              when={a.state()?.ownership === 'external'}
+              fallback={
+                <button
+                  class="text-button"
+                  disabled={a.busy()}
+                  onClick={() => {
+                    const harness = a.state()?.harness;
+                    if (harness) void a.connect(harness);
+                  }}
+                >
+                  Reconnect {a.state()?.harness === 'codex' ? 'Codex' : 'OpenCode'}
+                </button>
+              }
+            >
+              <button class="text-button" onClick={props.onConnect}>
+                Connection details
+              </button>
+            </Show>
+          </div>
+        </Show>
+        <Show when={a.attachments().length || a.selection()}>
+          <div class="agent-draft-attachments" role="group" aria-label="Attachments to send">
+            <For each={a.attachments()}>
+              {(path) => (
+                <AgentAttachmentCard
+                  path={path}
+                  image={!!imageMime(path)}
+                  compact
+                  thumbnail={imageMime(path) ? () => a.projectImageThumbnail(path) : undefined}
+                  revision={
+                    a.projects.project()?.files.find((file) => file.path === path)?.diskRevision
+                  }
+                  onPreview={() => void a.showImage(path)}
+                  disabled={a.busy() || running()}
+                  onRemove={() => {
+                    a.setAttachments((old) => old.filter((p) => p !== path));
+                    input?.focus();
+                  }}
+                />
+              )}
+            </For>
+            <Show when={a.selection()}>
+              {(selected) => (
+                <AgentAttachmentCard
+                  path={selected().path}
+                  compact
+                  detail="Selected passage"
+                  removeLabel={`Remove selected passage ${selected().path}`}
+                  disabled={a.busy() || running()}
+                  onRemove={() => {
+                    a.setSelection(null);
+                    input?.focus();
+                  }}
+                />
+              )}
+            </Show>
+          </div>
+        </Show>
         <textarea
           ref={input}
           class="agent-prompt resize-none"
@@ -667,37 +904,6 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             }
           }}
         />
-        <Show when={a.attachments().length || a.selection()}>
-          <div class="agent-attachments">
-            <For each={a.attachments()}>
-              {(path) => (
-                <>
-                  <Show when={imageMime(path)}>
-                    <button
-                      title={`View project image ${path}`}
-                      aria-label={`View image ${path}`}
-                      onClick={() => void a.showImage(path)}
-                    >
-                      View
-                    </button>
-                  </Show>
-                  <button
-                    title={`Remove attached file ${path}`}
-                    aria-label={`Remove attached file ${path}`}
-                    onClick={() => a.setAttachments((old) => old.filter((p) => p !== path))}
-                  >
-                    {path} ×
-                  </button>
-                </>
-              )}
-            </For>
-            <Show when={a.selection()}>
-              <button title={a.selection()?.text} onClick={() => a.setSelection(null)}>
-                Selected passage · {a.selection()?.path} ×
-              </button>
-            </Show>
-          </div>
-        </Show>
         <Show
           when={
             a.projects.file() &&
@@ -724,55 +930,51 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
             onClick={() => void a.attachFiles().finally(() => input?.focus())}
           />
           <AgentChatMenus agent={a} onConnect={props.onConnect} />
-          <IconButton label="Agent connections" icon="settings" onClick={props.onConnect} />
+          <IconButton label="Agent connections" icon="plug" onClick={props.onConnect} />
           <button
             class="send-button"
             disabled={
-              running()
+              a.state()?.connection === 'interrupted' ||
+              (running()
                 ? a.busy() && !a.submitting()
                 : !ready() ||
                   a.state()?.sessionUnavailable ||
                   !a.model() ||
                   (a.attachments().some((path) => imageMime(path)) && !a.model()?.images) ||
                   !a.draft().trim() ||
-                  a.busy()
+                  a.busy())
             }
-            aria-label={running() ? 'Stop agent request' : 'Send to agent'}
-            title={running() ? 'Stop agent request' : 'Send · Ctrl Enter'}
-            onClick={() => (running() ? void a.cancel() : void a.send())}
+            aria-label={
+              a.state()?.connection === 'interrupted'
+                ? 'Agent interrupted'
+                : running()
+                  ? 'Stop agent request'
+                  : 'Send to agent'
+            }
+            title={
+              a.state()?.connection === 'interrupted'
+                ? 'Reconnect the agent before continuing'
+                : running()
+                  ? 'Stop agent request'
+                  : 'Send · Ctrl Enter'
+            }
+            onClick={() => {
+              if (a.state()?.connection === 'interrupted') return;
+              if (running()) void a.cancel();
+              else void a.send();
+            }}
           >
-            <Show when={running()} fallback={<Icon name="arrow" size={22} />}>
+            <Show
+              when={a.state()?.connection !== 'interrupted' && running()}
+              fallback={
+                <Icon name={a.state()?.connection === 'interrupted' ? 'plug' : 'arrow'} size={22} />
+              }
+            >
               <span class="agent-stop-square" />
             </Show>
           </button>
         </div>
       </div>
-      <Show
-        when={a
-          .state()
-          ?.turns.some(
-            (turn) => turn.conversationId === a.state()?.sessionId && turn.images?.length,
-          )}
-      >
-        <div class="agent-attachments" aria-label="Submitted images">
-          <For
-            each={a.state()?.turns.filter((turn) => turn.conversationId === a.state()?.sessionId)}
-          >
-            {(turn) => (
-              <For each={turn.images}>
-                {(image) => (
-                  <button
-                    title={`View image ${image.path} submitted ${turn.startedAt}`}
-                    onClick={() => void a.showSubmittedImage(turn.id, image.path)}
-                  >
-                    Compare {image.path} · {turn.startedAt.replace('T', ' ').slice(0, 19)} UTC
-                  </button>
-                )}
-              </For>
-            )}
-          </For>
-        </div>
-      </Show>
       <Show
         when={a.attachments().some((path) => imageMime(path)) && a.model() && !a.model()?.images}
       >
@@ -801,22 +1003,30 @@ export function AgentComposer(props: { agent: AgentWorkspace; onConnect: () => v
                 : 'Show conversation'}
         </button>
         <span role="status" aria-live="polite">
-          {a.state()?.permissions.length
-            ? 'Needs your permission'
-            : a.state()?.questions.length
-              ? 'Needs your answer'
-              : running()
-                ? 'Agent working'
-                : ready()
-                  ? 'Agent connected'
-                  : 'Agent disconnected'}
+          {a.initializing()
+            ? 'Checking agent connection…'
+            : a.state()?.connection === 'interrupted'
+              ? 'Agent interrupted'
+              : requestUncertain()
+                ? 'Request status uncertain'
+                : statusUnavailable()
+                  ? 'Agent status unavailable'
+                  : a.state()?.permissions.length
+                    ? 'Needs your permission'
+                    : a.state()?.questions.length
+                      ? 'Needs your answer'
+                      : running()
+                        ? 'Agent working'
+                        : ready()
+                          ? 'Agent connected'
+                          : 'Agent disconnected'}
         </span>
       </div>
-      <Show when={a.error() || a.state()?.error}>
+      <Show when={(a.error() || a.state()?.error) && a.state()?.connection !== 'interrupted'}>
         <div class="agent-inline-error" role="alert">
           <span>{a.error() || a.state()?.error}</span>
           <Show when={a.state()?.sessionUnavailable}>
-            <button class="text-button" disabled={a.busy()} onClick={() => void a.newChat()}>
+            <button class="text-button" disabled={a.busy()} onClick={props.onNewChat}>
               New conversation
             </button>
           </Show>

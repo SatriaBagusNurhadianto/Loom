@@ -34,7 +34,17 @@ it('exposes authenticated bounded project/build MCP tools without a model execut
       (await call('initialize', { protocolVersion: '2024-11-05' })).data.result.capabilities,
     ).toEqual({ tools: {} });
     const names = (await call('tools/list')).data.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(['paper_structure', 'pdf_status', 'build_pdf']);
+    expect(names).toEqual([
+      'paper_structure',
+      'pdf_status',
+      'paper_files',
+      'paper_save',
+      'paper_create_file',
+      'paper_move_file',
+      'paper_delete_file',
+      'paper_set_main',
+      'build_pdf',
+    ]);
     const structure = (await call('tools/call', { name: 'paper_structure', arguments: {} })).data
       .result.content[0].text;
     expect(structure).toContain('Synthetic section');
