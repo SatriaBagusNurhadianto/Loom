@@ -31,3 +31,6 @@ Thumbs.db
 test-results/
 playwright-report/
 artifacts/
+
+# Local design references can contain personal information.
+design/references/prism-*.png
