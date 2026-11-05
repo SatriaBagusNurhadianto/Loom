@@ -13,15 +13,15 @@ Loom brings your manuscript, references, PDF preview, and AI agents into one des
 
 Your paper lives in an ordinary folder of `.tex`, `.bib`, and asset files. Open it in Loom, use it with your existing tools, and collaborate through Git.
 
-## Made for the whole paper
+## What you can do with Loom : 
 
-- **Bring your agents.** Connect OpenCode or Codex and work with the models available through each harness. Agents use their own authentication, permissions, and tooling, so you can keep the workflows you've already set up.
-- **One project, multiple agents.** Connect agents to the same paper and switch between them as you work. Recent conversation context carries across when you switch; Loom runs one agent request at a time per project.
-- **Turn errors into context.** Ask an agent to help fix a build error and Loom can include relevant diagnostics and source context with your request.
-- **Find research and cite it.** Search arXiv, your local bibliography, and an enabled local Zotero library. Insert citations into your paper and work with BibTeX files alongside your source.
-- **Write and see the result.** Edit multi-file projects, build PDFs locally with `latexmk`, and move between your source and the preview using SyncTeX.
-- **Collaborate with Git.** Review changes, stage and commit from Loom, or export your project as a portable source archive.
-- **Make the workspace yours.** Choose themes and customize the editor to suit how you work.
+- **Bring your agents:** Connect OpenCode or Codex (for now) and work with the models available through each harness. Agents use their own authentication, permissions, and tooling, so you can keep the workflows you've already set up.
+- **One project, multiple agents:** Connect agents to the same paper and switch between them as you work. Recent conversation context carries across when you switch; Loom runs one agent request at a time per project.
+- **Turn errors into context:** Ask an agent to help fix a build error and Loom can include relevant diagnostics and source context with your request.
+- **Find research and cite it:** Search arXiv, your local bibliography, and an enabled local Zotero library. Insert citations into your paper and work with BibTeX files alongside your source.
+- **Write and see the result:** Edit multi-file projects, build PDFs locally with `latexmk`, and move between your source and the preview using SyncTeX.
+- **Collaborate with Git:** Review changes, stage and commit from Loom, or export your project as a portable source archive.
+- **Make the workspace yours:** Choose themes and customize the editor to suit how you work.
 
 Agents can write directly to project files according to the permissions selected in their native harness. Review their changes and output. Model availability, authentication, and remote processing depend on the agent and provider you choose.
 
