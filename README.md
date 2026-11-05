@@ -5,33 +5,37 @@
   </picture>
 </p>
 
-<p align="center"><strong>A local workspace for writing scientific papers with LaTeX and AI assistance.</strong></p>
+<p align="center"><strong>Your paper. Your tools. Your agents.</strong><br>An AI-native LaTeX editor for research.</p>
 
 ![Loom workspace showing a LaTeX source file, assistant composer, and compiled PDF preview](docs/assets/workspace.png)
 
-Loom brings your source, PDF preview, references, and an optional coding agent into one desktop workspace. Your paper stays in an ordinary folder of `.tex`, `.bib`, and asset files, so you can use it with other editors and version-control tools.
+Loom brings your manuscript, references, PDF preview, and AI agents into one desktop workspace. Write in LaTeX, find and cite research, and work with agents that understand the project around them.
 
-Loom is in early development. The current desktop build and packaging have been exercised on Linux x86_64; other platforms have not yet been validated.
+Your paper lives in an ordinary folder of `.tex`, `.bib`, and asset files. Open it in Loom, use it with your existing tools, and collaborate through Git.
 
-## What you can do
+## Made for the whole paper
 
-- Edit a multi-file LaTeX project and build a PDF locally with `latexmk`. Navigate between source and PDF with SyncTeX.
-- Connect an installed OpenCode or Codex agent to ask questions, work on your paper, and inspect changes. Loom can pass relevant build diagnostics and source context when you ask for help with an error.
-- Search your local bibliography, arXiv, and an enabled local Zotero library; insert citations into your paper.
-- Review changes, use native Git for staging and commits, and export a portable source archive.
-- Open an existing folder, create a project, or try the included sample paper.
+- **Bring your agents.** Connect OpenCode or Codex and work with the models available through each harness. Agents use their own authentication, permissions, and tooling, so you can keep the workflows you've already set up.
+- **One project, multiple agents.** Connect agents to the same paper and switch between them as you work. Recent conversation context carries across when you switch; Loom runs one agent request at a time per project.
+- **Turn errors into context.** Ask an agent to help fix a build error and Loom can include relevant diagnostics and source context with your request.
+- **Find research and cite it.** Search arXiv, your local bibliography, and an enabled local Zotero library. Insert citations into your paper and work with BibTeX files alongside your source.
+- **Write and see the result.** Edit multi-file projects, build PDFs locally with `latexmk`, and move between your source and the preview using SyncTeX.
+- **Collaborate with Git.** Review changes, stage and commit from Loom, or export your project as a portable source archive.
+- **Make the workspace yours.** Choose themes and customize the editor to suit how you work.
 
-Agents operate according to the permissions you select in their native harness and can write to project files directly. Review their changes and output. Model availability, authentication, and any remote processing depend on the agent and provider you choose.
+Agents can write directly to project files according to the permissions selected in their native harness. Review their changes and output. Model availability, authentication, and remote processing depend on the agent and provider you choose.
+
+Loom is in early development. Its desktop build and packaging have been exercised on Linux x86_64; other platforms have not yet been validated.
 
 ## Get started
 
 ### Requirements
 
 - Linux x86_64 is the currently exercised target.
-- Node.js `^22.12.0`, `^24.0.0`, or `>=26.0.0`, with npm 11 or newer. This repository pins npm 11.19.0; CI is configured for Node.js 26.7.0 and npm 11.19.0.
-- Git for cloning and for Loom's Git features.
-- A local LaTeX installation with `latexmk` and a supported engine (`pdflatex`, `xelatex`, or `lualatex`) for PDF builds. SyncTeX, BibTeX/Biber, and TexLab enable their respective navigation, bibliography, and language features.
-- OpenCode or Codex is optional. Install and authenticate the harness separately, then connect it through **Agent connections**. The current integrations support OpenCode 1.19.x or 2.2.x from 2.2.1, and Codex 0.159.x.
+- Node.js `^22.12.0`, `^24.0.0`, or `>=26.0.0`, with npm 11 or newer. The repository pins npm 11.19.0; CI uses Node.js 26.7.0 and npm 11.19.0.
+- Git for cloning and Loom's Git features.
+- A local LaTeX installation with `latexmk` and a supported engine (`pdflatex`, `xelatex`, or `lualatex`) to build PDFs. SyncTeX, BibTeX/Biber, and TexLab enable source navigation, bibliography, and language features respectively.
+- An optional OpenCode or Codex installation, authenticated separately and connected through **Agent connections**. Supported versions are OpenCode 1.19.x or 2.2.x from 2.2.1, and Codex 0.159.x.
 
 ### Run from source
 
@@ -42,15 +46,15 @@ npm ci
 npm run dev
 ```
 
-The development server uses `127.0.0.1:5173`. If that port is already in use, free it or change the renderer port in `electron.vite.config.ts`.
+The development server uses `127.0.0.1:5173`. If the port is occupied, free it or change the renderer port in `electron.vite.config.ts`.
 
-Choose **Create project**, **Open folder**, or **Try a sample paper**. To use PDF features, install the LaTeX tools above or, on Linux x86_64, run:
+Choose **Create project**, **Open folder**, or **Try a sample paper** to start writing. For PDF features, install the LaTeX tools above or run the following on Linux x86_64:
 
 ```sh
 npm run setup:latex
 ```
 
-The setup script downloads a user-local TinyTeX distribution and TexLab under your home directory. It preserves existing installations; review [the script](scripts/setup-latex.mjs) before running it if you prefer to manage tools yourself.
+This downloads a user-local TinyTeX distribution and TexLab under your home directory while preserving existing installations. You can review [the setup script](scripts/setup-latex.mjs) before running it.
 
 ## Development
 
@@ -60,7 +64,7 @@ npm run test:e2e    # Electron tests; build first and use a graphical Linux sess
 npm run package     # build an unpacked Linux application in release/linux-unpacked/
 ```
 
-For the desktop tests, run `npm run build` before `npm run test:e2e`. Tests requiring a real TeX installation or authenticated external provider are opt-in and skipped by default. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test options, and pull-request guidance.
+Run `npm run build` before the desktop tests. Tests requiring a real TeX installation or an authenticated external provider are opt-in and skipped by default. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, test options, and pull requests.
 
 | Path                          | What lives there                                                       |
 | ----------------------------- | ---------------------------------------------------------------------- |
@@ -74,7 +78,7 @@ For the desktop tests, run `npm run build` before `npm run test:e2e`. Tests requ
 
 ## Contributing
 
-Issues, documentation improvements, bug fixes, and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and please follow our [Code of Conduct](CODE_OF_CONDUCT.md). For vulnerabilities, use the guidance in [SECURITY.md](SECURITY.md) instead of posting sensitive details publicly.
+Issues, documentation improvements, bug fixes, and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and follow the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
 ## License
 
