@@ -122,10 +122,21 @@ h3 {
   min-height: 0;
   gap: 0;
 }
+.loom-logo {
+  display: block;
+  width: 108px;
+  height: 36px;
+  background: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  forced-color-adjust: none;
+  flex-shrink: 0;
+}
 .wordmark {
-  font-size: 18px;
-  letter-spacing: -0.6px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 .compact-bar {
   display: none;
@@ -177,10 +188,6 @@ h3 {
 }
 .sidebar-brand > .icon-button {
   margin-left: auto;
-}
-.brand-mark {
-  font-size: 27px;
-  line-height: 1;
 }
 .icon-button {
   width: 32px;

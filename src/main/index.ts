@@ -1,3 +1,4 @@
+import loomIcon from '../../design/brand/loom-app-icon.png?asset';
 import { researchCommandSchema } from '../contracts/research';
 import { agentCommandSchema } from '../contracts/agent';
 import { latexCommandSchema, exportPdfSchema } from '../contracts/latex';
@@ -99,6 +100,7 @@ function handle(channel: string, action: () => Promise<Result<ServiceStatus>>): 
 function createWindow(bounds?: { width: number; height: number }): void {
   window = new BrowserWindow({
     title: 'Loom',
+    icon: loomIcon,
     width: bounds?.width ?? 1440,
     height: bounds?.height ?? 960,
     minWidth: 720,

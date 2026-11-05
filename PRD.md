@@ -315,6 +315,8 @@ Requirement IDs are stable identifiers for implementation and release acceptance
 
 The user's [Prism screenshot](design/references/prism-workspace.png) is the primary visual reference. [DESIGN.md](DESIGN.md) records the design intent and observed structure.
 
+The official Loom identity uses the author-selected branching symbol and a Loom wordmark; show it consistently in library/workspace identity headers and application icons. Keep product mentions in explanatory text readable as text. Brand assets and usage are governed by DESIGN.md.
+
 ### 6.1 Default workspace
 
 | Region             | Required structure                                                                                                                        |

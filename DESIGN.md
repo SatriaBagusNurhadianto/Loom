@@ -72,6 +72,14 @@ The reference is OpenAI Prism, not unrelated products also named Prism. The scre
 
 The supplied reference uses a charcoal sidebar and composer, a near-black source area, a white PDF pane and paper, subdued separators, and a blue Tools control. Source highlighting distinguishes commands, braces, options, strings, and comments. Preserve this theme relationship. The frontmatter records the calibrated Phase 1 palette; the runtime owner is `src/renderer/ui/tokens.css`. Distinguish editing, compilation, synchronization, and agent states with text as well as color.
 
+## Brand identity
+
+The author-selected branching mark is Loom's official logo (5 November 2026). The supplied raster is preserved at `design/references/loom-logo-reference.png`. `design/brand/` owns the clean hand-traced SVG symbol, outlined horizontal lockup, black/white variants, and square application icon. Preserve the branching silhouette, rounded internal channels and asymmetric angled terminals; do not add screenshot noise or the cursor artifact.
+
+The wordmark uses Manrope SemiBold (600), converted to paths for stable offline rendering. Its circular forms and restrained geometric strokes complement the symbol's rounded channels. The bundled Google Fonts OFL source and license live in `design/brand/fonts/`; the font is only a regeneration input. Application body, source and manuscript typography retain their established roles. Regeneration instructions and asset usage are in `design/brand/README.md`.
+
+`src/renderer/ui/LoomLogo.tsx` is the shared owner for library and workspace identity. Its SVG mask inherits `currentColor` from the existing text tokens, including light/dark appearance and system forced colors. The workspace logo remains the keyboard-accessible Your projects action. Brand artwork replaces identity headers only; prose, window titles and accessible names continue to say Loom. The 108×36px reserved lockup fits the existing sidebar header. The browser favicon and Linux window/package icon use the square variant with a light field for legibility.
+
 ## Typography
 
 Match the selected reference's application text and source editor typography. The compiled manuscript keeps its document-defined typography. Phase 1 uses locally available UI, source, and paper font stacks from the frontmatter, with no remote font dependency. Application text is 14px (16px above 1700px); source is 13px (17px above 1700px). These are calibrated choices, not measured original Prism fonts.

@@ -75,6 +75,7 @@
       "package.json"
     ],
     "linux": {
+      "icon": "design/brand/loom-app-icon.png",
       "target": [
         "dir"
       ],

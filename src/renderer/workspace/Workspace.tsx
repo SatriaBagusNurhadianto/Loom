@@ -1,3 +1,4 @@
+import { LoomLogo } from '../ui/LoomLogo';
 import { ProjectManager } from '../projects/ProjectManager';
 import '../projects/projects.css';
 import { AppearanceDialog, createAppearance } from '../appearance/Appearance';
@@ -609,11 +610,8 @@ export function Workspace() {
         <Show when={sidebarVisible()}>
           <aside class="sidebar" aria-label="Project sidebar" tabIndex={-1} data-focus-region>
             <div class="sidebar-brand">
-              <span class="brand-mark" aria-hidden="true">
-                ◉
-              </span>
               <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
-                Loom
+                <LoomLogo />
               </button>
               <IconButton
                 label="Collapse sidebar"

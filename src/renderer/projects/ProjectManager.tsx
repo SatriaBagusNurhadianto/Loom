@@ -1,3 +1,4 @@
+import { LoomLogo } from '../ui/LoomLogo';
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import type { ProjectChoice, RecentProject } from '../../contracts/project';
 import { ActionMenu } from '../ui/ActionMenu';
@@ -95,10 +96,7 @@ export function ProjectManager(props: {
     <div class="project-manager">
       <aside class="library-sidebar" aria-label="Project library">
         <div class="library-brand">
-          <span class="brand-mark" aria-hidden="true">
-            ◉
-          </span>
-          <span class="wordmark">Loom</span>
+          <LoomLogo />
         </div>
         <nav aria-label="Projects">
           <p class="muted">On this device</p>
