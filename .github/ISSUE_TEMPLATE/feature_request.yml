@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an improvement to Loom.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to do?
+      description: Describe the task or problem you are trying to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: Share your idea, examples, or alternatives you have considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Please remove private paper content and credentials from screenshots or examples.

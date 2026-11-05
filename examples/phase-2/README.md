@@ -1,6 +1,6 @@
 # Phase 2 example project
 
-This synthetic multi-file project is for exercising Loom's local project workflows. Open this folder with **Open or create project → Open folder**. The root document is `main.tex`; the section path `sections/背景.tex` is intentionally Unicode. `assets/sample.png` is a tiny local image, and `references.bib` is a fictional bibliography entry.
+This synthetic multi-file project is for exercising Loom's local project workflows. In Loom, choose **Open folder** and select this directory. The root document is `main.tex`; the section path `sections/背景.tex` is intentionally Unicode. `assets/sample.png` is a tiny local image, and `references.bib` is a fictional bibliography entry.
 
 ## Try these workflows
 

@@ -1,0 +1,35 @@
+name: Bug report
+description: Report something that is not working as expected.
+body:
+  - type: markdown
+    attributes:
+      value: Please use a synthetic example and remove private paper content, credentials, and sensitive logs.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Choose ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS, Loom version or commit, and relevant TeX or agent version.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional context
+      description: Add redacted logs or screenshots if useful.

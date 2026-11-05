@@ -15,8 +15,8 @@
     "dev": "electron-vite dev",
     "dev:ui": "vite --config vite.renderer.config.mts --host 127.0.0.1",
     "start": "electron-vite preview",
-    "format": "prettier --write src tests scripts examples *.ts *.mts *.json README.md",
-    "format:check": "prettier --check src tests scripts examples *.ts *.mts *.json README.md",
+    "format": "prettier --write src tests scripts examples *.ts *.mts *.json README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md .github",
+    "format:check": "prettier --check src tests scripts examples *.ts *.mts *.json README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md .github",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -109,5 +109,6 @@
         "to": "examples/phase-3/missing-package"
       }
     ]
-  }
+  },
+  "license": "MIT"
 }
