@@ -37,7 +37,7 @@ export function compilerDiagnostics(log: string, root: string, paths: string[]):
         path: null,
         line: 1,
         column: 0,
-        severity: /warning|WARN/.test(line) ? 'warning' : 'error',
+        severity: /warning|WARN/i.test(line) ? 'warning' : 'error',
         message: line.slice(0, 3000),
       });
     if (result.length === 500) break;

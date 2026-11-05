@@ -1,3 +1,4 @@
+import { defaultBuildSettings, type BuildState } from '../../src/contracts/latex';
 import { resumeFromLibrary } from './helpers/project-library';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -91,6 +92,104 @@ test.afterEach(async () => {
     await app.close();
   }
   await rm(directory, { recursive: true, force: true });
+});
+
+test('static branding and dismissible PDF guidance survive polling and show new failures', async () => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await dimensions(1440, 960);
+  // Install the replay before opening: no real initial status response may race it.
+  await app.evaluate(({ ipcMain }, settings) => {
+    let state: BuildState | null = null;
+    ipcMain.removeHandler('loom:latex:command');
+    ipcMain.handle('loom:latex:command', (_event, command) => ({
+      ok: true,
+      value: {
+        kind: 'state',
+        state: state ?? {
+          projectId: command.projectId,
+          settings,
+          tools: [],
+          current: null,
+          successful: null,
+          queued: false,
+        },
+      },
+    }));
+    ipcMain.on('test:build-state', (_event, next: BuildState) => {
+      state = next;
+    });
+    ipcMain.on('test:next-build', () => {
+      state!.current!.id = 'synthetic-failure-2';
+    });
+  }, defaultBuildSettings);
+  await openExample();
+  await expect(page.locator('.sidebar-brand .loom-logo')).toBeVisible();
+  await expect(page.locator('.sidebar-brand button.wordmark')).toHaveCount(0);
+  const project = await page.evaluate(async () => {
+    const result = await window.loom!.project({ type: 'current' });
+    if (!result.ok || !result.value) throw new Error('Missing project');
+    return result.value;
+  });
+  const state: BuildState = {
+    projectId: project.id,
+    settings: defaultBuildSettings,
+    tools: [],
+    // Keep the real status polling path active while replaying failure snapshots.
+    queued: true,
+    successful: null,
+    current: {
+      id: 'synthetic-failure-1',
+      projectId: project.id,
+      revision: project.sourceRevision!,
+      root: project.files.find((file) => file.id === project.rootId)!.path,
+      settings: defaultBuildSettings,
+      status: 'failed',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      log: './main.tex:7: Undefined control sequence.',
+      diagnostics: [
+        {
+          path: 'main.tex',
+          line: 7,
+          column: 0,
+          severity: 'error',
+          message: 'Undefined control sequence.',
+        },
+      ],
+      tools: [],
+      hasPdf: false,
+      hasSynctex: false,
+    },
+  };
+  await app.evaluate(({ ipcMain }, state) => {
+    ipcMain.emit('test:build-state', null, state);
+  }, state);
+  await page.locator('.compile-source').click();
+  const guidance = page.getByRole('status', { name: 'PDF guidance' });
+  await expect(guidance).toContainText('LaTeX did not recognise a command');
+  const dismiss = guidance.getByRole('button', { name: 'Dismiss PDF guidance' });
+  await dismiss.focus();
+  await page.keyboard.press('Enter');
+  await expect(guidance).toBeHidden();
+  await expect(page.locator('.build-status')).toBeFocused();
+  // A fresh status response must not resurrect the dismissed build's message.
+  await page.waitForTimeout(1500);
+  await expect(guidance).toBeHidden();
+  await expect(page.locator('.build-status')).toHaveText('PDF needs attention');
+  await page.locator('.build-status').click();
+  await expect(page.getByRole('dialog', { name: 'PDF settings' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.emit('test:next-build');
+  });
+  await expect(guidance).toBeVisible();
+  await page.screenshot({ path: 'artifacts/pdf-guidance-dismissible-wide.png' });
+  await dimensions(720, 540);
+  await page.getByRole('button', { name: 'Show PDF preview', exact: true }).click();
+  await expect(dismiss).toBeVisible();
+  await page.screenshot({ path: 'artifacts/pdf-guidance-dismissible-small.png' });
+  await dismiss.click();
+  await expect(guidance).toBeHidden();
 });
 
 test('missing-tool build setup remains honest and source stays editable', async () => {

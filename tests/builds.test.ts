@@ -333,3 +333,16 @@ it('terminates an actual native process group on cancellation', async () => {
   setTimeout(() => abort.abort(), 100);
   expect((await result).code).not.toBe(0);
 });
+
+it('keeps package and LaTeX warnings separate from actual compiler errors', () => {
+  const diagnostics = compilerDiagnostics(
+    [
+      'Package epstopdf Warning: Shell escape feature is not enabled.',
+      'LaTeX Warning: Reference `missing` undefined.',
+      './main.tex:7: Undefined control sequence.',
+    ].join('\n'),
+    '/paper',
+    ['main.tex'],
+  );
+  expect(diagnostics.map((item) => item.severity)).toEqual(['warning', 'warning', 'error']);
+});

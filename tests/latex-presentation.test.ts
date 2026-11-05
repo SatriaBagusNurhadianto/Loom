@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { compilerDiagnostics } from '../src/services/latex/diagnostics';
 import { pdfIssue } from '../src/renderer/latex/presentation';
 import { defaultBuildSettings, type BuildState } from '../src/contracts/latex';
 import type { ProjectSnapshot } from '../src/contracts/project';
@@ -45,4 +46,21 @@ it('never uses an earlier failure to offer a folder or source action for a chang
     pdfIssue(project, { ...failed, settings: { ...defaultBuildSettings, engine: 'xelatex' } })
       ?.action,
   ).toBe('retry');
+});
+
+it('shows the real build error after package warnings and keeps successful-build warnings in details', () => {
+  const log = [
+    'Package epstopdf Warning: Shell escape feature is not enabled.',
+    './multi-file/main.tex:7: Undefined control sequence.',
+  ].join('\n');
+  const current = {
+    ...failed.current!,
+    log,
+    diagnostics: compilerDiagnostics(log, '/paper', ['multi-file/main.tex']),
+  };
+  const issue = pdfIssue(project, { ...failed, current });
+  expect(issue?.detail).toContain('did not recognise a command');
+  expect(issue?.detail).not.toContain('Shell escape');
+  expect(issue?.location).toMatchObject({ path: 'multi-file/main.tex', line: 7 });
+  expect(pdfIssue(project, { ...failed, current: { ...current, status: 'succeeded' } })).toBeNull();
 });

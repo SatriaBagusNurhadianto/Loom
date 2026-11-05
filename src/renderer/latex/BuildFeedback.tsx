@@ -6,6 +6,7 @@ export function BuildFeedback(props: {
   retained: boolean;
   onAction: () => void;
   onDetails?: () => void;
+  onDismiss?: () => void;
 }) {
   return (
     <section class="pdf-feedback" aria-label="PDF guidance" role="status">
@@ -29,6 +30,11 @@ export function BuildFeedback(props: {
         <Show when={props.onDetails}>
           <button class="text-button" onClick={props.onDetails}>
             View details
+          </button>
+        </Show>
+        <Show when={props.onDismiss}>
+          <button class="text-button" onClick={props.onDismiss} aria-label="Dismiss PDF guidance">
+            Dismiss
           </button>
         </Show>
       </div>

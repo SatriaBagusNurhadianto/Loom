@@ -347,6 +347,12 @@ export function Workspace() {
     });
   };
   const issue = () => pdfIssue(projects.project(), latex.state());
+  const [dismissedPdfIssue, setDismissedPdfIssue] = createSignal('');
+  // Polling replaces state objects. Identify the message by its build and content,
+  // so dismissal survives refreshes but never hides a new attempt or problem.
+  const pdfIssueKey = () =>
+    JSON.stringify([projects.project()?.id, latex.state()?.current?.id, issue()]);
+  const visiblePdfIssue = () => (dismissedPdfIssue() === pdfIssueKey() ? null : issue());
   const showPdf = () => update({ pdfOpen: true, mode: narrow() ? 'pdf' : 'split' });
   createAgentChangePreview({
     agent: agent.state,
@@ -610,9 +616,9 @@ export function Workspace() {
         <Show when={sidebarVisible()}>
           <aside class="sidebar" aria-label="Project sidebar" tabIndex={-1} data-focus-region>
             <div class="sidebar-brand">
-              <button class="wordmark" title="Your projects" onClick={() => void showLibrary()}>
+              <div class="wordmark">
                 <LoomLogo />
-              </button>
+              </div>
               <IconButton
                 label="Collapse sidebar"
                 icon="panel"
@@ -1204,7 +1210,7 @@ export function Workspace() {
                 <IconButton label="Hide PDF panel" icon="close" onClick={togglePreview} />
               </div>
             </div>
-            <Show when={issue()}>
+            <Show when={visiblePdfIssue()}>
               {(problem) => (
                 <BuildFeedback
                   issue={problem()}
@@ -1212,6 +1218,10 @@ export function Workspace() {
                   retained={!!latex.state()?.successful}
                   onAction={recoverPdf}
                   onDetails={() => setDialog('build')}
+                  onDismiss={() => {
+                    setDismissedPdfIssue(pdfIssueKey());
+                    pdf?.querySelector<HTMLButtonElement>('.build-status')?.focus();
+                  }}
                 />
               )}
             </Show>
@@ -1223,7 +1233,7 @@ export function Workspace() {
                     <Show
                       when={example()}
                       fallback={
-                        <Show when={!issue()}>
+                        <Show when={!visiblePdfIssue()}>
                           <EmptyState
                             icon="file"
                             title={
