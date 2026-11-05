@@ -36,6 +36,7 @@ it('exposes authenticated bounded project/build MCP tools without a model execut
     const names = (await call('tools/list')).data.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual([
       'paper_structure',
+      'paper_diagnostics',
       'pdf_status',
       'paper_files',
       'paper_save',
@@ -49,6 +50,12 @@ it('exposes authenticated bounded project/build MCP tools without a model execut
       .result.content[0].text;
     expect(structure).toContain('Synthetic section');
     expect((await call('tools/call', { name: 'pdf_status', arguments: {} })).status).toBe(200);
+    const errors = await call('tools/call', { name: 'paper_diagnostics', arguments: {} });
+    expect(errors.data.result.isError).not.toBe(true);
+    expect(JSON.parse(errors.data.result.content[0].text)).toMatchObject({
+      build: null,
+      buildStatusAvailable: true,
+    });
     const bad = await call('tools/call', { name: 'build_pdf', arguments: { path: '../secret' } });
     expect(bad.status).toBe(200);
     expect(bad.data.result.isError).toBe(true);

@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, onCleanup, onMount, untrack } f
 import {
   defaultAgentSettings,
   type AgentSettings,
+  type AgentWorkspaceContext,
   type AgentCommand,
   type AgentModel,
   type AgentState,
@@ -22,7 +23,11 @@ async function createImageThumbnail(mime: string, data: string) {
   context.drawImage(source, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL('image/webp', 0.82);
 }
-export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: string) => void) {
+export function createAgentWorkspace(
+  projects: ProjectWorkspace,
+  report: (text: string) => void,
+  workspaceContext: () => AgentWorkspaceContext = () => ({}),
+) {
   const [state, setState] = createSignal<AgentState | null>(null),
     [error, setError] = createSignal(''),
     [busy, setBusy] = createSignal(false),
@@ -305,6 +310,14 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
     if (attachments().some((path) => imageMime(path)) && !chosen.images) {
       return;
     }
+    // Capture visible errors before saving/refreshing can clear their notices.
+    const observedContext = workspaceContext();
+    const agentError = error() || state()?.error;
+    if (agentError)
+      observedContext.errors = [
+        ...(observedContext.errors ?? []),
+        { source: 'agent' as const, message: agentError.slice(0, 2000) },
+      ].slice(0, 8);
     const current = generation;
     setBusy(true);
     setSubmitting(true);
@@ -342,6 +355,7 @@ export function createAgentWorkspace(projects: ProjectWorkspace, report: (text: 
         attachments: attachments(),
         selection: selection(),
         revision: projects.project()!.sourceRevision!,
+        workspaceContext: observedContext,
       });
       if (sent) {
         if (draft().trim() === prompt) setDraft('');

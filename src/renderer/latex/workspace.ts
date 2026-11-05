@@ -4,6 +4,7 @@ import type {
   BuildState,
   LatexCommand,
   LatexValue,
+  LatexDiagnostic,
   SourceLocation,
   StructureItem,
 } from '../../contracts/latex';
@@ -14,6 +15,10 @@ export function createLatexWorkspace(
 ) {
   const [state, setState] = createSignal<BuildState | null>(null);
   const [error, setError] = createSignal('');
+  const [editorDiagnostics, setEditorDiagnostics] = createSignal<{
+    revision: string;
+    items: LatexDiagnostic[];
+  }>();
   const [busy, setBusy] = createSignal(false);
   const [mainChoiceRequired, setMainChoiceRequired] = createSignal(false);
   const [items, setItems] = createSignal<StructureItem[]>([]);
@@ -109,6 +114,7 @@ export function createLatexWorkspace(
     untrack(() => {
       ++generation;
       setState(null);
+      setEditorDiagnostics(undefined);
       setError('');
       setItems([]);
       setTarget(null);
@@ -378,6 +384,8 @@ export function createLatexWorkspace(
     busy,
     items,
     target,
+    editorDiagnostics,
+    setEditorDiagnostics,
     languageStatus,
     setLanguageStatus,
     stale,

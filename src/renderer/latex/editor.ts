@@ -51,6 +51,10 @@ export function languageExtensions(
     )
       return;
     latex.setLanguageStatus(result.message);
+    latex.setEditorDiagnostics({
+      revision: workspace.project()?.sourceRevision ?? '',
+      items: result.diagnostics.slice(0, 20),
+    });
     return result;
   }
   async function complete(context: CompletionContext) {

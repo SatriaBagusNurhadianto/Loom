@@ -5,6 +5,7 @@ import { relativePath } from '../../contracts/project';
 import { ProjectService } from '../project/projects';
 import { BuildService } from '../latex/builds';
 import { projectStructure } from '../latex/language';
+import { diagnosticContext } from './diagnostic-context';
 const rpc = z.object({
   jsonrpc: z.literal('2.0'),
   id: z.union([z.string(), z.number()]).optional(),
@@ -18,7 +19,14 @@ const paperPath = relativePath.refine(
 const toolInput = z.discriminatedUnion('name', [
   z
     .object({
-      name: z.enum(['paper_structure', 'pdf_status', 'build_pdf', 'paper_files', 'paper_save']),
+      name: z.enum([
+        'paper_structure',
+        'pdf_status',
+        'paper_diagnostics',
+        'build_pdf',
+        'paper_files',
+        'paper_save',
+      ]),
       arguments: z.object({}).strict().optional(),
     })
     .strict(),
@@ -83,6 +91,13 @@ export class AgentTools {
         await this.workspace.save();
         if (!this.workspace.canMutate())
           throw new Error('The agent request stopped before the paper operation.');
+      }
+      if (input.name === 'paper_diagnostics') {
+        const state = await this.builds.status(this.projectId);
+        return this.projects.run(async () => {
+          await this.projects.refresh();
+          return diagnosticContext(this.projects.buildContext(this.projectId), state);
+        });
       }
       if (input.name === 'pdf_status') {
         await this.projects.run(async () => {
@@ -203,6 +218,13 @@ export class AgentTools {
               {
                 name: 'paper_structure',
                 description: 'Inspect sections and source locations in the open paper.',
+                inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+              },
+              {
+                name: 'paper_diagnostics',
+                description:
+                  'Read current PDF errors, warnings, build log excerpts, source locations and current saved-source excerpts. Labels stale builds; does not start a build or modify files.',
+                annotations: { readOnlyHint: true },
                 inputSchema: { type: 'object', properties: {}, additionalProperties: false },
               },
               {

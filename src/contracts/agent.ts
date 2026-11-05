@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { relativePath } from './project';
+import { diagnosticSchema } from './latex';
 export const harnessSchema = z.enum(['opencode', 'codex']);
 export type HarnessKind = z.infer<typeof harnessSchema>;
 const id = z.string().min(1).max(160);
@@ -165,6 +166,27 @@ export const agentStateSchema = z
   })
   .strict();
 export type AgentState = z.infer<typeof agentStateSchema>;
+export const agentWorkspaceContextSchema = z
+  .object({
+    activeFile: relativePath.optional(),
+    errors: z
+      .array(
+        z
+          .object({
+            source: z.enum(['editor', 'pdf', 'agent', 'service']),
+            message: z.string().max(2000),
+          })
+          .strict(),
+      )
+      .max(8)
+      .optional(),
+    editorDiagnostics: z
+      .object({ revision: z.string().max(100), items: z.array(diagnosticSchema).max(20) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type AgentWorkspaceContext = z.infer<typeof agentWorkspaceContextSchema>;
 export const agentCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('status'), projectId: id, detect: z.boolean().optional() }).strict(),
   z
@@ -202,6 +224,7 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
         .strict()
         .nullable(),
       revision: z.string().min(1).max(100),
+      workspaceContext: agentWorkspaceContextSchema.optional(),
     })
     .strict(),
   z.object({ type: z.literal('settings'), projectId: id, settings: agentSettingsSchema }).strict(),

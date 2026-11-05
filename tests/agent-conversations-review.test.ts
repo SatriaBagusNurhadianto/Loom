@@ -276,6 +276,7 @@ it('passes earlier public conversation context to the newly selected harness wit
   };
   Object.assign(service, {
     adapter: { submit, ownership: 'loom' },
+    builds: { status: vi.fn(async () => null) },
     state,
     sessions: [ref],
     queue: Promise.resolve(),
@@ -311,4 +312,6 @@ it('passes earlier public conversation context to the newly selected harness wit
   expect(prompt).toContain('Earlier public answer');
   expect(prompt).not.toContain('Private tool detail');
   expect(prompt).toContain('New question');
+  expect(prompt).toContain('Loom diagnostic context');
+  expect(prompt).toContain('buildStatusAvailable');
 });

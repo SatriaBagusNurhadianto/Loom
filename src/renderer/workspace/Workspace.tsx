@@ -138,7 +138,17 @@ export function Workspace() {
     </button>
   );
   const latex = createLatexWorkspace(projects, setNotice);
-  const agent = createAgentWorkspace(projects, setNotice);
+  const agent = createAgentWorkspace(projects, setNotice, () => ({
+    activeFile: projects.file()?.path,
+    editorDiagnostics: latex.editorDiagnostics(),
+    errors: [
+      { source: 'editor' as const, message: projects.error() },
+      { source: 'pdf' as const, message: latex.error() },
+      { source: 'service' as const, message: serviceError() },
+    ]
+      .filter((item) => item.message)
+      .map((item) => ({ ...item, message: item.message.slice(0, 2000) })),
+  }));
   const [chatHeight, setChatHeight] = createSignal(68);
   const resizeChat = (height: number) => setChatHeight(Math.max(40, Math.min(82, height)));
   const [referencesOpen, setReferencesOpen] = createSignal(false);
