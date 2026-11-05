@@ -109,7 +109,6 @@ console.log(`Phase 7 demo created at: ${demo}`);
 console.log(`Open this project in Loom: ${authorOne}`);
 console.log(`Second author clone: ${authorTwo}`);
 console.log(`Disposable local remote: ${pathToFileURL(remote).href}`);
-console.log(`Tryout guide: ${join(root, 'docs', 'phase-7-testing.md')}`);
 console.log('The demo uses synthetic source, a local bare remote, and an isolated Loom profile.');
 console.log('No GitHub remote or credentials are used. Stop Loom with Ctrl C.');
 
