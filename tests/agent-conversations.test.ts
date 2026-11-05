@@ -125,3 +125,104 @@ it('deletes the selected conversation persistently while preserving paper and re
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+it('renames local chats durably without changing native sessions, history or the manuscript', async () => {
+  const { mkdtemp, mkdir, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { MetadataStore } = await import('../src/services/project/store');
+  const { ProjectService } = await import('../src/services/project/projects');
+  const { BuildService } = await import('../src/services/latex/builds');
+  const { AgentService } = await import('../src/services/agents/service');
+  const dir = await mkdtemp(join(tmpdir(), 'loom-rename-chat-'));
+  await mkdir(join(dir, 'paper'));
+  const path = join(dir, 'paper', 'main.tex');
+  await writeFile(path, 'Author manuscript');
+  const store = new MetadataStore(join(dir, 'data'));
+  const projects = new ProjectService(store);
+  const project = await projects.open(join(dir, 'paper'));
+  const original = {
+    id: 'one',
+    harness: 'opencode',
+    title: 'First',
+    nativeSessions: { opencode: 'native-one' },
+    history: [message('m1', 'Original exchange')],
+  };
+  const key = `agent-sessions:${project.id}`;
+  store.set(key, JSON.stringify({ version: 2, sessionId: 'one', sessions: [original] }));
+  const builds = new BuildService(projects, join(dir, 'builds'));
+  let agents = new AgentService(projects, builds, join(dir, 'data'));
+  try {
+    await agents.initialize();
+    const internal = agents as unknown as { state: { running: boolean } };
+    internal.state.running = true;
+    await expect(
+      agents.command({
+        type: 'rename-session',
+        projectId: project.id,
+        sessionId: 'one',
+        title: 'Changed',
+      }),
+    ).rejects.toThrow('Stop or recover');
+    internal.state.running = false;
+    for (const title of ['', '   ', 'x'.repeat(301)]) {
+      await expect(
+        agents.command({ type: 'rename-session', projectId: project.id, sessionId: 'one', title }),
+      ).rejects.toThrow('1 and 300');
+    }
+    await expect(
+      agents.command({
+        type: 'rename-session',
+        projectId: project.id,
+        sessionId: 'gone',
+        title: 'Changed',
+      }),
+    ).rejects.toThrow('no longer available');
+    const renamed = await agents.command({
+      type: 'rename-session',
+      projectId: project.id,
+      sessionId: 'one',
+      title: '  Literature review  ',
+    });
+    expect(renamed.sessions[0].title).toBe('Literature review');
+    expect(renamed.sessionId).toBe('one');
+    expect(JSON.parse(store.get(key)!).sessions[0]).toMatchObject({
+      ...original,
+      title: 'Literature review',
+      titleEdited: true,
+    });
+    expect(await readFile(path, 'utf8')).toBe('Author manuscript');
+    await agents.close();
+    agents = new AgentService(projects, builds, join(dir, 'data'));
+    await agents.initialize();
+    expect(
+      (await agents.command({ type: 'status', projectId: project.id })).sessions[0].title,
+    ).toBe('Literature review');
+    // A failed metadata write must leave the saved and published name intact.
+    const set = store.set;
+    store.set = () => {
+      throw new Error('Synthetic storage failure');
+    };
+    try {
+      await expect(
+        agents.command({
+          type: 'rename-session',
+          projectId: project.id,
+          sessionId: 'one',
+          title: 'Unsaved',
+        }),
+      ).rejects.toThrow('Synthetic storage failure');
+    } finally {
+      store.set = set;
+    }
+    expect(
+      (await agents.command({ type: 'status', projectId: project.id })).sessions[0].title,
+    ).toBe('Literature review');
+    expect(JSON.parse(store.get(key)!).sessions[0].title).toBe('Literature review');
+  } finally {
+    await agents.close();
+    builds.dispose();
+    store.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

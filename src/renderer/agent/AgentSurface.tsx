@@ -1,4 +1,12 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  onCleanup,
+  Show,
+} from 'solid-js';
 import { IconButton, Modal } from '../ui/primitives';
 import { Icon } from '../ui/Icon';
 import { MessageBody } from './MessageBody';
@@ -23,7 +31,24 @@ export function AgentChats(props: {
 }) {
   const a = props.agent;
   const [deleting, setDeleting] = createSignal<{ id: string; title: string } | null>(null);
+  const [renaming, setRenaming] = createSignal<{ id: string } | null>(null);
+  const [chatName, setChatName] = createSignal('');
+  const [renameError, setRenameError] = createSignal('');
+  const renameErrorId = createUniqueId();
   let chats!: HTMLDivElement;
+  const closeRename = () => {
+    if (a.busy()) return;
+    const id = renaming()?.id;
+    setRenaming(null);
+    if (id)
+      requestAnimationFrame(() =>
+        chats
+          .querySelector<HTMLButtonElement>(
+            `[data-chat-id="${CSS.escape(id)}"] .agent-chat-actions button`,
+          )
+          ?.focus(),
+      );
+  };
   return (
     <div class="agent-chats" ref={chats}>
       <Show
@@ -46,7 +71,7 @@ export function AgentChats(props: {
         <ul class="agent-chat-list">
           <For each={a.state()?.sessions}>
             {(ref) => (
-              <li>
+              <li data-chat-id={ref.id}>
                 <button
                   class="agent-chat-row"
                   classList={{ selected: a.state()?.sessionId === ref.id }}
@@ -61,8 +86,10 @@ export function AgentChats(props: {
                   }}
                 >
                   <ProviderLogo provider={ref.harness} size={20} />
-                  <span>
-                    {ref.title}
+                  <span class="agent-chat-label">
+                    <span class="agent-chat-title" title={ref.title}>
+                      {ref.title}
+                    </span>
                     <small>
                       {(ref.harnesses ?? [ref.harness])
                         .map((kind) => (kind === 'codex' ? 'Codex' : 'OpenCode'))
@@ -70,12 +97,24 @@ export function AgentChats(props: {
                     </small>
                   </span>
                 </button>
-                <IconButton
-                  icon="trash"
-                  label={`Delete conversation ${ref.title}`}
-                  disabled={a.busy() || !!a.state()?.running}
-                  onClick={() => setDeleting({ id: ref.id, title: ref.title })}
-                />
+                <div class="agent-chat-actions">
+                  <IconButton
+                    icon="edit"
+                    label={`Rename conversation ${ref.title}`}
+                    disabled={a.busy() || !!a.state()?.running}
+                    onClick={() => {
+                      setChatName(ref.title);
+                      setRenameError('');
+                      setRenaming({ id: ref.id });
+                    }}
+                  />
+                  <IconButton
+                    icon="trash"
+                    label={`Delete conversation ${ref.title}`}
+                    disabled={a.busy() || !!a.state()?.running}
+                    onClick={() => setDeleting({ id: ref.id, title: ref.title })}
+                  />
+                </div>
               </li>
             )}
           </For>
@@ -84,6 +123,73 @@ export function AgentChats(props: {
           Agent connections
         </button>
       </Show>
+      <Modal
+        open={!!renaming()}
+        title="Rename conversation"
+        icon="edit"
+        initialFocus="input"
+        onClose={closeRename}
+      >
+        <form
+          noValidate
+          aria-busy={a.busy()}
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (a.busy()) return;
+            const title = chatName().trim();
+            if (!title || title.length > 300) {
+              setRenameError('Use a chat name between 1 and 300 characters.');
+              event.currentTarget.querySelector('input')?.focus();
+              return;
+            }
+            const projectId = a.projects.project()?.id;
+            const target = renaming();
+            if (!projectId || !target) return;
+            const result = await a.act({
+              type: 'rename-session',
+              projectId,
+              sessionId: target.id,
+              title,
+            });
+            if (result) closeRename();
+            else setRenameError(a.error() || 'The chat name could not be saved. Try again.');
+          }}
+        >
+          <label class="form-field">
+            Chat name
+            <input
+              value={chatName()}
+              onFocus={(event) => event.currentTarget.select()}
+              maxLength={300}
+              disabled={a.busy()}
+              aria-invalid={!!renameError()}
+              aria-describedby={renameError() ? renameErrorId : undefined}
+              onInput={(event) => {
+                setChatName(event.currentTarget.value);
+                setRenameError('');
+              }}
+            />
+          </label>
+          <Show when={renameError()}>
+            <p id={renameErrorId} class="inline-error" role="alert">
+              {renameError()}
+            </p>
+          </Show>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="secondary-button"
+              disabled={a.busy()}
+              onClick={closeRename}
+            >
+              Cancel
+            </button>
+            <button type="submit" class="primary-button" disabled={a.busy()}>
+              Save name
+            </button>
+          </div>
+        </form>
+      </Modal>
       <Modal
         open={!!deleting()}
         title="Delete conversation"

@@ -21,6 +21,7 @@ export const conversationSchema = z
     id: z.string().min(1).max(160),
     harness: harnessSchema,
     title: z.string().max(300),
+    titleEdited: z.boolean().optional(),
     settings: agentSettingsSchema.optional(),
     nativeSessions: nativeIds.optional(),
     nativeSettings: settings.optional(),

@@ -2613,11 +2613,18 @@ dialog:has(.agent-image-expanded-canvas) {
   border-radius: var(--radius-control);
   text-align: left;
 }
-.agent-chat-row > span {
+.agent-chat-row > .agent-chat-label {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.4;
+}
+.agent-chat-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .agent-chat-row small {
   display: block;
@@ -3234,7 +3241,12 @@ dialog:has(.agent-image-expanded-canvas) {
   flex: 1;
   min-width: 0;
 }
-.agent-chat-list > li > .icon-button {
+.agent-chat-actions {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+.agent-chat-actions > .icon-button {
   width: 28px;
   height: 28px;
   flex-shrink: 0;

@@ -180,6 +180,14 @@ export const agentCommandSchema = z.discriminatedUnion('type', [
     .strict(),
   z.object({ type: z.literal('disconnect'), projectId: id }).strict(),
   z.object({ type: z.literal('delete-session'), projectId: id, sessionId: id }).strict(),
+  z
+    .object({
+      type: z.literal('rename-session'),
+      projectId: id,
+      sessionId: id,
+      title: z.string().trim().min(1).max(300),
+    })
+    .strict(),
   z.object({ type: z.literal('session'), projectId: id, sessionId: id.optional() }).strict(),
   z
     .object({

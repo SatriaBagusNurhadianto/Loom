@@ -612,6 +612,26 @@ export class AgentService {
         this.persist();
         return structuredClone(s);
       }
+      if (command.type === 'rename-session') {
+        if (this.active())
+          throw new Error('Stop or recover the current request before renaming a conversation.');
+        const ref = this.sessions.find((ref) => ref.id === command.sessionId);
+        if (!ref) throw new Error('This conversation is no longer available.');
+        const title = command.title.trim();
+        if (!title || title.length > 300)
+          throw new Error('Use a chat name between 1 and 300 characters.');
+        const previous = { title: ref.title, titleEdited: ref.titleEdited };
+        ref.title = title;
+        ref.titleEdited = true;
+        try {
+          this.persist();
+        } catch (error) {
+          Object.assign(ref, previous);
+          this.publishSessions();
+          throw error;
+        }
+        return structuredClone(s);
+      }
       if (command.type === 'delete-session') {
         if (this.active())
           throw new Error('Stop or recover the current request before deleting a conversation.');
@@ -753,7 +773,8 @@ export class AgentService {
             { ...s.settings, reasoning },
           );
           const ref = this.sessions.find((r) => r.id === command.sessionId)!;
-          if (ref.title === 'New conversation') ref.title = command.prompt.slice(0, 80);
+          if (!ref.titleEdited && ref.title === 'New conversation')
+            ref.title = command.prompt.slice(0, 80);
           this.persist();
         } catch (error) {
           if (error instanceof AgentRequestError && error.disposition === 'rejected') {
