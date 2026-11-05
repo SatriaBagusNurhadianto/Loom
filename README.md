@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Your paper. Your tools. Your agents.</strong><br>An AI-native LaTeX editor for research.</p>
+<p align="center"><strong></strong><br>An AI-native LaTeX editor for research.</p>
 
 ![Loom workspace showing a LaTeX source file, assistant composer, and compiled PDF preview](docs/assets/workspace.png)
 
