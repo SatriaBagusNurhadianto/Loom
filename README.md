@@ -9,7 +9,7 @@
 
 ![Loom workspace showing a LaTeX source file, assistant composer, and compiled PDF preview](docs/assets/workspace.png)
 
-Loom brings your manuscript, references, PDF preview, and AI agents into one desktop workspace. Write in LaTeX, find and cite research, and work with agents that understand the project around them.
+Loom brings your manuscript, references, PDF preview, and AI agents into one desktop workspace. Make beautiful documents : Write in LaTeX, find and cite research, and work with agents that understand the project around them.
 
 Your paper lives in an ordinary folder of `.tex`, `.bib`, and asset files. Open it in Loom, use it with your existing tools, and collaborate through Git.
 
