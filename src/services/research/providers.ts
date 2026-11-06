@@ -91,7 +91,10 @@ export function zoteroRecords(input: unknown) {
             .map((c: unknown) => {
               if (!c || typeof c !== 'object') return '';
               const creator = c as Record<string, unknown>;
-              return str(creator.name) || [str(creator.firstName), str(creator.lastName)].filter(Boolean).join(' ');
+              return (
+                str(creator.name) ||
+                [str(creator.firstName), str(creator.lastName)].filter(Boolean).join(' ')
+              );
             })
             .filter(Boolean)
             .join(' and ')
